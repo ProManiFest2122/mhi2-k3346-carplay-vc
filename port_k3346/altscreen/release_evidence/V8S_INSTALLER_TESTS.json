@@ -1,0 +1,12 @@
+{
+  "release": "v8S",
+  "offline_only": true,
+  "results": [
+    "v8N small gauge route safe area, v8R big gauge geometry, completion-gated state machine, unchanged URL/interface: PASS",
+    "shell syntax, versioned package paths, rollback-first dispatch: PASS",
+    "clean stock install + full collection + byte/mode-exact rollback: PASS",
+    "v8R\u2192v8S upgrade and exact v8R rollback: PASS",
+    "injected failure at third payload write: auto rollback to exact v8R state: PASS",
+    "missing logs correctly produces PARTIAL collection: PASS"
+  ]
+}

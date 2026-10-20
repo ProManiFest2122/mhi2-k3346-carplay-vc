@@ -1,0 +1,150 @@
+--- v8m/native/altscreen_session.c
++++ v8n/native/altscreen_session.c
+@@ -16,6 +16,7 @@
+ #include <unistd.h>
+ 
+ #include "altscreen.h"
++#include "gauge_bap54.h"
+ #include "framework/logging.h"
+ 
+ #define ALTSCREEN_SESSION_MODULE "AltScreenSession"
+@@ -167,7 +168,8 @@
+ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+ static int g_view_worker_started; /* 0=no, -1=starting, 1=running */
+ /* K2161: Joey's event IDs over the stock DSI tracer, no HMI/Java replacement. */
+-static int g_layout_slot; /* 0 small, 1 big. The third slot is intentionally unsupported on this Q7. */
++static int g_layout_slot; /* ViewArea slot: 0 small gauges, 1 big gauges. */
++static int g_bap54_layout_known; /* Starts UNKNOWN; no inferred layout from factory defaults. */
+ static int g_pending_zoom; /* positive=in; negative=out; serialized on existing control worker */
+ static int g_trace_threads_started;
+ 
+@@ -1276,13 +1278,48 @@
+                  class_id, buffered ? "buffered" : "live", line);
+ }
+ 
++/* Authoritative K2161 VIEW-result state (not a steering-wheel press counter).
++ * The v8M car trace verifies this indication appears on the LIVE port 1798
++ * as a 2# subscriber record; 3#/4# are duplicate subscriptions.
++ * Preserve the existing layout when the state is not yet known. */
++static void v8n_observe_gauge_bap54(const char *line, int buffered)
++{
++    int slot, previous, first, i, queued = 0;
++    unsigned int raw = 0;
++    if (buffered || !altscreen_bap54_layout_slot(line, &slot, &raw))
++        return; /* Buffered playback must NEVER override current live state. */
++    pthread_mutex_lock(&g_lock);
++    previous = g_layout_slot;
++    first = !g_bap54_layout_known;
++    g_bap54_layout_known = 1;
++    if (slot != previous) {
++        g_layout_slot = slot;
++        for (i = 0; i < ALTSCREEN_MAX_STATES; ++i) {
++            altscreen_state *state = &g_states[i];
++            if (!state->active || !state->screen_started || state->stop_requested)
++                continue;
++            state->pending_view = route_view_for_state(state);
++            state->view_due_ms = now_ms() + ALTSCREEN_VIEW_REACQUIRE_DELAY_MS;
++            ++queued;
++        }
++    }
++    pthread_mutex_unlock(&g_lock);
++    LOG_INFO(ALTSCREEN_SESSION_MODULE,
++             "V8N_GAUGE_BAP54 value=%u gauge=%s slot=%d previous_slot=%d "
++             "first_state=%d queued=%d source=DSIBAP_live_1798",
++             raw, slot == 1 ? "BIG" : "SMALL", slot, previous, first, queued);
++}
++
+ static void v8h_trace_line(const char *line, int buffered)
+ {
+     const char *p;
+     int x, y, w, h, slot, step, i;
++    /* BAP indications are 2#, not 1# on this car. Must process before
++     * the original Joey 1# filter for zoom and viewport telemetry. */
++    v8n_observe_gauge_bap54(line, buffered);
+     v8g2_diag_trace_sample(line, buffered);
+     if (line[0] != '1' || line[1] != '#')
+-        return; /* Joey 1# and 5# are duplicates; 1# only */
++        return; /* Joey 1# and 5# are duplicates; 1# only for original signals */
+     /* On K2161, the old A4 setZoomArea signal was absent in v8g2 car
+      * traces. Capture alternative exact K2161 viewer-viewport attributes
+      * passively; a viewport event is NOT yet a validated gauge-size change. */
+@@ -1303,6 +1340,12 @@
+         if (slot < 0)
+             return;
+         pthread_mutex_lock(&g_lock);
++        /* Once FctID 54 is observed, unverified ZoomArea size heuristics
++         * must not reverse its confirmed absolute gauge state. */
++        if (g_bap54_layout_known) {
++            pthread_mutex_unlock(&g_lock);
++            return;
++        }
+         if (slot != g_layout_slot) {
+             g_layout_slot = slot;
+             for (i = 0; i < ALTSCREEN_MAX_STATES; ++i) {
+
+--- v8m/config/mib2high-lvds-viewareas.conf
++++ v8n/config/mib2high-lvds-viewareas.conf
+@@ -1,8 +1,9 @@
+ # K2161 v8h. Joey final exact measured values, x y width height.
+-# index 0/1 = small dials idle/route; 2/3 = big dials idle/route.
++# index 0/1 = small gauges idle/route; 2/3 = big gauges idle/route.
++# v8N: mirror ONLY small-gauge route safe area across 1440px canvas (468 -> 132).
+ # v8j advertised and rendered video canvas: 1440x542.
+ physical 200 75
+ view 0 360 65 720 367
+-view 1 468 85 840 332
++view 1 132 85 840 332
+ view 2 550 87 340 330
+ view 3 550 87 340 330
+
+--- v8m/deployment/custom.sh
++++ v8n/deployment/custom.sh
+@@ -4,11 +4,11 @@
+ SD="${MIB_SD:-/net/mmx/fs/sda0}"
+ APP="${MIB_APP:-/mnt/app}"
+ SYSTEM="${MIB_SYSTEM:-/mnt/system}"
+-PKGNAME=mib2high-carplay-rgi-v8m-simple
+-MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8m"
++PKGNAME=mib2high-carplay-rgi-v8n-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8n"
+ INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
+ PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
+-say(){ echo "[V8M] $*"; }
++say(){ echo "[V8N] $*"; }
+ fail(){ say "ERROR $*"; exit 1; }
+ # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
+ checkrw() {
+@@ -80,7 +80,7 @@
+ # Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
+ install_file() {
+     SRC="$1"; DST="$2"; MODE="$3"
+-    TMP="$DST.v8m.new.$$"
++    TMP="$DST.v8n.new.$$"
+     rm -f "$TMP" 2>/dev/null || return 1
+     cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
+     chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
+@@ -235,10 +235,10 @@
+     grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSIKombiSync|screenFormat|VC_TRACE|DSITracer|RGI|HUD|19810|gauge|dial' \
+         "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
+     {
+-        echo 'COLLECTION_VERSION=v8m'
++        echo 'COLLECTION_VERSION=v8n'
+         echo "LOG_FILES_COPIED=$COPIED"
+         echo 'DSITRACER_STATUS=ports 1798+20991 recorder requested when AltScreen starts; check status and launch logs for execution'
+-        echo 'Gauge detection is diagnostic-only; no automatic gauge routing enabled'
++        echo 'Gauge layout: LIVE DSIBAP service=50 FctID=54 bit0: 0=BIG, 1=SMALL; check V8N_GAUGE_BAP54 and VIEW_REACQUIRE logs'
+         echo "FACTORY_LOG_FILES_COPIED=$FACTORY_FILES"
+         echo 'DSIBAP=full DSICarKombi=full expected after install'
+     } > "$d/trace/metadata.txt" || RESULT=PARTIAL
+
+--- v8m/build.sh
++++ v8n/build.sh
+@@ -18,7 +18,7 @@
+   qcc "${FLAGS[@]}" -c "$D/native/$src" -o "$obj"
+   OBJ+=("$obj")
+ done
+-echo "V8J_SOURCE_ONLY_DIRECT_C_BUILD=1"
++echo "V8N_SOURCE_ONLY_DIRECT_C_BUILD=1"
+ qcc -shared "${FLAGS[@]}" "${OBJ[@]}" -lsocket -lc -Wl,--no-undefined \
+   -o "$D/output/libmib2high-carplay-rgi.so"
+ python3 "$D/tools/verify_v8i.py"

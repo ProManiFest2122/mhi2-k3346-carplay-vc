@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-10",
+  "branch": "v8k",
+  "status": "NOT_FLASHABLE",
+  "java_toolchain": {
+    "library": "/Toolchains/K2161_JAVA8/K2161_JAVA8_COMPLETE_PORTABLE.zip",
+    "javac": "javac 1.8.0_504",
+    "base_jar_sha256": "fb0af31484485610551627e7389fc0dec9e2c5b0c7d810f20f551d57de99c465",
+    "base_jar_bytes": 122548457,
+    "source_only": true
+  },
+  "verification": {
+    "java_logging_helper_compiled_java14": true,
+    "original_v8j_BAPBridge_class_format": "major version: 48",
+    "java_logging_helper_class_major": 48,
+    "source_branch": "edzenis/mib2high-carplay-rgi@a155d4690ce93dc40367a71be1cacd3d0a8d5741",
+    "java_modified_jar_compiled": false,
+    "source_checkout_fully_materialized": false
+  },
+  "untouched_baseline": {
+    "native_so_identical": true,
+    "old_java_jar_identical": true,
+    "vc_render_identical": true,
+    "geometry_identical": true,
+    "navignore_untouched": true
+  },
+  "remaining": "Source file checkout not copied into isolated Linux build container. No Java behavior changes installed or release ZIP built."
+}

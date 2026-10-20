@@ -1,0 +1,388 @@
+--- v8r/native/altscreen_session.c
++++ v8s/native/altscreen_session.c
+@@ -27,6 +27,11 @@
+ #define ALTSCREEN_PRIMARY_SYNC_POLL_US 10000
+ #define ALTSCREEN_VIEW_COUNT 4
+ #define ALTSCREEN_VIEW_REACQUIRE_DELAY_MS 150ULL
++#define ALTSCREEN_CONTROL_ACK_TIMEOUT_MS 2500ULL
++#define ALTSCREEN_CONTROL_IDLE 0
++#define ALTSCREEN_CONTROL_SHOW 1
++#define ALTSCREEN_CONTROL_VIEW 2
++#define ALTSCREEN_CONTROL_KEYFRAME 3
+ #define ALTSCREEN_ACTIVE_MARKER "/tmp/mib2high-lvds-active"
+ #define K_CFSTRING_UTF8 0x08000100U
+ 
+@@ -159,9 +164,18 @@
+     int route_active;
+     int current_view;
+     int pending_view;
+-    int pending_view_from_gauge; /* 1=gauge update; v8R also changes maneuver alignment */
++    int pending_view_from_gauge; /* 1=gauge update; v8S changes alignment only on slot transition */
+     uint64_t view_due_ms;
+-    int control_inflight;
++    int control_inflight; /* Commands currently inside SendCommand, not async callbacks. */
++    uint64_t control_generation; /* Never reuse on reconnection. */
++    int last_ui_slot; /* -1 until showUI succeeds for this CarPlay session. */
++    int control_stage; /* IDLE / SHOW / VIEW / KEYFRAME. */
++    int control_target_view;
++    int control_target_from_gauge;
++    int control_awaiting_ack;
++    int control_startup; /* First-frame activation, even before VC active marker. */
++    uint64_t control_token;
++    uint64_t control_deadline_ms;
+ } altscreen_state;
+ 
+ static altscreen_api g_api;
+@@ -173,6 +187,16 @@
+ static int g_bap54_layout_known; /* Starts UNKNOWN; no inferred layout from factory defaults. */
+ static int g_pending_zoom; /* positive=in; negative=out; serialized on existing control worker */
+ static int g_trace_threads_started;
++static uint64_t g_control_generation_serial;
++static uint64_t g_control_request_serial;
++
++typedef struct {
++    void *receiver;
++    uint64_t generation;
++    uint64_t token;
++    int stage;
++    int view;
++} control_completion_context;
+ 
+ 
+ static const void *local_value_retain(void *allocator, const void *object)
+@@ -987,6 +1011,9 @@
+             g_states[i].accepted_fd = -1;
+             g_states[i].current_view = -1;
+             g_states[i].pending_view = -1;
++            g_states[i].control_target_view = -1;
++            g_states[i].last_ui_slot = -1;
++            g_states[i].control_generation = ++g_control_generation_serial;
+             g_states[i].active = 1;
+             return &g_states[i];
+         }
+@@ -1196,22 +1223,24 @@
+     return rc;
+ }
+ 
++/* First real stream frame starts the UI sequence.  A fresh state/generation
++ * forces showUI once, even if the Audi VC active marker is not yet present. */
+ static void request_cluster(altscreen_state *state)
+ {
+-    os_status rc;
+-    int view;
+-
+-    if (state == NULL)
+-        return;
+-    pthread_mutex_lock(&g_lock);
+-    view = route_view_for_state(state);
+-    pthread_mutex_unlock(&g_lock);
+-
+-    rc = send_event(state->receiver, "showUI", altscreen_gauge_url_for_view(view));
+-    if (rc == 0)
+-        (void)send_view_event(state->receiver, view);
+-    if (rc == 0)
+-        (void)send_event(state->receiver, "forceKeyFrame", NULL);
++    int view = -1;
++    if (state == NULL) return;
++    pthread_mutex_lock(&g_lock);
++    if (state->active && !state->stop_requested) {
++        view = route_view_for_state(state);
++        state->pending_view = view;
++        state->pending_view_from_gauge = 0;
++        state->view_due_ms = now_ms();
++        state->control_startup = 1;
++    }
++    pthread_mutex_unlock(&g_lock);
++    LOG_INFO(ALTSCREEN_SESSION_MODULE,
++             "V8S_CONTROL_STARTUP receiver=%p view=%d queued=%d",
++             state->receiver, view, view >= 0);
+ }
+ 
+ int altscreen_request_fresh_keyframe(void)
+@@ -1468,88 +1497,224 @@
+         pthread_detach(worker);
+ }
+ 
+-static void *view_control_worker(void *arg)
+-{
+-    (void)arg;
+-    for (;;) {
++/* Commands advance ONLY after their actual AirPlay SendCommand completion.
++ * rc==0 from SendCommand means queued, not acknowledged.  A late callback is
++ * generation- and token-checked and cannot touch a reused receiver/state. */
++static void v8s_control_completion(os_status status, cf_ref response, void *opaque)
++{
++    control_completion_context *ctx = (control_completion_context *)opaque;
++    altscreen_state *state;
++    int accepted = 0, next_stage = 0, last_slot = -1;
++    (void)response;
++    if (ctx == NULL) return;
++    pthread_mutex_lock(&g_lock);
++    state = find_state_receiver_locked(ctx->receiver);
++    if (state != NULL && !state->stop_requested &&
++        state->control_generation == ctx->generation &&
++        state->control_awaiting_ack &&
++        state->control_token == ctx->token &&
++        state->control_stage == ctx->stage) {
++        accepted = 1;
++        state->control_awaiting_ack = 0;
++        state->control_deadline_ms = 0;
++        if (status == 0) {
++            if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
++                state->last_ui_slot = ctx->view / 2;
++            if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
++                state->control_stage = ALTSCREEN_CONTROL_VIEW;
++            else if (ctx->stage == ALTSCREEN_CONTROL_VIEW)
++                state->control_stage = ALTSCREEN_CONTROL_KEYFRAME;
++            else {
++                state->current_view = ctx->view;
++                state->control_stage = ALTSCREEN_CONTROL_IDLE;
++                state->control_startup = 0;
++            }
++        } else {
++            /* Fail closed: no dependent ViewArea/IDR on a failed command.
++             * The next genuine state change or session start may reattempt. */
++            if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
++                state->last_ui_slot = -1;
++            state->control_stage = ALTSCREEN_CONTROL_IDLE;
++            state->control_startup = 0;
++        }
++        next_stage = state->control_stage;
++        last_slot = state->last_ui_slot;
++    }
++    pthread_mutex_unlock(&g_lock);
++    LOG_INFO(ALTSCREEN_SESSION_MODULE,
++             "V8S_CONTROL_ACK receiver=%p token=%llu stage=%d view=%d "
++             "status=%d valid=%d next=%d last_slot=%d",
++             ctx->receiver, (unsigned long long)ctx->token, ctx->stage,
++             ctx->view, status, accepted, next_stage, last_slot);
++    free(ctx);
++}
++
++/* Used after synchronous transport refusal (no completion is expected). */
++static void v8s_control_dispatch_failed(void *receiver, uint64_t generation,
++                                        uint64_t token, int stage, int view, os_status rc)
++{
++    altscreen_state *state;
++    int accepted = 0;
++    pthread_mutex_lock(&g_lock);
++    state = find_state_receiver_locked(receiver);
++    if (state != NULL && state->control_generation == generation &&
++        state->control_awaiting_ack && state->control_token == token &&
++        state->control_stage == stage) {
++        state->control_awaiting_ack = 0;
++        state->control_deadline_ms = 0;
++        state->control_stage = ALTSCREEN_CONTROL_IDLE;
++        state->control_startup = 0;
++        if (stage == ALTSCREEN_CONTROL_SHOW) state->last_ui_slot = -1;
++        accepted = 1;
++    }
++    pthread_mutex_unlock(&g_lock);
++    LOG_WARN(ALTSCREEN_SESSION_MODULE,
++             "V8S_CONTROL_DISPATCH_FAIL receiver=%p token=%llu stage=%d "
++             "view=%d rc=%d valid=%d", receiver,
++             (unsigned long long)token, stage, view, rc, accepted);
++}
++
++static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token,
++                             int stage, int view)
++{
++    control_completion_context *ctx;
++    cf_ref request = NULL;
++    os_status rc = -1;
++    const char *url = NULL;
++    if (stage == ALTSCREEN_CONTROL_SHOW) {
++        url = altscreen_gauge_url_for_view(view);
++        request = make_event_request("showUI", url);
++    } else if (stage == ALTSCREEN_CONTROL_VIEW) {
++        request = make_view_request(view);
++    } else if (stage == ALTSCREEN_CONTROL_KEYFRAME) {
++        request = make_event_request("forceKeyFrame", NULL);
++    }
++    ctx = (control_completion_context *)calloc(1, sizeof(*ctx));
++    if (request != NULL && ctx != NULL && g_api.send_command != NULL) {
++        ctx->receiver = receiver;
++        ctx->generation = generation;
++        ctx->token = token;
++        ctx->stage = stage;
++        ctx->view = view;
++        rc = g_api.send_command(receiver, request, v8s_control_completion, ctx);
++        /* On rc==0, the completion owns ctx, even when called synchronously. */
++        if (rc == 0) ctx = NULL;
++    }
++    if (request != NULL) g_api.release(request);
++    if (ctx != NULL) free(ctx);
++    pthread_mutex_lock(&g_lock);
++    {
++        altscreen_state *state = find_state_receiver_locked(receiver);
++        if (state != NULL && state->control_generation == generation &&
++            state->control_inflight > 0) --state->control_inflight;
++    }
++    pthread_mutex_unlock(&g_lock);
++    LOG_INFO(ALTSCREEN_SESSION_MODULE,
++             "V8S_CONTROL_DISPATCH receiver=%p token=%llu stage=%d view=%d "
++             "rc=%d url=%s ack=%s", receiver,
++             (unsigned long long)token, stage, view, rc,
++             url != NULL ? url : "-", rc == 0 ? "PENDING_OR_INLINE" : "NOT_QUEUED");
++    if (rc != 0)
++        v8s_control_dispatch_failed(receiver, generation, token, stage, view, rc);
++}
++
++static void v8s_control_tick(void)
++{
+         void *receiver = NULL;
++        uint64_t generation = 0, token = 0;
+         altscreen_state *picked = NULL;
+-        int view = -1;
+-        int from_gauge = 0;
+-        int i;
++        int view = -1, stage = ALTSCREEN_CONTROL_IDLE;
++        int zoom = 0, i;
+         uint64_t now = now_ms();
++        int active = access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0;
+ 
+         pthread_mutex_lock(&g_lock);
+         for (i = 0; i < ALTSCREEN_MAX_STATES; ++i) {
+             altscreen_state *state = &g_states[i];
+             if (!state->active || !state->screen_started || state->stop_requested ||
+-                state->pending_view < 0 || state->view_due_ms > now)
++                state->receiver == NULL) continue;
++            if (state->control_awaiting_ack && now >= state->control_deadline_ms) {
++                LOG_WARN(ALTSCREEN_SESSION_MODULE,
++                         "V8S_CONTROL_TIMEOUT receiver=%p token=%llu stage=%d "
++                         "view=%d next_state_change_required=1",
++                         state->receiver, (unsigned long long)state->control_token,
++                         state->control_stage, state->control_target_view);
++                state->control_awaiting_ack = 0;
++                state->control_deadline_ms = 0;
++                if (state->control_stage == ALTSCREEN_CONTROL_SHOW)
++                    state->last_ui_slot = -1;
++                state->control_stage = ALTSCREEN_CONTROL_IDLE;
++                state->control_startup = 0;
++            }
++            if (state->control_awaiting_ack) continue;
++
++            /* One latest-value slot per session: VIEW bursts replace stale
++             * pending requests, including ones arriving during an async ack. */
++            if (state->pending_view >= 0 && state->view_due_ms <= now) {
++                int desired = state->pending_view;
++                int old_target = state->control_target_view;
++                state->control_target_view = desired;
++                state->control_target_from_gauge = state->pending_view_from_gauge;
++                state->pending_view = -1;
++                state->pending_view_from_gauge = 0;
++                state->view_due_ms = 0;
++                state->control_stage = state->last_ui_slot != desired / 2
++                    ? ALTSCREEN_CONTROL_SHOW : ALTSCREEN_CONTROL_VIEW;
++                if (old_target != desired)
++                    LOG_INFO(ALTSCREEN_SESSION_MODULE,
++                             "V8S_CONTROL_LATEST receiver=%p old=%d latest=%d "
++                             "origin=%s next=%d", state->receiver,
++                             old_target, desired,
++                             state->control_target_from_gauge ? "gauge" : "route",
++                             state->control_stage);
++            } else if (state->pending_view >= 0) {
++                /* Don't dispatch obsolete steps while another VIEW settles. */
+                 continue;
++            }
++            if (state->control_stage == ALTSCREEN_CONTROL_IDLE ||
++                (!active && !state->control_startup)) continue;
+ 
+             receiver = state->receiver;
+-            view = state->pending_view;
+-            from_gauge = state->pending_view_from_gauge;
+-            state->pending_view = -1;
+-            state->pending_view_from_gauge = 0;
+-            state->view_due_ms = 0;
+-            state->current_view = view;
++            generation = state->control_generation;
++            view = state->control_target_view;
++            stage = state->control_stage;
++            token = ++g_control_request_serial;
++            state->control_token = token;
++            state->control_awaiting_ack = 1;
++            state->control_deadline_ms = now + ALTSCREEN_CONTROL_ACK_TIMEOUT_MS;
+             state->control_inflight++;
+-            picked = state;
+             break;
+         }
+-        /* Consume one wheel notch on the existing serialized control worker. */
+-        if (g_pending_zoom != 0 && receiver == NULL) {
++        /* Existing wheel-zoom path, not rewritten. */
++        if (g_pending_zoom != 0) {
+             for (i = 0; i < ALTSCREEN_MAX_STATES; ++i) {
+                 altscreen_state *state = &g_states[i];
+                 if (state->active && state->screen_started && !state->stop_requested &&
+-                    state->receiver != NULL) {
+-                    receiver = state->receiver;
+-                    picked = state;
+-                    break;
+-                }
++                    state->receiver != NULL) { picked = state; break; }
+             }
+         }
+-        {
+-            int zoom = 0;
+-            if (receiver != NULL && g_pending_zoom != 0 &&
+-                access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0) {
+-                zoom = g_pending_zoom > 0 ? 1 : -1;
+-                g_pending_zoom -= zoom;
+-                if (picked != NULL) picked->control_inflight++;
+-            } else if (access(ALTSCREEN_ACTIVE_MARKER, F_OK) != 0) g_pending_zoom = 0;
++        if (picked != NULL && active && g_pending_zoom != 0) {
++            zoom = g_pending_zoom > 0 ? 1 : -1;
++            g_pending_zoom -= zoom;
++            picked->control_inflight++;
++        } else if (!active) g_pending_zoom = 0;
++        pthread_mutex_unlock(&g_lock);
++
++        if (zoom != 0 && picked != NULL) {
++            (void)send_zoom_event(picked->receiver, zoom > 0 ? 0 : 1);
++            pthread_mutex_lock(&g_lock);
++            if (picked->control_inflight > 0) picked->control_inflight--;
+             pthread_mutex_unlock(&g_lock);
+-            if (zoom != 0 && receiver != NULL) {
+-                (void)send_zoom_event(receiver, zoom > 0 ? 0 : 1);
+-                pthread_mutex_lock(&g_lock);
+-                if (picked != NULL && picked->control_inflight > 0) picked->control_inflight--;
+-                pthread_mutex_unlock(&g_lock);
+-            }
+-        }
+-
+-        if (receiver != NULL && view >= 0) {
+-            os_status show_rc = -1, view_rc = -1, key_rc = -1;
+-            if (access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0) {
+-                /* v8R: an actual FctID 54 gauge transition changes both
+-                 * safeArea preset and the iPhone's maneuverLayout URL.
+-                 * This requires a single showUI per queued gauge transition;
+-                 * route transitions retain their existing showUI behavior. */
+-                show_rc = send_event(receiver, "showUI",
+-                                     altscreen_gauge_url_for_view(view));
+-                view_rc = send_view_event(receiver, view);
+-                key_rc = send_event(receiver, "forceKeyFrame", NULL);
+-            }
+-            LOG_INFO(ALTSCREEN_SESSION_MODULE,
+-                     "VIEW_REACQUIRE receiver=%p view=%d origin=%s show_ui=%s "
+-                     "show_rc=%d view_rc=%d key_rc=%d active_marker=%d",
+-                     receiver, view, from_gauge ? "gauge" : "route",
+-                     "REQUESTED", show_rc, view_rc, key_rc,
+-                     access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0);
+-
+-            pthread_mutex_lock(&g_lock);
+-            if (picked != NULL && picked->control_inflight > 0)
+-                picked->control_inflight--;
+-            pthread_mutex_unlock(&g_lock);
+-        }
++        }
++        if (receiver != NULL && stage != ALTSCREEN_CONTROL_IDLE)
++            v8s_control_send(receiver, generation, token, stage, view);
++}
++
++static void *view_control_worker(void *arg)
++{
++    (void)arg;
++    for (;;) {
++        v8s_control_tick();
+         usleep(50000);
+     }
+     return NULL;

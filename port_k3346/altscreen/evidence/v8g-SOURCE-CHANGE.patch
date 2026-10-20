@@ -1,0 +1,11 @@
+--- v8f/source-audit/altscreen_airplay.c
++++ v8g/source-audit/altscreen_airplay.c
+@@ -733,7 +733,7 @@
+         !set_obj(alt, "altScreenSuggestUIURLs", suggest_urls) ||
+         !set_i64(alt, "type", AIRPLAY_STREAM_TYPE_ALT_SCREEN) ||
+         !set_bool(alt, "showsInstruments", 1) ||
+-        !set_string(alt, "initialURL", ALTSCREEN_INITIAL_URL))
++        !set_string(alt, "initialURL", ALTSCREEN_URL_BASE))
+         goto fail;
+ 
+     LOG_INFO(ALTINFO_MODULE,

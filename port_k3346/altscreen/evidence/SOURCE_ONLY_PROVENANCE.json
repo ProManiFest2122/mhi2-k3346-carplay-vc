@@ -1,0 +1,31 @@
+{
+  "native/altscreen.h": {
+    "previous_sha256": "f74d22a319c3801160fb17d56311d9cf58817161ca314b5ae8a9b91ae9b0bd7a",
+    "v8h_source_sha256": "cfe48f4ec687270b75e62c8ea8f9b85bae5d46790d3d5877ad299c74b12e893b"
+  },
+  "native/altscreen_airplay.c": {
+    "previous_sha256": "33afc02b5c6279f852095497604f16894ea669379aff0c336822d3333b21152d",
+    "v8h_source_sha256": "1a35fc22e72c8a0a3f0ead8b4e28f6d373d310b26422a307b4f9f6b8d4582098"
+  },
+  "native/altscreen_session.c": {
+    "previous_sha256": "0e55e098dcf7dbe14e63ab300041ea9948fc1aeed98b18846e6db69ad815fac8",
+    "v8h_source_sha256": "b2f8c3afb84260f375ecce8c4d60c183ac89d38d140c2907b041ab0ad863272d"
+  },
+  "new_binary": {
+    "sha256": "e6460a4ce942bc5ec342b43ce950cf0d2d1f503d4adc78a3d58ef771379886d4",
+    "bytes": 300935,
+    "method": "compile/link from C source; no patching"
+  },
+  "stable_jar_sha256": "8c752d606d985675d6d49ead0c949c31e240c77bbc6c4f3a69591282992a13bc",
+  "stable_previous_v8g2_so_sha256": "91b47f4521e65fad7c090666968fad85c8fcb948269fbbff6dd15a80e4c4174e",
+  "trace_config": {
+    "source_user_collected_v8h": "e9446a044f1c66c703a23f4a8697916e382ca9526015dbff8672a76110829c6d",
+    "new_enabled": "dca07b44d5f89b0e122031e67cdbec00895182c4985d07994b682412e43d7162",
+    "changed_exactly": [
+      "use.appender verified already enabled",
+      "uncomment DSIKeyPanel=full",
+      "uncomment DSIMapViewerZoomEngine=full",
+      "uncomment DSIKOMOView=full"
+    ]
+  }
+}

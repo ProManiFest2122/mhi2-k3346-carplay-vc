@@ -1,0 +1,11 @@
+--- v8g2/config/traceConfig.v8g2.enabled.properties
++++ v8i/config/traceConfig.v8g2.enabled.properties
+@@ -158,7 +158,7 @@
+ #org.dsi.ifc.komoview.DSIKOMOView=small
+ org.dsi.ifc.komoview.DSIKOMOView=full
+ #org.dsi.ifc.map.DSIMapViewerControl=small
+-#org.dsi.ifc.map.DSIMapViewerControl=full
++org.dsi.ifc.map.DSIMapViewerControl=full
+ #org.dsi.ifc.map.DSIMapViewerGoogleCtrl=small
+ #org.dsi.ifc.map.DSIMapViewerGoogleCtrl=full
+ #org.dsi.ifc.map.DSIMapViewerLandmarkPlayer=small

@@ -1,0 +1,106 @@
+--- a/native/altscreen_session.c
++++ b/native/altscreen_session.c
+@@ -1033,16 +1033,17 @@
+     return g_layout_slot * 2 + route;
+ }
+ 
+-static void queue_view_for_receiver(void *receiver, int view, uint64_t delay_ms)
++/* Route transitions must preserve the current gauge layout (0/1 or 2/3).
++ * Choose the ViewArea from live route + layout state under the same lock used
++ * by the DSITracer layout reader; do not hardcode the small-gauge views. */
++static void queue_route_view_for_receiver(void *receiver, uint64_t delay_ms)
+ {
+     altscreen_state *state;
+ 
+-    if (view < 0 || view >= ALTSCREEN_VIEW_COUNT)
+-        return;
+     pthread_mutex_lock(&g_lock);
+     state = find_state_receiver_locked(receiver);
+     if (state != NULL && state->active && !state->stop_requested) {
+-        state->pending_view = view;
++        state->pending_view = route_view_for_state(state);
+         state->view_due_ms = now_ms() + delay_ms;
+     }
+     pthread_mutex_unlock(&g_lock);
+@@ -1481,8 +1482,8 @@
+ 
+     /* Never send AirPlay commands recursively from the parser callback. */
+     if (changed)
+-        queue_view_for_receiver(receiver, route ? 1 : 0,
+-                                ALTSCREEN_VIEW_REACQUIRE_DELAY_MS);
++        queue_route_view_for_receiver(receiver,
++                                      ALTSCREEN_VIEW_REACQUIRE_DELAY_MS);
+     return rc;
+ }
+ 
+--- a/tests/altscreen_trace_parser_test.c
++++ b/tests/altscreen_trace_parser_test.c
+@@ -28,6 +28,45 @@
+     strcpy(line,"1#org.dsi.ifc.keypanel.DSIKeyPanelListener#updateEncoder2#1|int:4|int:40|int:1");
+     for(int i=0;i<40;i++) v8h_trace_line(line,0);
+     assert(g_pending_zoom==20); /* Bounded event queue */
++    /* Regression: phone route transitions must not select the small-dials
++     * ViewArea while the live cluster layout is big dials. Exercise the real
++     * note_route_state() and queued ViewArea selection from production C. */
++    int changed = -1;
++    g_pending_zoom=0;
++    g_layout_slot=0;
++    g_states[0].route_known=1;
++    g_states[0].route_active=0;
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==0); /* small, idle */
++    note_route_state(g_states[0].receiver,1,&changed);
++    assert(changed==1);
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==1); /* small, route */
++    strcpy(line,"1#org.dsi.ifc.map.DSIMapViewerZoomEngine#setZoomArea#1|Rect:490:49:460:300");
++    v8h_trace_line(line,0);
++    assert(g_layout_slot==1 && g_states[0].pending_view==3); /* big, route */
++    note_route_state(g_states[0].receiver,0,&changed);
++    assert(changed==1);
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==2); /* big, idle - OLD BUG: gave 0 */
++    note_route_state(g_states[0].receiver,1,&changed);
++    assert(changed==1);
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==3); /* big, route - OLD BUG: gave 1 */
++    note_route_state(g_states[0].receiver,1,&changed);
++    assert(changed==0); /* repeated state should not create new event */
++    strcpy(line,"1#org.dsi.ifc.map.DSIMapViewerZoomEngine#setZoomArea#1|Rect:360:87:720:297");
++    v8h_trace_line(line,0);
++    assert(g_layout_slot==0 && g_states[0].pending_view==1); /* small, route */
++    note_route_state(g_states[0].receiver,0,&changed);
++    assert(changed==1);
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==0); /* small, idle */
++    g_states[0].stop_requested=1;
++    g_states[0].pending_view=-1;
++    queue_route_view_for_receiver(g_states[0].receiver,150);
++    assert(g_states[0].pending_view==-1); /* teardown safe */
++    puts("V8G2_ROUTE_LAYOUT_4_VIEW_REGRESSION_PASS");
+     puts("V8G2_REAL_C_TRACER_LAYOUT_ZOOM_TEST_PASS");
+     return 0;
+ }
+--- a/tests/run_all.sh
++++ b/tests/run_all.sh
+@@ -34,6 +34,7 @@
+ echo '== Real v8h-derived C DSITracer parser tests =='
+ gcc "${common[@]}" -ffunction-sections -fdata-sections "$B/tests/altscreen_trace_parser_test.c" -Wl,--gc-sections -ldl -o "$TEST_BIN_DIR/altscreen_trace_parser_test"
+ "$TEST_BIN_DIR/altscreen_trace_parser_test" | tee "$TEST_RESULT_DIR/trace_parser.log"
++grep -q V8G2_ROUTE_LAYOUT_4_VIEW_REGRESSION_PASS "$TEST_RESULT_DIR/trace_parser.log"
+ echo '== DSITracer text configuration / rollback tests =='
+ python3 "$B/tests/test_dsitracer_config.py" | tee "$TEST_RESULT_DIR/dsitracer_config.log"
+ python3 "$B/tests/test_alignment_runtime.py" | tee "$TEST_RESULT_DIR/alt_alignment.log"
+--- a/tools/verify_v8g2.py
++++ b/tools/verify_v8g2.py
+@@ -40,6 +40,10 @@
+ check('ALTSCREEN_DECLARED_CANVAS_H 542' in a and 'ALTSCREEN_DECLARED_CANVAS_W 1440' in a,'v8h 1440x542 advertisement retained')
+ check('ALTSCREEN_VIEW_COUNT 4' in s and 'ALTSCREEN_VIEW_COUNT_MAX 4' in a,'v8h four safe areas supported')
+ check('return g_layout_slot * 2 + route;' in s,'v8h gauge layout plus route selection')
++check('state->pending_view = route_view_for_state(state);' in s and
++      'queue_route_view_for_receiver(receiver,' in s and
++      'queue_view_for_receiver(receiver, route ? 1 : 0' not in s,
++      'route transitions use locked current gauge layout, not hardcoded views 0/1')
+ check('v8h_start_tracers();' in s and 'port = buffered ? 20991 : 1798;' in s,'v8h live + buffered tracer readers enabled')
+ check('DSIMapViewerZoomEngine#setZoomArea#' in s and 'DSIKeyPanelListener#updateEncoder2#' in s,'v8h tracer parsers present')
+ check('changeMapZoomLevel' in s and 'zoomDirection' in s,'v8h steering zoom command present')

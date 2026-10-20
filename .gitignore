@@ -1,0 +1,8 @@
+port_k3346/altscreen/output/
+port_k3346/altscreen/generated*/
+port_k3346/altscreen/java/build/*_classes/
+port_k3346/altscreen/renderer/build/
+port_k3346/altscreen/diagnostics/k3346-artwork-probe
+port_k3346/altscreen/diagnostics/v8l-dsitracer-capture
+work/
+*.o

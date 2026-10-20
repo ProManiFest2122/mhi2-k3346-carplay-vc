@@ -1,0 +1,120 @@
+--- v8n/build.sh
++++ v8p/build.sh
+@@ -18,7 +18,7 @@
+   qcc "${FLAGS[@]}" -c "$D/native/$src" -o "$obj"
+   OBJ+=("$obj")
+ done
+-echo "V8N_SOURCE_ONLY_DIRECT_C_BUILD=1"
++echo "V8P_SOURCE_ONLY_DIRECT_C_BUILD=1"
+ qcc -shared "${FLAGS[@]}" "${OBJ[@]}" -lsocket -lc -Wl,--no-undefined \
+   -o "$D/output/libmib2high-carplay-rgi.so"
+ python3 "$D/tools/verify_v8i.py"
+--- v8n/native/altscreen_session.c
++++ v8p/native/altscreen_session.c
+@@ -159,6 +159,7 @@
+     int route_active;
+     int current_view;
+     int pending_view;
++    int pending_view_from_gauge; /* 1=gauge update; skip redundant showUI */
+     uint64_t view_due_ms;
+     int control_inflight;
+ } altscreen_state;
+@@ -1046,6 +1047,7 @@
+     state = find_state_receiver_locked(receiver);
+     if (state != NULL && state->active && !state->stop_requested) {
+         state->pending_view = route_view_for_state(state);
++        state->pending_view_from_gauge = 0; /* Preserve route showUI behavior. */
+         state->view_due_ms = now_ms() + delay_ms;
+     }
+     pthread_mutex_unlock(&g_lock);
+@@ -1299,6 +1301,7 @@
+             if (!state->active || !state->screen_started || state->stop_requested)
+                 continue;
+             state->pending_view = route_view_for_state(state);
++            state->pending_view_from_gauge = 1;
+             state->view_due_ms = now_ms() + ALTSCREEN_VIEW_REACQUIRE_DELAY_MS;
+             ++queued;
+         }
+@@ -1353,6 +1356,7 @@
+                 if (!state->active || !state->screen_started || state->stop_requested)
+                     continue;
+                 state->pending_view = route_view_for_state(state);
++                state->pending_view_from_gauge = 1;
+                 state->view_due_ms = now_ms() + ALTSCREEN_VIEW_REACQUIRE_DELAY_MS;
+             }
+             LOG_INFO(ALTSCREEN_SESSION_MODULE,
+@@ -1471,6 +1475,7 @@
+         void *receiver = NULL;
+         altscreen_state *picked = NULL;
+         int view = -1;
++        int from_gauge = 0;
+         int i;
+         uint64_t now = now_ms();
+ 
+@@ -1483,7 +1488,9 @@
+ 
+             receiver = state->receiver;
+             view = state->pending_view;
++            from_gauge = state->pending_view_from_gauge;
+             state->pending_view = -1;
++            state->pending_view_from_gauge = 0;
+             state->view_due_ms = 0;
+             state->current_view = view;
+             state->control_inflight++;
+@@ -1522,13 +1529,18 @@
+         if (receiver != NULL && view >= 0) {
+             os_status show_rc = -1, view_rc = -1, key_rc = -1;
+             if (access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0) {
+-                show_rc = send_event(receiver, "showUI", 1);
++                /* v8O: gauge switches update the active interface directly.
++                 * Initial request_cluster() and route changes still call showUI. */
++                if (!from_gauge)
++                    show_rc = send_event(receiver, "showUI", 1);
+                 view_rc = send_view_event(receiver, view);
+                 key_rc = send_event(receiver, "forceKeyFrame", 0);
+             }
+             LOG_INFO(ALTSCREEN_SESSION_MODULE,
+-                     "VIEW_REACQUIRE receiver=%p view=%d show_rc=%d view_rc=%d key_rc=%d active_marker=%d",
+-                     receiver, view, show_rc, view_rc, key_rc,
++                     "VIEW_REACQUIRE receiver=%p view=%d origin=%s show_ui=%s "
++                     "show_rc=%d view_rc=%d key_rc=%d active_marker=%d",
++                     receiver, view, from_gauge ? "gauge" : "route",
++                     from_gauge ? "SKIPPED" : "REQUESTED", show_rc, view_rc, key_rc,
+                      access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0);
+ 
+             pthread_mutex_lock(&g_lock);
+--- v8n/deployment/custom.sh
++++ v8p/deployment/custom.sh
+@@ -4,11 +4,11 @@
+ SD="${MIB_SD:-/net/mmx/fs/sda0}"
+ APP="${MIB_APP:-/mnt/app}"
+ SYSTEM="${MIB_SYSTEM:-/mnt/system}"
+-PKGNAME=mib2high-carplay-rgi-v8n-simple
+-MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8n"
++PKGNAME=mib2high-carplay-rgi-v8p-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8p"
+ INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
+ PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
+-say(){ echo "[V8N] $*"; }
++say(){ echo "[V8P] $*"; }
+ fail(){ say "ERROR $*"; exit 1; }
+ # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
+ checkrw() {
+@@ -80,7 +80,7 @@
+ # Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
+ install_file() {
+     SRC="$1"; DST="$2"; MODE="$3"
+-    TMP="$DST.v8n.new.$$"
++    TMP="$DST.v8p.new.$$"
+     rm -f "$TMP" 2>/dev/null || return 1
+     cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
+     chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
+@@ -235,7 +235,7 @@
+     grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSIKombiSync|screenFormat|VC_TRACE|DSITracer|RGI|HUD|19810|gauge|dial' \
+         "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
+     {
+-        echo 'COLLECTION_VERSION=v8n'
++        echo 'COLLECTION_VERSION=v8p'
+         echo "LOG_FILES_COPIED=$COPIED"
+         echo 'DSITRACER_STATUS=ports 1798+20991 recorder requested when AltScreen starts; check status and launch logs for execution'
+         echo 'Gauge layout: LIVE DSIBAP service=50 FctID=54 bit0: 0=BIG, 1=SMALL; check V8N_GAUGE_BAP54 and VIEW_REACQUIRE logs'

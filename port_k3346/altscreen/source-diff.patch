@@ -1,0 +1,154 @@
+diff -ruN --exclude output --exclude generated source/v8i/SOURCE_BASELINE.txt v8j/SOURCE_BASELINE.txt
+--- source/v8i/SOURCE_BASELINE.txt	1970-01-01 00:00:00.000000000 +0000
++++ v8j/SOURCE_BASELINE.txt	2026-10-10 13:28:25.679626181 +0000
+@@ -0,0 +1 @@
++v8j source branch from final v8i QNX source checkpoint; changed files listed in source-diff.patch. Current v8i .so SHA256: ae7f99f574a8613be6740496318652d9d7209df832c54f269d725927fc8da0f
+diff -ruN --exclude output --exclude generated source/v8i/build.sh v8j/build.sh
+--- source/v8i/build.sh	2026-10-10 11:48:08.000000000 +0000
++++ v8j/build.sh	2026-10-10 13:28:25.679578582 +0000
+@@ -14,14 +14,11 @@
+ OBJ=()
+ for src in "${SRC[@]}"; do
+   name="${src//\//__}"; name="${name%.c}"
+-  qcc "${FLAGS[@]}" -S "$D/native/$src" -o "$D/generated/$name.s"
+-  OBJ+=("$D/generated/$name.o")
+-done
+-echo "V8G2_C_SOURCE_BUILD=1 (no assembly patcher)"
+-for src in "${SRC[@]}"; do
+-  name="${src//\//__}"; name="${name%.c}"
+-  qcc "${FLAGS[@]}" -c "$D/generated/$name.s" -o "$D/generated/$name.o"
++  obj="$D/generated/$name.o"
++  qcc "${FLAGS[@]}" -c "$D/native/$src" -o "$obj"
++  OBJ+=("$obj")
+ done
++echo "V8J_SOURCE_ONLY_DIRECT_C_BUILD=1"
+ qcc -shared "${FLAGS[@]}" "${OBJ[@]}" -lsocket -lc -Wl,--no-undefined \
+   -o "$D/output/libmib2high-carplay-rgi.so"
+ python3 "$D/tools/verify_v8i.py"
+diff -ruN --exclude output --exclude generated source/v8i/config/mib2high-lvds-profile.conf v8j/config/mib2high-lvds-profile.conf
+--- source/v8i/config/mib2high-lvds-profile.conf	1970-01-01 00:00:00.000000000 +0000
++++ v8j/config/mib2high-lvds-profile.conf	2026-10-10 13:28:25.679522171 +0000
+@@ -0,0 +1 @@
++1440 542 30 0 0 0 1440 542
+diff -ruN --exclude output --exclude generated source/v8i/config/mib2high-lvds-viewareas.conf v8j/config/mib2high-lvds-viewareas.conf
+--- source/v8i/config/mib2high-lvds-viewareas.conf	2026-10-10 11:47:14.000000000 +0000
++++ v8j/config/mib2high-lvds-viewareas.conf	2026-10-10 13:28:25.679441296 +0000
+@@ -1,7 +1,7 @@
+ # K2161 v8h. Joey final exact measured values, x y width height.
+ # index 0/1 = small dials idle/route; 2/3 = big dials idle/route.
+-# Advertised VIDEO region is 1440x456 inside the 1440x542 physical VC panel.
+-physical 200 63
++# v8j advertised and rendered video canvas: 1440x542.
++physical 200 75
+ view 0 360 65 720 367
+ view 1 468 85 840 332
+ view 2 550 87 340 330
+diff -ruN --exclude output --exclude generated source/v8i/native/altscreen_airplay.c v8j/native/altscreen_airplay.c
+--- source/v8i/native/altscreen_airplay.c	2026-10-10 11:48:28.000000000 +0000
++++ v8j/native/altscreen_airplay.c	2026-10-10 13:28:25.679198370 +0000
+@@ -21,10 +21,9 @@
+ #define ALTSCREEN_DEFAULT_FPS 30
+ #define ALTSCREEN_VIEW_COUNT_DEFAULT 4
+ #define ALTSCREEN_VIEW_COUNT_MAX 4
+-/* Declare exactly the same pixel canvas as the actual video/renderer profile.
+- * Q7 physical VC panel is 1440x542; Screen 111 VIDEO is 1440x456.
+- * Mixing sender 542 with renderer 456 caused v8g2 negotiation distortion.
+- * p->w/p->h below are validated against the installed profile. */
++/* Advertise the same pixel canvas as the renderer profile.
++ * v8j profile: 1440x542 for both advertised and rendered output.
++ * p->w/p->h are loaded from the installed profile. */
+ #define K_CFSTRING_UTF8 0x08000100U
+ 
+ typedef void *cf_ref;
+@@ -745,10 +744,10 @@
+         goto fail;
+ 
+     LOG_INFO(ALTINFO_MODULE,
+-             "display profile uuid=%s renderer=%dx%d@%d advertised=1440x542 physical=%dx%d "
++             "display profile uuid=%s rendered=%dx%d@%d advertised=%dx%d physical=%dx%d "
+              "views=%u features=0 primaryInputDevice=absent",
+              ALTSCREEN_UUID, profile.w, profile.h, profile.fps,
+-             profile.physical_w, profile.physical_h, profile.view_count);
++             profile.w, profile.h, profile.physical_w, profile.physical_h, profile.view_count);
+ 
+     g_cf.release(suggest_urls);
+     g_cf.release(view_areas);
+diff -ruN --exclude output --exclude generated source/v8i/source-diff.patch v8j/source-diff.patch
+--- source/v8i/source-diff.patch	1970-01-01 00:00:00.000000000 +0000
++++ v8j/source-diff.patch	2026-10-10 13:28:25.844560911 +0000
+@@ -0,0 +1,75 @@
++diff -ruN --exclude output --exclude generated source/v8i/SOURCE_BASELINE.txt v8j/SOURCE_BASELINE.txt
++--- source/v8i/SOURCE_BASELINE.txt	1970-01-01 00:00:00.000000000 +0000
+++++ v8j/SOURCE_BASELINE.txt	2026-10-10 13:28:25.679626181 +0000
++@@ -0,0 +1 @@
+++v8j source branch from final v8i QNX source checkpoint; changed files listed in source-diff.patch. Current v8i .so SHA256: ae7f99f574a8613be6740496318652d9d7209df832c54f269d725927fc8da0f
++diff -ruN --exclude output --exclude generated source/v8i/build.sh v8j/build.sh
++--- source/v8i/build.sh	2026-10-10 11:48:08.000000000 +0000
+++++ v8j/build.sh	2026-10-10 13:28:25.679578582 +0000
++@@ -14,14 +14,11 @@
++ OBJ=()
++ for src in "${SRC[@]}"; do
++   name="${src//\//__}"; name="${name%.c}"
++-  qcc "${FLAGS[@]}" -S "$D/native/$src" -o "$D/generated/$name.s"
++-  OBJ+=("$D/generated/$name.o")
++-done
++-echo "V8G2_C_SOURCE_BUILD=1 (no assembly patcher)"
++-for src in "${SRC[@]}"; do
++-  name="${src//\//__}"; name="${name%.c}"
++-  qcc "${FLAGS[@]}" -c "$D/generated/$name.s" -o "$D/generated/$name.o"
+++  obj="$D/generated/$name.o"
+++  qcc "${FLAGS[@]}" -c "$D/native/$src" -o "$obj"
+++  OBJ+=("$obj")
++ done
+++echo "V8J_SOURCE_ONLY_DIRECT_C_BUILD=1"
++ qcc -shared "${FLAGS[@]}" "${OBJ[@]}" -lsocket -lc -Wl,--no-undefined \
++   -o "$D/output/libmib2high-carplay-rgi.so"
++ python3 "$D/tools/verify_v8i.py"
++diff -ruN --exclude output --exclude generated source/v8i/config/mib2high-lvds-profile.conf v8j/config/mib2high-lvds-profile.conf
++--- source/v8i/config/mib2high-lvds-profile.conf	1970-01-01 00:00:00.000000000 +0000
+++++ v8j/config/mib2high-lvds-profile.conf	2026-10-10 13:28:25.679522171 +0000
++@@ -0,0 +1 @@
+++1440 542 30 0 0 0 1440 542
++diff -ruN --exclude output --exclude generated source/v8i/config/mib2high-lvds-viewareas.conf v8j/config/mib2high-lvds-viewareas.conf
++--- source/v8i/config/mib2high-lvds-viewareas.conf	2026-10-10 11:47:14.000000000 +0000
+++++ v8j/config/mib2high-lvds-viewareas.conf	2026-10-10 13:28:25.679441296 +0000
++@@ -1,7 +1,7 @@
++ # K2161 v8h. Joey final exact measured values, x y width height.
++ # index 0/1 = small dials idle/route; 2/3 = big dials idle/route.
++-# Advertised VIDEO region is 1440x456 inside the 1440x542 physical VC panel.
++-physical 200 63
+++# v8j advertised and rendered video canvas: 1440x542.
+++physical 200 75
++ view 0 360 65 720 367
++ view 1 468 85 840 332
++ view 2 550 87 340 330
++diff -ruN --exclude output --exclude generated source/v8i/native/altscreen_airplay.c v8j/native/altscreen_airplay.c
++--- source/v8i/native/altscreen_airplay.c	2026-10-10 11:48:28.000000000 +0000
+++++ v8j/native/altscreen_airplay.c	2026-10-10 13:28:25.679198370 +0000
++@@ -21,10 +21,9 @@
++ #define ALTSCREEN_DEFAULT_FPS 30
++ #define ALTSCREEN_VIEW_COUNT_DEFAULT 4
++ #define ALTSCREEN_VIEW_COUNT_MAX 4
++-/* Declare exactly the same pixel canvas as the actual video/renderer profile.
++- * Q7 physical VC panel is 1440x542; Screen 111 VIDEO is 1440x456.
++- * Mixing sender 542 with renderer 456 caused v8g2 negotiation distortion.
++- * p->w/p->h below are validated against the installed profile. */
+++/* Advertise the same pixel canvas as the renderer profile.
+++ * v8j profile: 1440x542 for both advertised and rendered output.
+++ * p->w/p->h are loaded from the installed profile. */
++ #define K_CFSTRING_UTF8 0x08000100U
++ 
++ typedef void *cf_ref;
++@@ -745,10 +744,10 @@
++         goto fail;
++ 
++     LOG_INFO(ALTINFO_MODULE,
++-             "display profile uuid=%s renderer=%dx%d@%d advertised=1440x542 physical=%dx%d "
+++             "display profile uuid=%s rendered=%dx%d@%d advertised=%dx%d physical=%dx%d "
++              "views=%u features=0 primaryInputDevice=absent",
++              ALTSCREEN_UUID, profile.w, profile.h, profile.fps,
++-             profile.physical_w, profile.physical_h, profile.view_count);
+++             profile.w, profile.h, profile.physical_w, profile.physical_h, profile.view_count);
++ 
++     g_cf.release(suggest_urls);
++     g_cf.release(view_areas);

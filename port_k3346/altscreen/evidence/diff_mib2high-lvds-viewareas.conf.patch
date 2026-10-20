@@ -1,0 +1,11 @@
+--- v8g2/config/mib2high-lvds-viewareas.conf
++++ v8i/config/mib2high-lvds-viewareas.conf
+@@ -1,6 +1,7 @@
+ # K2161 v8h. Joey final exact measured values, x y width height.
+ # index 0/1 = small dials idle/route; 2/3 = big dials idle/route.
+-physical 200 75
++# Advertised VIDEO region is 1440x456 inside the 1440x542 physical VC panel.
++physical 200 63
+ view 0 360 65 720 367
+ view 1 468 85 840 332
+ view 2 550 87 340 330

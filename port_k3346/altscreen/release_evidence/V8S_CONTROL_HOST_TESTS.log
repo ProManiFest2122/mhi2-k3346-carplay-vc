@@ -1,0 +1,3 @@
+V8S_ASYNC_CONTROL_MOCK=PASS startup/acks/coalescing/same-url/timeout/stale/reconnect/transport-refusal
+V8R_GAUGE_ALIGN_URL_TEST=PASS
+V8N_BAP54_PARSER=PASS 12 VEHICLE EVENTS + DUPLICATES + MENU BITMASK

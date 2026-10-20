@@ -1,0 +1,26 @@
+{
+  "status": "OFFLINE_TESTED_NOT_CAR_TESTED_NOT_INSTALLER",
+  "bug": "Phone route transition hardcoded ViewArea 0/1 even when DSITracer selected large-gauges slot 1",
+  "fix": "Determine pending ViewArea from route_view_for_state(state) under g_lock at the moment of queueing",
+  "route_view_index": {
+    "small_idle": 0,
+    "small_active": 1,
+    "big_idle": 2,
+    "big_active": 3
+  },
+  "source_changed": [
+    "native/altscreen_session.c"
+  ],
+  "source_sha256_before": "b2f8c3afb84260f375ecce8c4d60c183ac89d38d140c2907b041ab0ad863272d",
+  "source_sha256_after": "7e36a5d384e6c591769efe084af6f53b24965034922b3eabf776ffa760f65441",
+  "native_sha256_before": "e6460a4ce942bc5ec342b43ce950cf0d2d1f503d4adc78a3d58ef771379886d4",
+  "native_sha256_after": "5e9338185054020e18fad67ef36d31646c27a65442bbb1b7eb8c4f0a64f0b0e0",
+  "native_bytes_before": 300935,
+  "native_bytes_after": 300999,
+  "unchanged_java_jar_sha256": "8c752d606d985675d6d49ead0c949c31e240c77bbc6c4f3a69591282992a13bc",
+  "unchanged_rgirelated_assembly_units": 14,
+  "unit_test": "V8G2_ROUTE_LAYOUT_4_VIEW_REGRESSION_PASS",
+  "full_suite": "V8G2_V8H_ALTSCREEN_OFFLINE_INTEGRATION_SUITE=PASS",
+  "component_build_method": "C source -> QNX GCC -> ARM assembly -> object -> ELF; no compiled file modifications",
+  "car_test": "NOT_DONE"
+}

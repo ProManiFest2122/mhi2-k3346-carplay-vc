@@ -1,0 +1,10 @@
+# Licensing and attribution
+
+**This repository combines components with different provenance. A license for one component must not be assumed to cover the entire repository.**
+
+* `altscreen/renderer/upstream/vc_render.c` and `altscreen/renderer/k2161/vc_render.c`: source obtained from [joeyQuery/MHI2-altScreen](https://github.com/joeyQuery/MHI2-altScreen), pinned to commit `59b7fa6d1b81e0da266cf4f70b4cf54c34bc03dc`; upstream repository is licensed under **GNU GPL v3.0**. The full GPL text is in [`altscreen/LICENSE-GPL-3.0`](altscreen/LICENSE-GPL-3.0). Preserve upstream notices and comply with GPL-3.0 for derivative works and binaries distributed under it.
+* Other AltScreen modules include independent work and historical adaptations. The existence of the GPL text in this tree does **not** establish a single license for every file.
+* RGI parsing, communication and Java guidance code is in part adapted from [luka-dev/mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi). As checked October 2026, that upstream project does **not** publish an unambiguous project-wide license. Attribution alone does not grant sublicensing permission. Confirm permissions with the original copyright holders before asserting a blanket reuse license.
+* The MIB2 High Software Collector is shipped as a separately scoped tool; consult its documentation and original copyright notices.
+
+This file intentionally does **not** assign GPL, MIT or another license to code without established permission. For copyright and credit details see [NOTICE.md](NOTICE.md) and [AltScreen provenance](altscreen/renderer/PROVENANCE.md). This is not legal advice.

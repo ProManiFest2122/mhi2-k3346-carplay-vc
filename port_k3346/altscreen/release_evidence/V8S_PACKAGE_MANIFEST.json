@@ -1,0 +1,17 @@
+{
+  "version": "v8S",
+  "package_files_sha256": {
+    "README.txt": "c8647d405689195c06a6f1257619a82a74b34c4266c6cdc9e6d6bb5680313d08",
+    "mod/custom.sh": "4ec9aea46ef15bc700fdbdc6a0479942539b0f16e0501f8f0d2b78b32ac72fcd",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/libmib2high-carplay-rgi.so": "f2ad30c2616f32619bbf63a1d9241605e6aae16b7241150d65c96140ff7dea8b",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/mib2high-carplay-rgi.jar": "27dc78baeedb5ba26b2e74692d495e3386d8bd1ab820c6f735f3c102de5e2ad0",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/mib2high-lvds-control.sh": "4adf596d7cb862798d4444e8da82f17d99a8ab817a074af435519c02c80320c8",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/mib2high-lvds-profile.conf": "3aa514d0b1af2479a66e63c9df65404a157469326feca4678d62b838071840a9",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/mib2high-lvds-viewareas.conf": "8cddd67b6e16f0ec206c971bb0e5daecd56a44459a1033d248ed0b7ac61ed51d",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/v8l-dsitracer-capture": "07076bf196baa180586a589b5a1d621a355bd2fa24d512486bbcc82306875632",
+    "mod/mib2high-carplay-rgi-v8s-simple/payload/vc_render": "49b2d5c38899dd4aab02015962b5df2cb39162931b1e973b17216ce076501186",
+    "mod/mib2high-carplay-rgi-v8s-simple/source/bundles.awk": "07360523e8287d8fe2d2b96917a1ba16eb885652a294d4d746437d9457053b66",
+    "mod/mib2high-carplay-rgi-v8s-simple/source/smartphone.awk": "d201b18245603de369537786c2adb8a2bda7d369c5af799ca051eb497888a935",
+    "mod/mib2high-carplay-rgi-v8s-simple/source/trace.awk": "f45236e20854779956df06c4fc02730f54c50834f23950a9701909176e8e9627"
+  }
+}

@@ -1,0 +1,64 @@
+--- v8g2/native/altscreen_session.c
++++ v8i/native/altscreen_session.c
+@@ -1133,11 +1133,14 @@
+     os_status rc;
+     if (receiver == NULL || g_api.send_command == NULL || (direction != 0 && direction != 1))
+         return -1;
+-    /* Joey command_zoom(dir,0): no uuid parameter, only zoomDirection. */
++    /* Joey's vehicle-tested control command_zoom(dir,1) includes the target
++     * cluster display uuid. v8g2 omitted it; iOS accepted transport (rc=0)
++     * but did not zoom the cluster. This is the focused v8i correction. */
+     request = new_dict();
+     params = new_dict();
+     if (request == NULL || params == NULL ||
+         !dict_set_string(request, "type", "changeMapZoomLevel") ||
++        !dict_set_string(params, "uuid", ALTSCREEN_UUID) ||
+         !dict_set_i64(params, "zoomDirection", direction) ||
+         !dict_set_obj(request, "params", params)) {
+         if (params != NULL) g_api.release(params);
+@@ -1147,7 +1150,7 @@
+     g_api.release(params);
+     rc = g_api.send_command(receiver, request, NULL, NULL);
+     g_api.release(request);
+-    LOG_INFO(ALTSCREEN_SESSION_MODULE, "V8H_ZOOM direction=%d rc=%d", direction, rc);
++    LOG_INFO(ALTSCREEN_SESSION_MODULE, "V8I_ZOOM direction=%d uuid=%s rc=%d ack=UNKNOWN", direction, ALTSCREEN_UUID, rc);
+     return rc;
+ }
+ 
+@@ -1242,7 +1245,7 @@
+  * observations NEVER change the sender or AirPlay/BAP command paths. */
+ static void v8g2_diag_trace_sample(const char *line, int buffered)
+ {
+-    static uint64_t last_sample_ms[3];
++    static uint64_t last_sample_ms[4];
+     int class_id = -1, emit = 0;
+     uint64_t now;
+     if (line[0] != '1' || line[1] != '#') return;
+@@ -1250,6 +1253,10 @@
+         class_id = 0;
+     else if (strstr(line, "DSIMapViewerZoomEngine") != NULL)
+         class_id = 1;
++    else if (strstr(line, "DSIMapViewerControl") != NULL &&
++             (strstr(line, "ViewScreenViewPort") != NULL ||
++              strstr(line, "ViewPort") != NULL))
++        class_id = 3;
+     else if (strstr(line, "DSIKeyPanel") != NULL &&
+              (strstr(line, "|int:4|int:40|") != NULL ||
+               strstr(line, "|int:4|int:35|") != NULL))
+@@ -1276,6 +1283,16 @@
+     v8g2_diag_trace_sample(line, buffered);
+     if (line[0] != '1' || line[1] != '#')
+         return; /* Joey 1# and 5# are duplicates; 1# only */
++    /* On K2161, the old A4 setZoomArea signal was absent in v8g2 car
++     * traces. Capture alternative exact K2161 viewer-viewport attributes
++     * passively; a viewport event is NOT yet a validated gauge-size change. */
++    if (strstr(line, "DSIMapViewerControl") != NULL &&
++        (strstr(line, "ViewScreenViewPort") != NULL ||
++         strstr(line, "ViewPort") != NULL)) {
++        LOG_INFO(ALTSCREEN_SESSION_MODULE,
++                 "V8I_GAUGE_CANDIDATE validated=0 source=%s raw=%.320s",
++                 buffered ? "buffered" : "live", line);
++    }
+     p = strstr(line, "DSIMapViewerZoomEngine#setZoomArea#");
+     if (p != NULL) {
+         p = strstr(p, "Rect:");

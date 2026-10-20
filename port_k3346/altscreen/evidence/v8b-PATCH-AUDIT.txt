@@ -1,0 +1,71 @@
+K2161 v8B STOCK-COMPASS / OBSERVE-ONLY PATCH AUDIT
+==================================================
+
+Purpose
+-------
+Remove the two state overrides that were fighting the Audi factory CarPlay
+navigation presentation:
+
+1) Native v8A no longer rewrites CarPlay TurnByTurn ownership from 1 -> 0.
+   It still observes the ORIGINAL turns value and keeps the existing v8A
+   route/idle ViewArea switching logic.
+
+2) The custom RGI JAR uses its already-existing HUD-only/non-VC path instead
+   of the dev.4 FACTORY_RGI path, so it no longer forces favored VC mode=RGI.
+
+Native binary provenance
+------------------------
+Base:
+  exact K2161 v8A libmib2high-carplay-rgi.so
+  SHA256 5039533d882e8bac6ebb979be8a1b0ef794e11b2d71144ce83f2d9ec494d1069
+  size   298059
+
+Patch is exactly two ARM instructions, 8 bytes total:
+  file/VA 0x0000ad64: e5842014 (str r2,[r4,#20]) -> e1a00000 (ARM NOP)
+  file/VA 0x0000ae64: e5842014 (str r2,[r4,#20]) -> e1a00000 (ARM NOP)
+
+Those stores were the two compiled control-flow copies of:
+  out->turns = 0;
+
+No other native byte is changed from v8A.
+
+NOTE: the v8A log format still contains a `stock=` field and may log 0 in the
+route branch because this is a deliberately minimal binary patch. The actual
+mode-state struct is no longer overwritten; use ORIGINAL/route state and live
+behaviour as the authority.
+
+Java JAR provenance
+-------------------
+Base:
+  exact v5 mib2high-carplay-rgi.jar
+  SHA256 542cb3ec7f7cb2edfaebb1e89b53a46c131ce9f4163d4d78de838e489df1569d
+
+Changed JAR entry only:
+  com/luka/carplay/routeguidance/BAPBridge.class
+
+Changed class byte only:
+  class offset 29740: 0x04 (iconst_1) -> 0x03 (iconst_0)
+
+Resulting bytecode:
+  static {};
+    0: iconst_0
+    1: putstatic #96  // VC_RGI_ENABLED:Z
+
+No de/audi/* OEM class is present in the JAR.
+No OEM class replacement, ClusterGate, context900, or second preload is added.
+
+Expected presentation
+---------------------
+CarPlay route ownership -> stock Audi COMPASS semantics remain valid underneath.
+AltScreen layer 58 remains the visible CarPlay cluster surface.
+The custom Java bridge does not force the VC into factory RGI mode.
+
+This build intentionally does NOT change:
+  - 800x480 v5 geometry/profile
+  - renderer
+  - LVDS control script
+  - smartphone_integrator.json
+  - zoom
+  - Q7 safe areas
+
+Direction-card geometry is therefore not claimed fixed by this package.

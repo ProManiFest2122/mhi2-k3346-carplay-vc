@@ -1,0 +1,200 @@
+--- v8l/BAPBridge.java
++++ v8m/BAPBridge.java
+@@ -170,9 +170,9 @@
+         FormattedDistance fd = formatDistanceToTurn(meters);
+         traceBap("updateDistanceToNextManeuver",
+             fd.value + "," + fd.unit + ",false,0");
+-        V8LFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
++        V8MFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
+         appConnectorNavi.updateDistanceToNextManeuver(fd.value, fd.unit, false, 0);
+-        V8LFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
++        V8MFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
+     }
+ 
+     private void sendDistanceToDestinationRaw(int meters, boolean isStopOver) {
+@@ -278,7 +278,7 @@
+         }
+ 
+         csRef.getClusterViewMode().setFavoredViewMode(mode);
+-        V8LFactoryTrace.snapshot("after_favored_view_mode", csRef);
++        V8MFactoryTrace.snapshot("after_favored_view_mode", csRef);
+         V8KVcTrace.record("VC_SET_FAVORED_RETURNED_OK mode=" + mode);
+ 
+         Log.i(TAG,
+@@ -374,7 +374,7 @@
+              */
+             V8KVcTrace.record("UPDATE_RG_ACTIVE_BEGIN");
+             csRef.updateRgActive(true);
+-            V8LFactoryTrace.snapshot("after_rg_active_true", csRef);
++            V8MFactoryTrace.snapshot("after_rg_active_true", csRef);
+             V8KVcTrace.record("UPDATE_RG_ACTIVE_RETURNED_OK");
+             vcFactoryRgStatePropagated = true;
+ 
+@@ -516,6 +516,7 @@
+         try {
+             traceBap("updateMapPresentation", "false,false,false");
+             appConnectorNavi.updateMapPresentation(false, false, false);
++            V8MFactoryTrace.snapshot("after_map_presentation_false", csRef);
+         } catch (Throwable t) {
+             Log.w(TAG, "VC map presentation suppression failed: "
+                 + t.getClass().getName() + ": " + t.getMessage());
+@@ -641,15 +642,15 @@
+         }
+ 
+         if (active) {
+-            V8LFactoryTrace.snapshot("before_rgi_valid_on", csRef);
++            V8MFactoryTrace.snapshot("before_rgi_valid_on", csRef);
+             try { csRef.updateRGIString(new short[]{1}); }
+             catch (Exception e) { Log.d(TAG, "force rgiValid=true failed: " + e.getMessage()); }
+-            V8LFactoryTrace.snapshot("after_rgi_valid_on", csRef);
++            V8MFactoryTrace.snapshot("after_rgi_valid_on", csRef);
+         } else {
+-            V8LFactoryTrace.snapshot("before_rgi_valid_off", csRef);
++            V8MFactoryTrace.snapshot("before_rgi_valid_off", csRef);
+             try { csRef.updateRGIString(null); }
+             catch (Exception e) { Log.d(TAG, "force rgiValid=false failed: " + e.getMessage()); }
+-            V8LFactoryTrace.snapshot("after_rgi_valid_off", csRef);
++            V8MFactoryTrace.snapshot("after_rgi_valid_off", csRef);
+ 
+             /*
+              * Only the VC-enabled path propagates ClusterService RG-active
+@@ -1185,9 +1186,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(ManeuverMapper.FOLLOW_STREET, ManeuverMapper.DIR_STRAIGHT, 0, new byte[0]);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 FOLLOW_STREET exit=0,0");
+-        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
+-        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+     }
+ 
+     /**
+@@ -1197,9 +1198,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(0, 0, 0, new byte[0]);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 NO_SYMBOL exit=0,0");
+-        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
+-        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+     }
+ 
+     /**
+@@ -1236,9 +1237,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(mapped[0], mapped[1], zLevel, sideStreets);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 exit=0,0");
+-        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
+-        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
++        V8MFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+         Log.d(TAG, "Sent 1 maneuver");
+     }
+ 
+
+--- v8l/trace.awk
++++ v8m/trace.awk
+@@ -1,9 +1,17 @@
+ # Retain all unrelated K2161 DSITracer configuration verbatim.
+ # Normalize only previously approved diagnostic settings, tolerating missing,
+ # commented, alternate-value or duplicate entries without blocking install.
+-BEGIN { app=0; key=0; zoom=0; komo=0; map=0; kombisync=0 }
++BEGIN { app=0; key=0; zoom=0; komo=0; map=0; kombisync=0; bap=0; carkombi=0 }
+ /^[[:space:]]*#?[[:space:]]*use[.]appender[[:space:]]*=/ {
+     if (++app==1) print "use.appender=telnet,bluepirat"
++    next
++}
++/^[[:space:]]*#?[[:space:]]*org[.]dsi[.]ifc[.]bap[.]DSIBAP[[:space:]]*=/ {
++    if (++bap==1) print "org.dsi.ifc.bap.DSIBAP=full"
++    next
++}
++/^[[:space:]]*#?[[:space:]]*org[.]dsi[.]ifc[.]carkombi[.]DSICarKombi[[:space:]]*=/ {
++    if (++carkombi==1) print "org.dsi.ifc.carkombi.DSICarKombi=full"
+     next
+ }
+ /^[[:space:]]*#?[[:space:]]*org[.]dsi[.]ifc[.]keypanel[.]DSIKeyPanel[[:space:]]*=/ {
+@@ -34,4 +42,6 @@
+     if (!komo) print "org.dsi.ifc.komoview.DSIKOMOView=full"
+     if (!map) print "org.dsi.ifc.map.DSIMapViewerControl=full"
+     if (!kombisync) print "org.dsi.ifc.kombisync.DSIKombiSync=full"
++    if (!bap) print "org.dsi.ifc.bap.DSIBAP=full"
++    if (!carkombi) print "org.dsi.ifc.carkombi.DSICarKombi=full"
+ }
+
+--- v8l/custom.sh
++++ v8m/custom.sh
+@@ -4,11 +4,11 @@
+ SD="${MIB_SD:-/net/mmx/fs/sda0}"
+ APP="${MIB_APP:-/mnt/app}"
+ SYSTEM="${MIB_SYSTEM:-/mnt/system}"
+-PKGNAME=mib2high-carplay-rgi-v8l-simple
+-MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8l"
++PKGNAME=mib2high-carplay-rgi-v8m-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8m"
+ INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
+ PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
+-say(){ echo "[V8L] $*"; }
++say(){ echo "[V8M] $*"; }
+ fail(){ say "ERROR $*"; exit 1; }
+ # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
+ checkrw() {
+@@ -80,7 +80,7 @@
+ # Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
+ install_file() {
+     SRC="$1"; DST="$2"; MODE="$3"
+-    TMP="$DST.v8l.new.$$"
++    TMP="$DST.v8m.new.$$"
+     rm -f "$TMP" 2>/dev/null || return 1
+     cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
+     chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
+@@ -185,6 +185,32 @@
+             echo 'JAVA_SHMEM_LOG_COPY_FAILED' >> "$d/trace/collection-errors.txt"
+         fi
+     fi
++    # v8m source-built factory logger writes to the same proven Java shared mount.
++    # This resolves v8l's inaccessible /tmp Java-process namespace.
++    RCC_SHMEM="${MIB_RCC_SHMEM:-/net/rcc/dev/shmem}"
++    FACTORY_FILES=0
++    for f in "$RCC_SHMEM/v8m-rgi-factory.log" "$RCC_SHMEM/v8m-rgi-factory.log.1"; do
++        if [ -s "$f" ]; then
++            if cp "$f" "$d/logs/"; then
++                echo "$f" >> "$d/trace/copied-files.txt"
++                COPIED=$((COPIED+1))
++                FACTORY_FILES=$((FACTORY_FILES+1))
++            else
++                RESULT=PARTIAL
++                echo "FACTORY_LOG_COPY_FAILED=$f" >> "$d/trace/collection-errors.txt"
++            fi
++        fi
++    done
++    # The main Java shmem log contains V8M_FACTORY records as fallback.
++    if [ "$FACTORY_FILES" -eq 0 ]; then
++        if [ -f "$d/logs/mib2high-carplay-rgi-java-shmem.log" ] && \
++            grep 'V8M_FACTORY' "$d/logs/mib2high-carplay-rgi-java-shmem.log" >/dev/null 2>&1; then
++            echo 'FACTORY_TRACE=MAIN_JAVA_LOG_FALLBACK' >> "$d/trace/copied-files.txt"
++        else
++            RESULT=PARTIAL
++            echo 'FACTORY_TRACE_MISSING (verify guidance ran; inspect main Java log)' >> "$d/trace/collection-errors.txt"
++        fi
++    fi
+     TRACE_FILES=0
+     for f in "$d/logs"/v8l-dsitracer-1798-??.log "$d/logs"/v8l-dsitracer-20991-??.raw; do
+         if [ -s "$f" ]; then TRACE_FILES=$((TRACE_FILES+1)); fi
+@@ -209,10 +235,12 @@
+     grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSIKombiSync|screenFormat|VC_TRACE|DSITracer|RGI|HUD|19810|gauge|dial' \
+         "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
+     {
+-        echo 'COLLECTION_VERSION=v8l'
++        echo 'COLLECTION_VERSION=v8m'
+         echo "LOG_FILES_COPIED=$COPIED"
+         echo 'DSITRACER_STATUS=ports 1798+20991 recorder requested when AltScreen starts; check status and launch logs for execution'
+-        echo 'No automatic gauge detection is enabled'
++        echo 'Gauge detection is diagnostic-only; no automatic gauge routing enabled'
++        echo "FACTORY_LOG_FILES_COPIED=$FACTORY_FILES"
++        echo 'DSIBAP=full DSICarKombi=full expected after install'
+     } > "$d/trace/metadata.txt" || RESULT=PARTIAL
+     sync || fail 'collection sync failed'
+     say "COLLECT_RESULT=$RESULT saved=$d"

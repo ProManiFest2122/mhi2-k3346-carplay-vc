@@ -1,0 +1,361 @@
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/SOURCE_BASELINE.txt /mnt/data/v8j_project/v8j/SOURCE_BASELINE.txt
+--- /mnt/data/v8j_project/source/v8i/SOURCE_BASELINE.txt	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v8j_project/v8j/SOURCE_BASELINE.txt	2026-10-10 13:28:25.679626181 +0000
+@@ -0,0 +1 @@
++v8j source branch from final v8i QNX source checkpoint; changed files listed in source-diff.patch. Current v8i .so SHA256: ae7f99f574a8613be6740496318652d9d7209df832c54f269d725927fc8da0f
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/build.sh /mnt/data/v8j_project/v8j/build.sh
+--- /mnt/data/v8j_project/source/v8i/build.sh	2026-10-10 11:48:08.000000000 +0000
++++ /mnt/data/v8j_project/v8j/build.sh	2026-10-10 13:28:25.679578582 +0000
+@@ -14,14 +14,11 @@
+ OBJ=()
+ for src in "${SRC[@]}"; do
+   name="${src//\//__}"; name="${name%.c}"
+-  qcc "${FLAGS[@]}" -S "$D/native/$src" -o "$D/generated/$name.s"
+-  OBJ+=("$D/generated/$name.o")
+-done
+-echo "V8G2_C_SOURCE_BUILD=1 (no assembly patcher)"
+-for src in "${SRC[@]}"; do
+-  name="${src//\//__}"; name="${name%.c}"
+-  qcc "${FLAGS[@]}" -c "$D/generated/$name.s" -o "$D/generated/$name.o"
++  obj="$D/generated/$name.o"
++  qcc "${FLAGS[@]}" -c "$D/native/$src" -o "$obj"
++  OBJ+=("$obj")
+ done
++echo "V8J_SOURCE_ONLY_DIRECT_C_BUILD=1"
+ qcc -shared "${FLAGS[@]}" "${OBJ[@]}" -lsocket -lc -Wl,--no-undefined \
+   -o "$D/output/libmib2high-carplay-rgi.so"
+ python3 "$D/tools/verify_v8i.py"
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/config/mib2high-lvds-profile.conf /mnt/data/v8j_project/v8j/config/mib2high-lvds-profile.conf
+--- /mnt/data/v8j_project/source/v8i/config/mib2high-lvds-profile.conf	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v8j_project/v8j/config/mib2high-lvds-profile.conf	2026-10-10 13:28:25.679522171 +0000
+@@ -0,0 +1 @@
++1440 542 30 0 0 0 1440 542
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/config/mib2high-lvds-viewareas.conf /mnt/data/v8j_project/v8j/config/mib2high-lvds-viewareas.conf
+--- /mnt/data/v8j_project/source/v8i/config/mib2high-lvds-viewareas.conf	2026-10-10 11:47:14.000000000 +0000
++++ /mnt/data/v8j_project/v8j/config/mib2high-lvds-viewareas.conf	2026-10-10 13:28:25.679441296 +0000
+@@ -1,7 +1,7 @@
+ # K2161 v8h. Joey final exact measured values, x y width height.
+ # index 0/1 = small dials idle/route; 2/3 = big dials idle/route.
+-# Advertised VIDEO region is 1440x456 inside the 1440x542 physical VC panel.
+-physical 200 63
++# v8j advertised and rendered video canvas: 1440x542.
++physical 200 75
+ view 0 360 65 720 367
+ view 1 468 85 840 332
+ view 2 550 87 340 330
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/deployment/custom.sh /mnt/data/v8j_project/v8j/deployment/custom.sh
+--- /mnt/data/v8j_project/source/v8i/deployment/custom.sh	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v8j_project/v8j/deployment/custom.sh	2026-10-10 13:32:24.531501195 +0000
+@@ -0,0 +1,148 @@
++#!/bin/sh
++set -u
++PATH=/bin:/usr/bin:/sbin:/usr/sbin:$PATH; export PATH
++SD="${MIB_SD:-/net/mmx/fs/sda0}"
++APP="${MIB_APP:-/mnt/app}"
++SYSTEM="${MIB_SYSTEM:-/mnt/system}"
++PKGNAME=mib2high-carplay-rgi-v8j-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8j"
++INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
++PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
++say(){ echo "[V8J] $*"; }
++fail(){ say "ERROR $*"; exit 1; }
++# Same write test / guarded mount -uw logic as the working v8g2 simple installer.
++checkrw() {
++    MOUNTPOINT="$1"
++    TESTFILE="$MOUNTPOINT/.mib2high-rgi-rw-test.$$"
++    if ( : > "$TESTFILE" ) 2>/dev/null; then
++        rm -f "$TESTFILE" 2>/dev/null
++        return 0
++    fi
++    say "Remounting $MOUNTPOINT read-write..."
++    mount -uw "$MOUNTPOINT" >/dev/null 2>&1 || return 1
++    if ( : > "$TESTFILE" ) 2>/dev/null; then
++        rm -f "$TESTFILE" 2>/dev/null
++        return 0
++    fi
++    return 1
++}
++# All touched paths are indexed; no hidden earlier-install dependency.
++NAMES='libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf bundles_dsitracer_enabled.properties traceConfig.properties smartphone_integrator.json carplay_altscreen dsitracer_activated'
++pathof(){ case "$1" in
++libmib2high-carplay-rgi.so) echo "$APP/root/hooks/$1";;
++mib2high-carplay-rgi.jar) echo "$APP/eso/hmi/lsd/jars/$1";;
++vc_render|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf) echo "$APP/root/$1";;
++bundles_dsitracer_enabled.properties|traceConfig.properties|dsitracer_activated) echo "$APP/eso/hmi/lsd/$1";;
++smartphone_integrator.json) echo "$SYSTEM/etc/eso/production/smartphone_integrator.json";;
++carplay_altscreen) echo "$APP/carplay_altscreen";; esac; }
++modeof(){ case "$1" in *.so|vc_render|*.sh) echo 755;;*)echo 644;;esac; }
++# Backup pre-existing files OR their absent status; never overwrite first snapshot.
++backup_all(){ [ ! -e "$BACKUP" ] || { say 'BACKUP_EXISTS: not overwriting immutable snapshot'; return 1; }; mkdir -p "$BACKUP" || return 1
++for n in $NAMES; do f=`pathof "$n"`; if [ -f "$f" ]; then cp "$f" "$BACKUP/$n" || return 1; elif [ -e "$f" ]; then say "UNSUPPORTED_EXISTING_FILE_TYPE=$f"; return 1; else : > "$BACKUP/$n.absent" || return 1; fi; done
++: > "$BACKUP/complete" || return 1; sync || return 1; }
++# Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
++install_file() {
++    SRC="$1"; DST="$2"; MODE="$3"
++    TMP="$DST.v8j.new.$$"
++    rm -f "$TMP" 2>/dev/null || return 1
++    cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
++    chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
++    mv -f "$TMP" "$DST" || { say "RENAME_FAILED=$DST"; rm -f "$TMP"; return 1; }
++    [ -f "$DST" ] || { say "MISSING_AFTER_RENAME=$DST"; return 1; }
++}
++restore_all(){ [ -f "$BACKUP/complete" ] || return 1
++for n in $NAMES; do dest=`pathof "$n"`; if [ -f "$BACKUP/$n.absent" ]; then rm -f "$dest" || return 1; else [ -f "$BACKUP/$n" ] || return 1; install_file "$BACKUP/$n" "$dest" `modeof "$n"` || return 1; fi; done
++sync; }
++TX=0
++onexit(){ rc="$1"; trap - 0; if [ "$TX" -eq 1 ]; then say 'INSTALL_FAILED: restoring originals'; if restore_all; then rm -f "$PENDING" "$INSTALLED"; say 'AUTO_ROLLBACK_RESULT=PASS'; else say 'AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi; exit "$rc"; }
++trap 'onexit $?' 0
++preflight(){ [ -d "$APP/eso/hmi/lsd" ] || fail 'missing stock LSD directory'; [ -d "$SYSTEM/etc/eso/production" ] || fail 'missing system config directory'; [ -d "$APP/root" ] || fail 'missing stock root directory'; [ -f "$APP/eso/hmi/lsd/DSITracer.jar" ] || fail 'stock DSITracer.jar missing'; [ -f "$APP/eso/hmi/lsd/bundles_dsitracer_enabled.properties" ] || fail 'tracer bundle registry missing'; [ -f "$APP/eso/hmi/lsd/traceConfig.properties" ] || fail 'tracer config missing'; [ -f "$SYSTEM/etc/eso/production/smartphone_integrator.json" ] || fail 'smartphone integrator config missing'; }
++install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight
++[ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'; [ ! -e "$BACKUP" ] || fail 'existing backup retained: use ROLLBACK';
++for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf; do [ -s "$PAY/$n" ] || fail "missing $n"; done
++# Only check payload files exist; no on-car hashing, cksum, cmp or version gates.
++# Keep unrelated configuration unchanged; use existing configuration as input.
++awk -f "$MOD/source/bundles.awk" "$APP/eso/hmi/lsd/bundles_dsitracer_enabled.properties" > "$MOD/bundles.$$" || fail 'bundle patch failed'
++awk -f "$MOD/source/trace.awk" "$APP/eso/hmi/lsd/traceConfig.properties" > "$MOD/trace.$$" || fail 'trace patch failed'
++awk -f "$MOD/source/smartphone.awk" "$SYSTEM/etc/eso/production/smartphone_integrator.json" > "$MOD/smartphone.$$" || fail 'smartphone hook baseline unsupported'
++checkrw "$APP" || fail 'app filesystem not writable'; checkrw "$SYSTEM" || fail 'system filesystem not writable'
++mkdir -p "$APP/root/hooks" "$APP/eso/hmi/lsd/jars" || fail 'cannot create payload target directories'
++backup_all || fail 'original backup failed'; : > "$PENDING" || fail 'cannot mark transaction'; TX=1
++for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf; do dest=`pathof "$n"`; say "INSTALLING=$n"; install_file "$PAY/$n" "$dest" `modeof "$n"` || fail "install failed $n"; done
++install_file "$MOD/bundles.$$" "`pathof bundles_dsitracer_enabled.properties`" 644 || fail 'bundle install failed'
++install_file "$MOD/trace.$$" "`pathof traceConfig.properties`" 644 || fail 'trace install failed'
++install_file "$MOD/smartphone.$$" "`pathof smartphone_integrator.json`" 644 || fail 'smartphone install failed'
++: > "`pathof carplay_altscreen`" || fail 'AltScreen marker failed'
++: > "`pathof dsitracer_activated`" || fail 'tracer marker failed'
++sync || fail 'pre-success sync failed'; : > "$INSTALLED" || fail 'cannot mark success'; sync || fail 'success sync failed'
++rm -f "$PENDING" "$MOD/bundles.$$" "$MOD/trace.$$" "$MOD/smartphone.$$" || fail 'cleanup failed'; sync || fail 'final sync failed'
++TX=0; say 'INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'NAVIGNORE=UNTOUCHED'; say 'Reboot MMI manually, test route/zoom/gauges, run custom script again to collect'; say 'SAFE TO REMOVE SD'; }
++rollback(){ say 'MODE=ROLLBACK'; checkrw "$SD" || fail 'SD not writable'; checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not writable'; restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'SAFE TO REMOVE SD'; }
++# Collect files emitted by the already running car services. No additional services
++# or network listeners are started, and no unverified QNX utilities are needed.
++copyif(){
++    [ -f "$1" ] || return 0
++    cp "$1" "$2/" || return 1
++}
++collect(){
++    say 'MODE=COLLECT'
++    checkrw "$SD" || fail 'SD not writable'
++    i=1
++    while [ "$i" -le 99 ]; do
++        if [ "$i" -lt 10 ]; then d="$COLLECT/run-0$i"; else d="$COLLECT/run-$i"; fi
++        [ -e "$d" ] || break
++        i=$((i+1))
++    done
++    [ "$i" -le 99 ] || fail 'collection folders full'
++    mkdir -p "$d/live" "$d/logs" "$d/trace" || fail 'cannot make collection folder'
++    RESULT=PASS
++    COPIED=0
++    for n in $NAMES; do
++        f=`pathof "$n"`
++        if [ -f "$f" ]; then
++            if cp "$f" "$d/live/"; then :; else RESULT=PARTIAL; echo "LIVE_COPY_FAILED=$f" >> "$d/trace/collection-errors.txt"; fi
++        fi
++    done
++    # Explicit glob set from the known working v8g2 collector and v8i logs.
++    for f in /tmp/carplay_hook.log /tmp/carplay_hook.log.1 /tmp/carplay_hook.log.2 /tmp/carplay_hook.log.3 \
++             /tmp/mib2high-carplay-rgi-native.log /tmp/k2161-rgi-rx.log /tmp/k2161-rgi-launcher.log \
++             /tmp/mib2high-lvds-control.log /tmp/vc_render.log /tmp/vc_render-launch.log \
++             /tmp/mib2high-vc-render.profile /tmp/*rgi*.log /tmp/*rgd*.log /tmp/*bap*.log \
++             /tmp/*DSI*.log /tmp/*dsi*.log /tmp/*tracer*.log /tmp/*zoom*.log \
++             /tmp/*gauge*.log; do
++        [ -f "$f" ] || continue
++        if cp "$f" "$d/logs/"; then
++            echo "$f" >> "$d/trace/copied-files.txt"
++            COPIED=$((COPIED+1))
++        else
++            RESULT=PARTIAL
++            echo "LOG_COPY_FAILED=$f" >> "$d/trace/collection-errors.txt"
++        fi
++    done
++    if [ "$COPIED" -eq 0 ]; then
++        RESULT=PARTIAL
++        echo 'NO_NATIVE_LOG_FILES_COPIED' >> "$d/trace/collection-errors.txt"
++    fi
++    if sloginfo > "$d/trace/sloginfo-raw.txt" 2>&1; then
++        cp "$d/trace/sloginfo-raw.txt" "$d/sloginfo.txt" || RESULT=PARTIAL
++    else
++        RESULT=PARTIAL
++        echo 'SLOGINFO_FAILED' >> "$d/trace/collection-errors.txt"
++    fi
++    pidin ar > "$d/pidin-ar.txt" 2>&1 || { RESULT=PARTIAL; echo 'PIDIN_FAILED' >> "$d/trace/collection-errors.txt"; }
++    netstat -an > "$d/netstat-an.txt" 2>&1 || { RESULT=PARTIAL; echo 'NETSTAT_FAILED' >> "$d/trace/collection-errors.txt"; }
++    # Focused index is optional; the original raw logs above are retained.
++    grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSITracer|RGI|HUD|19810|gauge|dial' \
++        "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
++    {
++        echo 'COLLECTION_VERSION=v8j'
++        echo "LOG_FILES_COPIED=$COPIED"
++        echo 'DSITRACER_STATUS=Trace config and any existing file output saved; telnet/bluepirat stream NOT captured'
++        echo 'No automatic gauge detection is enabled'
++    } > "$d/trace/metadata.txt" || RESULT=PARTIAL
++    sync || fail 'collection sync failed'
++    say "COLLECT_RESULT=$RESULT saved=$d"
++    say 'SAFE TO REMOVE SD'
++}
++[ -d "$SD" ] || fail 'SD not mounted'; [ -d "$MOD" ] || fail 'package missing'; if [ -f "$ROLLBACK" ]; then rollback; elif [ -f "$INSTALLED" ]; then collect; elif [ -f "$MOD/rolledback.ok" ]; then say 'ALREADY_ROLLED_BACK; no automatic reinstallation'; else install; fi
++exit 0
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/native/altscreen_airplay.c /mnt/data/v8j_project/v8j/native/altscreen_airplay.c
+--- /mnt/data/v8j_project/source/v8i/native/altscreen_airplay.c	2026-10-10 11:48:28.000000000 +0000
++++ /mnt/data/v8j_project/v8j/native/altscreen_airplay.c	2026-10-10 13:28:25.679198370 +0000
+@@ -21,10 +21,9 @@
+ #define ALTSCREEN_DEFAULT_FPS 30
+ #define ALTSCREEN_VIEW_COUNT_DEFAULT 4
+ #define ALTSCREEN_VIEW_COUNT_MAX 4
+-/* Declare exactly the same pixel canvas as the actual video/renderer profile.
+- * Q7 physical VC panel is 1440x542; Screen 111 VIDEO is 1440x456.
+- * Mixing sender 542 with renderer 456 caused v8g2 negotiation distortion.
+- * p->w/p->h below are validated against the installed profile. */
++/* Advertise the same pixel canvas as the renderer profile.
++ * v8j profile: 1440x542 for both advertised and rendered output.
++ * p->w/p->h are loaded from the installed profile. */
+ #define K_CFSTRING_UTF8 0x08000100U
+ 
+ typedef void *cf_ref;
+@@ -745,10 +744,10 @@
+         goto fail;
+ 
+     LOG_INFO(ALTINFO_MODULE,
+-             "display profile uuid=%s renderer=%dx%d@%d advertised=1440x542 physical=%dx%d "
++             "display profile uuid=%s rendered=%dx%d@%d advertised=%dx%d physical=%dx%d "
+              "views=%u features=0 primaryInputDevice=absent",
+              ALTSCREEN_UUID, profile.w, profile.h, profile.fps,
+-             profile.physical_w, profile.physical_h, profile.view_count);
++             profile.w, profile.h, profile.physical_w, profile.physical_h, profile.view_count);
+ 
+     g_cf.release(suggest_urls);
+     g_cf.release(view_areas);
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/tests/test_installer.py /mnt/data/v8j_project/v8j/tests/test_installer.py
+--- /mnt/data/v8j_project/source/v8i/tests/test_installer.py	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/v8j_project/v8j/tests/test_installer.py	2026-10-10 13:32:23.793492963 +0000
+@@ -0,0 +1,113 @@
++#!/usr/bin/env python3
++from pathlib import Path
++from zipfile import ZipFile
++import os, subprocess, tempfile, shutil, json, hashlib, uuid
++ROOT=Path(__file__).resolve().parents[2]/'package'
++PACKAGE='mib2high-carplay-rgi-v8j-simple'
++CAR=Path('/mnt/data/altscreen_inputs/v8i-full-diagnostic-2026-10-10.zip')
++assert ROOT.exists()
++with ZipFile(CAR) as z:
++    base='v8i-full-diagnostic/collected/run-01/firmware/files/'
++    car={'bundles_dsitracer_enabled.properties':z.read(base+'8-bundles_dsitracer_enabled.properties'),
++         'traceConfig.properties':z.read(base+'11-traceConfig.properties'),
++         'smartphone_integrator.json':z.read(base+'36-smartphone_integrator.json')}
++
++def run(sd,env):
++    r=subprocess.run(['sh',str(sd/'mod/custom.sh')],text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env,timeout=35)
++    return r.returncode,r.stdout
++
++def fixture(existing):
++    root=Path(tempfile.mkdtemp(prefix='v8j-test-'))
++    sd,app,sys=root/'sd',root/'app',root/'system'
++    shutil.copytree(ROOT,sd)
++    lsd=app/'eso/hmi/lsd';lsd.mkdir(parents=True)
++    (app/'root').mkdir(parents=True)
++    (lsd/'DSITracer.jar').write_bytes(b'QNX TEST TRACER')
++    for name in ['bundles_dsitracer_enabled.properties','traceConfig.properties']:(lsd/name).write_bytes(car[name])
++    smart=sys/'etc/eso/production/smartphone_integrator.json';smart.parent.mkdir(parents=True);smart.write_bytes(car['smartphone_integrator.json'])
++    if existing:
++        (app/'root/hooks').mkdir(parents=True)
++        (lsd/'jars').mkdir(parents=True)
++        for p in [app/'root/hooks/libmib2high-carplay-rgi.so',lsd/'jars/mib2high-carplay-rgi.jar',app/'root/vc_render',app/'root/mib2high-lvds-control.sh',app/'root/mib2high-lvds-profile.conf',app/'root/mib2high-lvds-viewareas.conf']:
++            p.write_bytes(b'EXISTING V8I FILE')
++        (app/'carplay_altscreen').touch()
++        (lsd/'dsitracer_activated').touch()
++    orig={str(p.relative_to(root)):p.read_bytes() for tree in [app,sys] for p in tree.rglob('*') if p.is_file()}
++    tools=root/'fakebin';tools.mkdir()
++    for name in ['sloginfo','pidin','netstat']:
++        stub=tools/name
++        stub.write_text('#!/bin/sh\necho "'+name+' MOCK DSITRACER EVENT setZoomArea K2161"\n')
++        stub.chmod(0o755)
++    env={**os.environ,'MIB_SD':str(sd),'MIB_APP':str(app),'MIB_SYSTEM':str(sys),'PATH':str(tools)+':'+os.environ['PATH']}
++    return root,sd,app,sys,env,orig
++
++# Native logs on the MMI live under /tmp. Provide a test-only file matching
++# the observed car path patterns, then remove it on exit.
++mock_log=Path('/tmp/v8j-test-gauge-'+uuid.uuid4().hex+'.log')
++mock_log.write_text('V8J MOCK GAUGE TRACE LOG\n')
++checks=[]
++for existing in (False,True):
++    root,sd,app,sys,env,orig=fixture(existing)
++    status,log=run(sd,env)
++    assert status==0 and 'INSTALL_RESULT=PASS' in log,(existing,status,log)
++    pkg=sd/'mod'/PACKAGE
++    assert (pkg/'installed.ok').is_file()
++    for name in ['libmib2high-carplay-rgi.so','mib2high-carplay-rgi.jar','vc_render','mib2high-lvds-control.sh','mib2high-lvds-profile.conf','mib2high-lvds-viewareas.conf']:
++        dest=app/('root/hooks/'+name if name.endswith('.so') else 'eso/hmi/lsd/jars/'+name if name.endswith('.jar') else 'root/'+name)
++        assert dest.read_bytes()==(pkg/'payload'/name).read_bytes(),name
++    assert (app/'root/mib2high-lvds-profile.conf').read_text()=='1440 542 30 0 0 0 1440 542\n'
++    assert 'physical 200 75' in (app/'root/mib2high-lvds-viewareas.conf').read_text()
++    smart=(sys/'etc/eso/production/smartphone_integrator.json').read_text()
++    assert smart.count('LD_PRELOAD=/mnt/app/root/hooks/libmib2high-carplay-rgi.so')==1
++    assert 'MIB2HighCarPlayRGI=org.mib2high.carplay.rgi.Activator' in (app/'eso/hmi/lsd/bundles_dsitracer_enabled.properties').read_text()
++    status2,log2=run(sd,env)
++    assert status2==0 and 'COLLECT_RESULT=PASS' in log2,(existing,status2,log2)
++    d=pkg/'collected/run-01'
++    assert 'MOCK DSITRACER' in (d/'trace/sloginfo-raw.txt').read_text()
++    assert 'V8J MOCK GAUGE TRACE LOG' in (d/'logs'/mock_log.name).read_text()
++    assert (d/'live/libmib2high-carplay-rgi.so').read_bytes()==(pkg/'payload/libmib2high-carplay-rgi.so').read_bytes()
++    (pkg/'ROLLBACK').touch()
++    status3,log3=run(sd,env)
++    assert status3==0 and 'ROLLBACK_RESULT=PASS' in log3,(existing,status3,log3)
++    after={str(p.relative_to(root)):p.read_bytes() for tree in [app,sys] for p in tree.rglob('*') if p.is_file()}
++    assert after==orig,(existing,list(after.keys()),list(orig.keys()))
++    status4,log4=run(sd,env)
++    assert status4==0 and 'ALREADY_ROLLED_BACK' in log4,(existing,status4,log4)
++    checks.append({'existing_runtime':existing,'install':'PASS','collect':'PASS','rollback':'PASS','reinstall_blocked_after_rollback':'PASS'})
++    shutil.rmtree(root)
++
++# Unexpected actual QNX file-copy failure must not print a false collect PASS.
++root,sd,app,sys,env,orig=fixture(True)
++status,log=run(sd,env)
++assert status==0 and 'INSTALL_RESULT=PASS' in log
++# Deliberate failed command in collector sandbox: simulated missing sloginfo
++fake=Path(env['PATH'].split(':')[0])/'sloginfo'
++fake.write_text('#!/bin/sh\nexit 1\n');fake.chmod(0o755)
++status,log=run(sd,env)
++assert status==0 and 'COLLECT_RESULT=PARTIAL' in log,log
++assert 'SLOGINFO_FAILED' in (sd/'mod'/PACKAGE/'collected/run-01/trace/collection-errors.txt').read_text()
++shutil.rmtree(root)
++mock_log.unlink()
++
++script=(ROOT/'mod/custom.sh').read_text()
++assert 'tr -d' not in script and 'cmp ' not in '\n'.join(x for x in script.splitlines() if not x.lstrip().startswith('#'))
++assert 'cksum ' not in '\n'.join(x for x in script.splitlines() if not x.lstrip().startswith('#'))
++assert script.find('if [ -f "$ROLLBACK" ]')<script.find('elif [ -f "$INSTALLED" ]')
++print(json.dumps({'test':'V8J_INSTALLER_MOCK_PASS','scenarios':checks,'partial_error_reporting':'PASS'},indent=2))
++
++# Test-only fault injection into a temporary COPY of the shell script, not any
++# compiled binary or release payload. Force failure mid-install and test restore.
++root,sd,app,sys,env,orig=fixture(True)
++shell=sd/'mod/custom.sh'
++s=shell.read_text()
++needle='install_file "$PAY/$n" "$dest" `modeof "$n"` || fail "install failed $n"'
++assert needle in s
++s=s.replace(needle, '''if [ "$n" = mib2high-lvds-control.sh ]; then false; else install_file "$PAY/$n" "$dest" `modeof "$n"`; fi || fail "install failed $n"''')
++shell.write_text(s)
++status,log=run(sd,env)
++assert status!=0 and 'AUTO_ROLLBACK_RESULT=PASS' in log,log
++after={str(p.relative_to(root)):p.read_bytes() for tree in [app,sys] for p in tree.rglob('*') if p.is_file()}
++assert orig==after
++assert not (sd/'mod'/PACKAGE/'installed.ok').exists()
++shutil.rmtree(root)
++print('V8J_MID_INSTALL_FAILURE_ROLLBACK=PASS')
+diff -ruN '--exclude=output' '--exclude=generated' '--exclude=source-diff.patch' /mnt/data/v8j_project/source/v8i/tests/test_v8i_fixes.py /mnt/data/v8j_project/v8j/tests/test_v8i_fixes.py
+--- /mnt/data/v8j_project/source/v8i/tests/test_v8i_fixes.py	2026-10-10 11:51:38.000000000 +0000
++++ /mnt/data/v8j_project/v8j/tests/test_v8i_fixes.py	2026-10-10 13:28:55.178312130 +0000
+@@ -19,9 +19,12 @@
+ assert 'ALTSCREEN_DECLARED_CANVAS_H' not in alt
+ assert 'set_i64(alt, "heightPixels", profile.h)' in alt
+ assert 'set_i64(area, "heightPixels", p->h)' in alt
+-assert 'physical 200 63' in (root/'config/mib2high-lvds-viewareas.conf').read_text()
++assert 'physical 200 75' in (root/'config/mib2high-lvds-viewareas.conf').read_text()
+ print('V8I_SOURCE_FIX_TEST=PASS')
+ 
+ trace=(root/'config/traceConfig.v8g2.enabled.properties').read_text()
+ assert '\norg.dsi.ifc.map.DSIMapViewerControl=full' in trace
+ assert 'V8I_GAUGE_CANDIDATE validated=0' in native
++
++assert (root/'config/mib2high-lvds-profile.conf').read_text().startswith('1440 542 30 ')
++assert 'advertised=%dx%d' in alt

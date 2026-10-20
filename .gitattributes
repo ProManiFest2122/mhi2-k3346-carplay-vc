@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.properties -text
+*.jar binary
+*.so binary
+*.bin binary
+*.pdf binary
+*.png binary

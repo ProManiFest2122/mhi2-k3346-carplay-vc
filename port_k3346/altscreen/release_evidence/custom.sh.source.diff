@@ -1,0 +1,96 @@
+--- v8k/mod/custom.sh
++++ v8l/mod/custom.sh
+@@ -4,11 +4,11 @@
+ SD="${MIB_SD:-/net/mmx/fs/sda0}"
+ APP="${MIB_APP:-/mnt/app}"
+ SYSTEM="${MIB_SYSTEM:-/mnt/system}"
+-PKGNAME=mib2high-carplay-rgi-v8k-simple
+-MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8k"
++PKGNAME=mib2high-carplay-rgi-v8l-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8l"
+ INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
+ PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
+-say(){ echo "[V8K] $*"; }
++say(){ echo "[V8L] $*"; }
+ fail(){ say "ERROR $*"; exit 1; }
+ # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
+ checkrw() {
+@@ -27,15 +27,15 @@
+     return 1
+ }
+ # All touched paths are indexed; no hidden earlier-install dependency.
+-NAMES='libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf bundles_dsitracer_enabled.properties traceConfig.properties smartphone_integrator.json carplay_altscreen dsitracer_activated v8k-dsitracer-capture'
++NAMES='libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf bundles_dsitracer_enabled.properties traceConfig.properties smartphone_integrator.json carplay_altscreen dsitracer_activated v8l-dsitracer-capture'
+ pathof(){ case "$1" in
+ libmib2high-carplay-rgi.so) echo "$APP/root/hooks/$1";;
+ mib2high-carplay-rgi.jar) echo "$APP/eso/hmi/lsd/jars/$1";;
+-vc_render|v8k-dsitracer-capture|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf) echo "$APP/root/$1";;
++vc_render|v8l-dsitracer-capture|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf) echo "$APP/root/$1";;
+ bundles_dsitracer_enabled.properties|traceConfig.properties|dsitracer_activated) echo "$APP/eso/hmi/lsd/$1";;
+ smartphone_integrator.json) echo "$SYSTEM/etc/eso/production/smartphone_integrator.json";;
+ carplay_altscreen) echo "$APP/carplay_altscreen";; esac; }
+-modeof(){ case "$1" in *.so|vc_render|v8k-dsitracer-capture|*.sh) echo 755;;*)echo 644;;esac; }
++modeof(){ case "$1" in *.so|vc_render|v8l-dsitracer-capture|*.sh) echo 755;;*)echo 644;;esac; }
+ # Preserve actual pre-install POSIX permissions (including setuid/setgid/sticky).
+ # Only uses QNX-standard ls and awk; no stat -c, dirname, cmp or other GNU options.
+ filemode() {
+@@ -80,7 +80,7 @@
+ # Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
+ install_file() {
+     SRC="$1"; DST="$2"; MODE="$3"
+-    TMP="$DST.v8k.new.$$"
++    TMP="$DST.v8l.new.$$"
+     rm -f "$TMP" 2>/dev/null || return 1
+     cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
+     chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
+@@ -111,7 +111,7 @@
+ preflight(){ [ -d "$APP/eso/hmi/lsd" ] || fail 'missing stock LSD directory'; [ -d "$SYSTEM/etc/eso/production" ] || fail 'missing system config directory'; [ -d "$APP/root" ] || fail 'missing stock root directory'; [ -f "$APP/eso/hmi/lsd/DSITracer.jar" ] || fail 'stock DSITracer.jar missing'; [ -f "$APP/eso/hmi/lsd/bundles_dsitracer_enabled.properties" ] || fail 'tracer bundle registry missing'; [ -f "$APP/eso/hmi/lsd/traceConfig.properties" ] || fail 'tracer config missing'; [ -f "$SYSTEM/etc/eso/production/smartphone_integrator.json" ] || fail 'smartphone integrator config missing'; }
+ install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight
+ [ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'; [ ! -e "$BACKUP" ] || fail 'existing backup retained: use ROLLBACK';
+-for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8k-dsitracer-capture; do [ -s "$PAY/$n" ] || fail "missing $n"; done
++for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8l-dsitracer-capture; do [ -s "$PAY/$n" ] || fail "missing $n"; done
+ # Only check payload files exist; no on-car hashing, cksum, cmp or version gates.
+ # Keep unrelated configuration unchanged; use existing configuration as input.
+ awk -f "$MOD/source/bundles.awk" "$APP/eso/hmi/lsd/bundles_dsitracer_enabled.properties" > "$MOD/bundles.$$" || fail 'bundle patch failed'
+@@ -120,7 +120,7 @@
+ checkrw "$APP" || fail 'app filesystem not writable'; checkrw "$SYSTEM" || fail 'system filesystem not writable'
+ mkdir -p "$APP/root/hooks" "$APP/eso/hmi/lsd/jars" || fail 'cannot create payload target directories'
+ backup_all || fail 'original backup failed'; : > "$PENDING" || fail 'cannot mark transaction'; TX=1
+-for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8k-dsitracer-capture; do dest=`pathof "$n"`; say "INSTALLING=$n"; install_file "$PAY/$n" "$dest" `modeof "$n"` || fail "install failed $n"; done
++for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8l-dsitracer-capture; do dest=`pathof "$n"`; say "INSTALLING=$n"; install_file "$PAY/$n" "$dest" `modeof "$n"` || fail "install failed $n"; done
+ install_file "$MOD/bundles.$$" "`pathof bundles_dsitracer_enabled.properties`" 644 || fail 'bundle install failed'
+ install_file "$MOD/trace.$$" "`pathof traceConfig.properties`" 644 || fail 'trace install failed'
+ install_file "$MOD/smartphone.$$" "`pathof smartphone_integrator.json`" 644 || fail 'smartphone install failed'
+@@ -161,7 +161,10 @@
+              /tmp/mib2high-lvds-control.log /tmp/vc_render.log /tmp/vc_render-launch.log \
+              /tmp/mib2high-vc-render.profile /tmp/*rgi*.log /tmp/*rgd*.log /tmp/*bap*.log \
+              /tmp/*DSI*.log /tmp/*dsi*.log /tmp/*tracer*.log /tmp/*zoom*.log \
+-             /tmp/*gauge*.log /tmp/v8k-dsitracer-*.log /tmp/v8k-dsitracer-status.log /tmp/v8k-dsitracer-launch.log /tmp/v8k-rgi-vc-java.log /tmp/v8k-rgi-vc-java.log.1; do
++             /tmp/*gauge*.log /tmp/v8l-dsitracer-*.log /tmp/v8l-dsitracer-status.log /tmp/v8l-dsitracer-launch.log /tmp/v8k-rgi-vc-java.log /tmp/v8k-rgi-vc-java.log.1 \
++             /tmp/v8l-rgi-factory.log /tmp/v8l-rgi-factory.log.1 \
++             /tmp/v8l-dsitracer-1798-*.log /tmp/v8l-dsitracer-20991-*.raw \
++             /tmp/v8l-dsitracer-*-status.log /tmp/v8l-dsitracer-launch-*.log; do
+         [ -f "$f" ] || continue
+         if cp "$f" "$d/logs/"; then
+             echo "$f" >> "$d/trace/copied-files.txt"
+@@ -183,7 +186,7 @@
+         fi
+     fi
+     TRACE_FILES=0
+-    for f in "$d/logs"/v8k-dsitracer-??.log; do
++    for f in "$d/logs"/v8l-dsitracer-1798-??.log "$d/logs"/v8l-dsitracer-20991-??.raw; do
+         if [ -s "$f" ]; then TRACE_FILES=$((TRACE_FILES+1)); fi
+     done
+     if [ "$TRACE_FILES" -eq 0 ]; then
+@@ -206,9 +209,9 @@
+     grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSIKombiSync|screenFormat|VC_TRACE|DSITracer|RGI|HUD|19810|gauge|dial' \
+         "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
+     {
+-        echo 'COLLECTION_VERSION=v8k'
++        echo 'COLLECTION_VERSION=v8l'
+         echo "LOG_FILES_COPIED=$COPIED"
+-        echo 'DSITRACER_STATUS=localhost:1798 recorder enabled when AltScreen starts; see logs/v8k-dsitracer-*'
++        echo 'DSITRACER_STATUS=ports 1798+20991 recorder requested when AltScreen starts; check status and launch logs for execution'
+         echo 'No automatic gauge detection is enabled'
+     } > "$d/trace/metadata.txt" || RESULT=PARTIAL
+     sync || fail 'collection sync failed'

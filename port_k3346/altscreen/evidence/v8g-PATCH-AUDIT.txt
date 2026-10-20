@@ -1,0 +1,23 @@
+K2161 v8G native offline audit. Candidate only; no vehicle validation.
+v8E SHA256: b8ff8d3cc8c531d8f12865d548e0f630949d2710e494e16ed1e5778e778a276b
+v8F SHA256: 6c3dd5a96f21b0b59bc00f196cd21ff158bea6e8ca25a989a9e8b9042d5ad693
+v8G SHA256: 20ed396c43e942a50fa2165c3d243b86135126f3b53e31a971809a3cc305f3fe
+0x7BF4 (literal pointer at ARM add_alt_display): fc1a0100 -> dc1c0100
+0x7990 LDR r7 reads 0x7bf4; 0x7998 ADD r7,PC,r7; 0x79a8 passes r7 to set_string(alt,initialURL,...).
+Before points to 0x1949c maps:/car/instrumentcluster/map; after points to 0x1967c maps:/car/instrumentcluster.
+v8E->v8F changes: only 0x9004 and 0x9005, showUI pointer.
+v8F->v8G changes: only 0x7bf4 and 0x7bf5, initialURL pointer.
+v8E->v8G changes: exactly 4 bytes total, no code opcodes changed.
+Preserves v8E Java JAR/ RGI BAP bridge, 1440x456 profile, no Java/launcher/preload/JSON patch, no features=2, no suggestUI handler changes.
+Safe areas from Joey small-dial measurement: view0=360 65 720 367, view1=468 85 840 332.
+Since this audit was written, the stock K2161 libairplay.so and dio_manager were provided and analyzed separately; no changes from them are included in this payload.
+No boot-safety guarantee possible without tested Ethernet recovery; the V7 root cause was not proven.
+
+Expected live-file cksum:size before install:
+V8E_SO: 3639783208:298059
+V8E_JAR: 3983604903:62423
+V8E_PROFILE: 2026523566:27
+V8G_SO: 803129696:298059
+V8G_VIEWS: 242842366:149
+
+INSTALLER UPDATE: custom.sh derived from v8E, single-run install/next-run collect/ROLLBACK; no mandatory checksum gates, no preflight lock.

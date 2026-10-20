@@ -1,0 +1,25 @@
+--- v8k/deployment/mib2high-lvds-control.sh
++++ v8l/deployment/mib2high-lvds-control.sh
+@@ -38,14 +38,16 @@
+ 
+ [ -e "$ACTIVE" ] || { rm -f "$HEARTBEAT" 2>/dev/null || true; exit 0; }
+ 
+-# v8k diagnostics only: read DSITracer telnet output into a bounded /tmp ring.
+-# The capture process has an exclusive PID lock; it changes no RGI/VC state.
+-TRACE_CAPTURE=/mnt/app/root/v8k-dsitracer-capture
++# v8l diagnostics only: read-only bounded /tmp rings for known factory
++# DSITracer appenders. Launch output and process status are collected separately.
++TRACE_CAPTURE=/mnt/app/root/v8l-dsitracer-capture
+ if [ -x "$TRACE_CAPTURE" ]; then
+-    "$TRACE_CAPTURE" >> /tmp/v8k-dsitracer-launch.log 2>&1 &
+-    log "dsitracer capture requested"
++    "$TRACE_CAPTURE" 1798 >> /tmp/v8l-dsitracer-launch-1798.log 2>&1 &
++    log "v8l dsitracer 1798 capture requested pid=$!"
++    "$TRACE_CAPTURE" 20991 >> /tmp/v8l-dsitracer-launch-20991.log 2>&1 &
++    log "v8l dsitracer 20991 capture requested pid=$!"
+ else
+-    log "dsitracer capture binary missing"
++    log "v8l dsitracer capture binary missing"
+ fi
+ 
+ W=800

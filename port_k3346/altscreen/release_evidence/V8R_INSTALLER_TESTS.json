@@ -1,0 +1,12 @@
+{
+  "release": "v8R",
+  "offline_only": true,
+  "results": [
+    "Arctus FULL/SMALL geometry, view index mapping, query URL wiring, unchanged native initialURL and payload binary hashes: PASS",
+    "shell syntax, versioned package paths, rollback-first dispatch: PASS",
+    "clean stock install + full collection + byte/mode-exact rollback: PASS",
+    "v8P\u2192v8R upgrade and exact v8P rollback: PASS",
+    "injected failure at third payload write: auto rollback to exact v8P state: PASS",
+    "missing logs correctly produces PARTIAL collection: PASS"
+  ]
+}

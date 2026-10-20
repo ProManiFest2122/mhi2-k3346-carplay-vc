@@ -1,0 +1,219 @@
+diff -ruN v8p_source/v8p_source/native/altscreen_airplay.c v8r_source/native/altscreen_airplay.c
+--- v8p_source/v8p_source/native/altscreen_airplay.c	1980-01-01 00:00:00.000000000 +0000
++++ v8r_source/native/altscreen_airplay.c	2026-10-11 13:01:33.860460465 +0000
+@@ -8,6 +8,7 @@
+ #include <unistd.h>
+ 
+ #include "altscreen.h"
++#include "gauge_layout_urls.h"
+ #include "framework/logging.h"
+ 
+ #define ALTINFO_MODULE "AltScreenInfo"
+@@ -837,6 +838,24 @@
+     return out;
+ }
+ 
++/* v8R: both dynamic alignment URLs must be eligible AirPlay cluster URLs.
++ * Keep the existing three suggested URLs unchanged: only allow-list expands. */
++static cf_ref make_allowed_cluster_urls(void)
++{
++    cf_ref out = make_cluster_urls();
++    cf_ref s;
++    const char *extra[] = { ALTSCREEN_URL_SMALL_GAUGES, ALTSCREEN_URL_BIG_GAUGES };
++    unsigned int i;
++    if (out == NULL) return NULL;
++    for (i = 0; i < 2u; ++i) {
++        s = cfs(extra[i]);
++        if (s == NULL) { g_cf.release(out); return NULL; }
++        g_cf.array_append(out, s);
++        g_cf.release(s);
++    }
++    return out;
++}
++
+ static cf_ref patch_property_result(cf_ref stock, cf_ref property)
+ {
+     cf_ref patched;
+@@ -859,13 +878,15 @@
+     if (name != NULL &&
+         (strcmp(name, "altScreenURLs") == 0 ||
+          strcmp(name, "altScreenSuggestUIURLs") == 0)) {
+-        patched = make_cluster_urls();
++        int allowed = strcmp(name, "altScreenURLs") == 0;
++        patched = allowed ? make_allowed_cluster_urls() : make_cluster_urls();
+         if (patched != NULL) {
+             if (stock != NULL) g_cf.release(stock);
+             LOG_INFO(ALTINFO_MODULE,
+-                     "PROPERTY_RETURN property=%s count=3 urls=%s|%s|%s",
+-                     name, ALTSCREEN_URL_BASE,
+-                     ALTSCREEN_INITIAL_URL, ALTSCREEN_URL_CARD);
++                     "PROPERTY_RETURN property=%s count=%d base=%s extra=%s|%s",
++                     name, allowed ? 5 : 3, ALTSCREEN_INITIAL_URL,
++                     allowed ? ALTSCREEN_URL_SMALL_GAUGES : "-",
++                     allowed ? ALTSCREEN_URL_BIG_GAUGES : "-");
+             return patched;
+         }
+     }
+diff -ruN v8p_source/v8p_source/native/altscreen_session.c v8r_source/native/altscreen_session.c
+--- v8p_source/v8p_source/native/altscreen_session.c	2026-10-11 12:25:52.000000000 +0000
++++ v8r_source/native/altscreen_session.c	2026-10-11 13:01:33.860345091 +0000
+@@ -17,6 +17,7 @@
+ 
+ #include "altscreen.h"
+ #include "gauge_bap54.h"
++#include "gauge_layout_urls.h"
+ #include "framework/logging.h"
+ 
+ #define ALTSCREEN_SESSION_MODULE "AltScreenSession"
+@@ -27,7 +28,6 @@
+ #define ALTSCREEN_VIEW_COUNT 4
+ #define ALTSCREEN_VIEW_REACQUIRE_DELAY_MS 150ULL
+ #define ALTSCREEN_ACTIVE_MARKER "/tmp/mib2high-lvds-active"
+-#define ALTSCREEN_SHOWUI_URL "maps:/car/instrumentcluster" /* v8F composite map+instruction-card context */
+ #define K_CFSTRING_UTF8 0x08000100U
+ 
+ typedef void *cf_ref;
+@@ -159,7 +159,7 @@
+     int route_active;
+     int current_view;
+     int pending_view;
+-    int pending_view_from_gauge; /* 1=gauge update; skip redundant showUI */
++    int pending_view_from_gauge; /* 1=gauge update; v8R also changes maneuver alignment */
+     uint64_t view_due_ms;
+     int control_inflight;
+ } altscreen_state;
+@@ -1053,7 +1053,7 @@
+     pthread_mutex_unlock(&g_lock);
+ }
+ 
+-static cf_ref make_event_request(const char *type, int include_url)
++static cf_ref make_event_request(const char *type, const char *url)
+ {
+     cf_ref request = NULL;
+     cf_ref params = NULL;
+@@ -1066,7 +1066,7 @@
+     if (!dict_set_string(request, "type", type) ||
+         !dict_set_string(params, "uuid", ALTSCREEN_UUID))
+         goto fail;
+-    if (include_url && !dict_set_string(params, "url", ALTSCREEN_SHOWUI_URL))
++    if (url != NULL && !dict_set_string(params, "url", url))
+         goto fail;
+     if (!dict_set_obj(request, "params", params))
+         goto fail;
+@@ -1096,7 +1096,7 @@
+         return NULL;
+     }
+ 
+-    request = make_event_request("updateViewArea", 0);
++    request = make_event_request("updateViewArea", NULL);
+     if (request == NULL)
+         return NULL;
+     params = dict_get(request, "params");
+@@ -1176,14 +1176,14 @@
+     return rc;
+ }
+ 
+-static os_status send_event(void *receiver, const char *type, int include_url)
++static os_status send_event(void *receiver, const char *type, const char *url)
+ {
+     cf_ref request;
+     os_status rc = -1;
+ 
+     if (receiver == NULL || g_api.send_command == NULL)
+         return -1;
+-    request = make_event_request(type, include_url);
++    request = make_event_request(type, url);
+     if (request == NULL)
+         return -1;
+ 
+@@ -1192,7 +1192,7 @@
+ 
+     LOG_INFO(ALTSCREEN_SESSION_MODULE,
+              "event type=%s rc=%d uuid=%s url=%s",
+-             type, rc, ALTSCREEN_UUID, include_url ? ALTSCREEN_INITIAL_URL : "-");
++             type, rc, ALTSCREEN_UUID, url != NULL ? url : "-");
+     return rc;
+ }
+ 
+@@ -1207,11 +1207,11 @@
+     view = route_view_for_state(state);
+     pthread_mutex_unlock(&g_lock);
+ 
+-    rc = send_event(state->receiver, "showUI", 1);
++    rc = send_event(state->receiver, "showUI", altscreen_gauge_url_for_view(view));
+     if (rc == 0)
+         (void)send_view_event(state->receiver, view);
+     if (rc == 0)
+-        (void)send_event(state->receiver, "forceKeyFrame", 0);
++        (void)send_event(state->receiver, "forceKeyFrame", NULL);
+ }
+ 
+ int altscreen_request_fresh_keyframe(void)
+@@ -1236,7 +1236,7 @@
+         return 0;
+     }
+ 
+-    rc = send_event(receiver, "forceKeyFrame", 0);
++    rc = send_event(receiver, "forceKeyFrame", NULL);
+     LOG_INFO(ALTSCREEN_SESSION_MODULE,
+              "fresh keyframe request receiver=%p rc=%d source=renderer_reprime",
+              receiver, rc);
+@@ -1529,18 +1529,20 @@
+         if (receiver != NULL && view >= 0) {
+             os_status show_rc = -1, view_rc = -1, key_rc = -1;
+             if (access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0) {
+-                /* v8O: gauge switches update the active interface directly.
+-                 * Initial request_cluster() and route changes still call showUI. */
+-                if (!from_gauge)
+-                    show_rc = send_event(receiver, "showUI", 1);
++                /* v8R: an actual FctID 54 gauge transition changes both
++                 * safeArea preset and the iPhone's maneuverLayout URL.
++                 * This requires a single showUI per queued gauge transition;
++                 * route transitions retain their existing showUI behavior. */
++                show_rc = send_event(receiver, "showUI",
++                                     altscreen_gauge_url_for_view(view));
+                 view_rc = send_view_event(receiver, view);
+-                key_rc = send_event(receiver, "forceKeyFrame", 0);
++                key_rc = send_event(receiver, "forceKeyFrame", NULL);
+             }
+             LOG_INFO(ALTSCREEN_SESSION_MODULE,
+                      "VIEW_REACQUIRE receiver=%p view=%d origin=%s show_ui=%s "
+                      "show_rc=%d view_rc=%d key_rc=%d active_marker=%d",
+                      receiver, view, from_gauge ? "gauge" : "route",
+-                     from_gauge ? "SKIPPED" : "REQUESTED", show_rc, view_rc, key_rc,
++                     "REQUESTED", show_rc, view_rc, key_rc,
+                      access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0);
+ 
+             pthread_mutex_lock(&g_lock);
+@@ -1934,7 +1936,7 @@
+     pthread_mutex_unlock(&g_lock);
+ 
+     if (show_sent)
+-        (void)send_event(receiver, "stopUI", 0);
++        (void)send_event(receiver, "stopUI", NULL);
+     if (screen_started && screen != NULL && g_api.screen_send_cmd != NULL)
+         (void)g_api.screen_send_cmd(screen, 'q', NULL, 0);
+ 
+diff -ruN v8p_source/v8p_source/native/gauge_layout_urls.h v8r_source/native/gauge_layout_urls.h
+--- v8p_source/v8p_source/native/gauge_layout_urls.h	1970-01-01 00:00:00.000000000 +0000
++++ v8r_source/native/gauge_layout_urls.h	2026-10-11 13:01:33.859968925 +0000
+@@ -0,0 +1,19 @@
++#ifndef ALTSCREEN_GAUGE_LAYOUT_URLS_H
++#define ALTSCREEN_GAUGE_LAYOUT_URLS_H
++
++/* v8R: retain v8P composite map+card surface; change only maneuver justification.
++ * Apple cluster URL query parsing accepts canonical mixed-case leftAligned/topAligned.
++ * BAP FctID 54: 1=small gauges/FULL map => views 0/1;
++ *               0=big gauges/SMALL map => views 2/3. */
++#define ALTSCREEN_URL_SMALL_GAUGES \
++    "maps:/car/instrumentcluster?maneuverLayout=leftAligned"
++#define ALTSCREEN_URL_BIG_GAUGES \
++    "maps:/car/instrumentcluster?maneuverLayout=topAligned"
++
++static const char *altscreen_gauge_url_for_view(int view)
++{
++    return (view == 2 || view == 3) ? ALTSCREEN_URL_BIG_GAUGES :
++                                      ALTSCREEN_URL_SMALL_GAUGES;
++}
++
++#endif

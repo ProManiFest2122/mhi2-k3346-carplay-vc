@@ -1,0 +1,35 @@
+--- v8p_source/v8p_source/deployment/custom.sh	2026-10-11 12:25:52.000000000 +0000
++++ v8r_source/deployment/custom.sh	2026-10-11 13:01:33.860702599 +0000
+@@ -4,11 +4,11 @@
+ SD="${MIB_SD:-/net/mmx/fs/sda0}"
+ APP="${MIB_APP:-/mnt/app}"
+ SYSTEM="${MIB_SYSTEM:-/mnt/system}"
+-PKGNAME=mib2high-carplay-rgi-v8p-simple
+-MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8p"
++PKGNAME=mib2high-carplay-rgi-v8r-simple
++MOD="$SD/mod/$PKGNAME"; PAY="$MOD/payload"; BACKUP="$MOD/backup/pre-v8r"
+ INSTALLED="$MOD/installed.ok"; ROLLBACK="$MOD/ROLLBACK"
+ PENDING="$MOD/installing.flag"; COLLECT="$MOD/collected"
+-say(){ echo "[V8P] $*"; }
++say(){ echo "[V8R] $*"; }
+ fail(){ say "ERROR $*"; exit 1; }
+ # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
+ checkrw() {
+@@ -80,7 +80,7 @@
+ # Exact v8g2 proven deployment sequence: copy temporary, chmod, rename.
+ install_file() {
+     SRC="$1"; DST="$2"; MODE="$3"
+-    TMP="$DST.v8p.new.$$"
++    TMP="$DST.v8r.new.$$"
+     rm -f "$TMP" 2>/dev/null || return 1
+     cp "$SRC" "$TMP" || { say "COPY_FAILED=$DST"; return 1; }
+     chmod "$MODE" "$TMP" || { say "CHMOD_FAILED=$DST"; rm -f "$TMP"; return 1; }
+@@ -235,7 +235,7 @@
+     grep -Ei 'V8I_|zoom|ZoomArea|ViewScreenViewPort|DSIMapViewer|DSIKOMO|DSIKombiSync|screenFormat|VC_TRACE|DSITracer|RGI|HUD|19810|gauge|dial' \
+         "$d/trace/sloginfo-raw.txt" > "$d/trace/events.txt" 2>/dev/null || true
+     {
+-        echo 'COLLECTION_VERSION=v8p'
++        echo 'COLLECTION_VERSION=v8r'
+         echo "LOG_FILES_COPIED=$COPIED"
+         echo 'DSITRACER_STATUS=ports 1798+20991 recorder requested when AltScreen starts; check status and launch logs for execution'
+         echo 'Gauge layout: LIVE DSIBAP service=50 FctID=54 bit0: 0=BIG, 1=SMALL; check V8N_GAUGE_BAP54 and VIEW_REACQUIRE logs'

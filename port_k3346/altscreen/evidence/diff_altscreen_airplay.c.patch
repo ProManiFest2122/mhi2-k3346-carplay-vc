@@ -1,0 +1,58 @@
+--- v8g2/native/altscreen_airplay.c
++++ v8i/native/altscreen_airplay.c
+@@ -21,10 +21,10 @@
+ #define ALTSCREEN_DEFAULT_FPS 30
+ #define ALTSCREEN_VIEW_COUNT_DEFAULT 4
+ #define ALTSCREEN_VIEW_COUNT_MAX 4
+-/* User-required Q7 advertised AltScreen canvas.  Distinct from existing
+- * 1440x456 codec/renderer profile, which is not modified by v8h. */
+-#define ALTSCREEN_DECLARED_CANVAS_W 1440
+-#define ALTSCREEN_DECLARED_CANVAS_H 542
++/* Declare exactly the same pixel canvas as the actual video/renderer profile.
++ * Q7 physical VC panel is 1440x542; Screen 111 VIDEO is 1440x456.
++ * Mixing sender 542 with renderer 456 caused v8g2 negotiation distortion.
++ * p->w/p->h below are validated against the installed profile. */
+ #define K_CFSTRING_UTF8 0x08000100U
+ 
+ typedef void *cf_ref;
+@@ -684,8 +684,8 @@
+ 
+         if (!set_i64(area, "originXPixels", 0) ||
+             !set_i64(area, "originYPixels", 0) ||
+-            !set_i64(area, "widthPixels", ALTSCREEN_DECLARED_CANVAS_W) ||
+-            !set_i64(area, "heightPixels", ALTSCREEN_DECLARED_CANVAS_H) ||
++            !set_i64(area, "widthPixels", p->w) ||
++            !set_i64(area, "heightPixels", p->h) ||
+             !set_bool(area, "drawUIOutsideSafeArea", 0) ||
+             !set_bool(area, "viewAreaTransitionControl", 0) ||
+             !set_obj(area, "safeArea", safe)) {
+@@ -732,8 +732,8 @@
+     if (!set_string(alt, "uuid", ALTSCREEN_UUID) ||
+         !set_i64(alt, "features", 0) ||
+         !set_i64(alt, "maxFPS", profile.fps) ||
+-        !set_i64(alt, "widthPixels", ALTSCREEN_DECLARED_CANVAS_W) ||
+-        !set_i64(alt, "heightPixels", ALTSCREEN_DECLARED_CANVAS_H) ||
++        !set_i64(alt, "widthPixels", profile.w) ||
++        !set_i64(alt, "heightPixels", profile.h) ||
+         !set_i64(alt, "widthPhysical", profile.physical_w) ||
+         !set_i64(alt, "heightPhysical", profile.physical_h) ||
+         !set_i64(alt, "initialViewArea", 0) ||
+@@ -766,6 +766,9 @@
+     cf_ref out = NULL;
+     cf_ref alt = NULL;
+     cf_index count;
++    altscreen_profile profile;
++
++    load_profile(&profile);
+ 
+     if (!is_array(stock)) {
+         LOG_ERROR(ALTINFO_MODULE,
+@@ -798,7 +801,7 @@
+              "showsInstruments=1 initialURL=%s",
+              (long)count, (long)(count + 1), ALTSCREEN_UUID,
+              AIRPLAY_STREAM_TYPE_ALT_SCREEN,
+-             ALTSCREEN_DECLARED_CANVAS_W, ALTSCREEN_DECLARED_CANVAS_H,
++             profile.w, profile.h,
+              ALTSCREEN_INITIAL_URL);
+ 
+     if (!g_info_logged) {

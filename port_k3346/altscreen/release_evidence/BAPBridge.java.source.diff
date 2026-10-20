@@ -1,0 +1,74 @@
+--- v8k/java/build/src/routeguidance/BAPBridge.java
++++ v8l/java/build/src/routeguidance/BAPBridge.java
+@@ -170,7 +170,9 @@
+         FormattedDistance fd = formatDistanceToTurn(meters);
+         traceBap("updateDistanceToNextManeuver",
+             fd.value + "," + fd.unit + ",false,0");
++        V8LFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
+         appConnectorNavi.updateDistanceToNextManeuver(fd.value, fd.unit, false, 0);
++        V8LFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
+     }
+ 
+     private void sendDistanceToDestinationRaw(int meters, boolean isStopOver) {
+@@ -276,6 +278,7 @@
+         }
+ 
+         csRef.getClusterViewMode().setFavoredViewMode(mode);
++        V8LFactoryTrace.snapshot("after_favored_view_mode", csRef);
+         V8KVcTrace.record("VC_SET_FAVORED_RETURNED_OK mode=" + mode);
+ 
+         Log.i(TAG,
+@@ -371,6 +374,7 @@
+              */
+             V8KVcTrace.record("UPDATE_RG_ACTIVE_BEGIN");
+             csRef.updateRgActive(true);
++            V8LFactoryTrace.snapshot("after_rg_active_true", csRef);
+             V8KVcTrace.record("UPDATE_RG_ACTIVE_RETURNED_OK");
+             vcFactoryRgStatePropagated = true;
+ 
+@@ -637,11 +641,15 @@
+         }
+ 
+         if (active) {
++            V8LFactoryTrace.snapshot("before_rgi_valid_on", csRef);
+             try { csRef.updateRGIString(new short[]{1}); }
+             catch (Exception e) { Log.d(TAG, "force rgiValid=true failed: " + e.getMessage()); }
++            V8LFactoryTrace.snapshot("after_rgi_valid_on", csRef);
+         } else {
++            V8LFactoryTrace.snapshot("before_rgi_valid_off", csRef);
+             try { csRef.updateRGIString(null); }
+             catch (Exception e) { Log.d(TAG, "force rgiValid=false failed: " + e.getMessage()); }
++            V8LFactoryTrace.snapshot("after_rgi_valid_off", csRef);
+ 
+             /*
+              * Only the VC-enabled path propagates ClusterService RG-active
+@@ -1177,7 +1185,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(ManeuverMapper.FOLLOW_STREET, ManeuverMapper.DIR_STRAIGHT, 0, new byte[0]);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 FOLLOW_STREET exit=0,0");
++        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
++        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+     }
+ 
+     /**
+@@ -1187,7 +1197,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(0, 0, 0, new byte[0]);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 NO_SYMBOL exit=0,0");
++        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
++        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+     }
+ 
+     /**
+@@ -1224,7 +1236,9 @@
+         CombiBAPNaviManeuverDescriptor[] arr = new CombiBAPNaviManeuverDescriptor[1];
+         arr[0] = createDescriptor(mapped[0], mapped[1], zLevel, sideStreets);
+         traceBap("updateManeuverDescriptorAndExitView", "count=1 exit=0,0");
++        V8LFactoryTrace.descriptor("before_call", arr, 0, 0, appConnectorNavi, csRef);
+         appConnectorNavi.updateManeuverDescriptorAndExitView(arr, 0, 0);
++        V8LFactoryTrace.descriptor("after_returned", arr, 0, 0, appConnectorNavi, csRef);
+         Log.d(TAG, "Sent 1 maneuver");
+     }
+ 

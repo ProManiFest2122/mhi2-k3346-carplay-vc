@@ -69,6 +69,25 @@ def main(native, drv):
     check("msgtable: NP update", (u32(m + 12), u32(m + 16), u32(m + 20)) ==
           (mt["K2161_NP_UPDATE_NAME_OFFSET"], 2, mt["K2161_NP_UPDATE_PARAMS_OFFSET"]))
     check("msgtable: group52 stock empty", g52 == (0, 0, 0))
+    # K3346 Etap 6: grupa 0x41 Telephony (90 wpisow, uzyte tylko 0x54-0x59)
+    g41 = g(0x41)
+    check("msgtable: group41", g41 == (mt["K3346_GROUP41_NAME_OFFSET"], mt["K3346_GROUP41_MESSAGES_OFFSET"],
+                                       mt["K3346_GROUP41_STOCK_COUNT"]))
+    m41 = mt["K3346_GROUP41_MESSAGES_OFFSET"]
+    ent = lambda i: (u32(m41 + 12 * i), u32(m41 + 12 * i + 4), u32(m41 + 12 * i + 8))
+    exp = {0x54: ("K3346_TEL_START_STATE_NAME", 1, "K3346_TEL_START_STATE_PARAMS"),
+           0x55: ("K3346_TEL_STATE_NAME", 2, "K3346_TEL_STATE_PARAMS"),
+           0x56: ("K3346_TEL_STOP_STATE_NAME", 1, None),
+           0x57: ("K3346_TEL_START_UPD_NAME", 1, "K3346_TEL_START_UPD_PARAMS"),
+           0x58: ("K3346_TEL_UPDATE_NAME", 2, "K3346_TEL_UPDATE_PARAMS"),
+           0x59: ("K3346_TEL_STOP_UPD_NAME", 1, None)}
+    for i, (n, f, p) in sorted(exp.items()):
+        check("msgtable: tel entry %02x" % i, ent(i) == (mt[n], f, mt[p] if p else 0))
+    used = [i for i in range(mt["K3346_GROUP41_STOCK_COUNT"]) if ent(i) != (0, 0, 0)]
+    check("msgtable: tel only 0x54-0x59 used", used == list(range(0x54, 0x5A)), str([hex(i) for i in used]))
+    sh0 = consts(native + "/send_hook.c")
+    check("send: TEL_ADDPARAM_BLOB_OFFSET == packet_addparam_blob",
+          sh0["TEL_ADDPARAM_BLOB_OFFSET"] == syms["packet_addparam_blob"])
 
     sh = consts(native + "/send_hook.c")
     check("send: msg slot -> iap2_msg", u32(sh["IAP2_MSG_SLOT_OFFSET"]) == sh["IAP2_MSG_OFFSET"] == syms["iap2_msg"])

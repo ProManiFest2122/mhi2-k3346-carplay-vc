@@ -30,7 +30,8 @@ set -- \
   "libmib2high-carplay-rgi-ipod.so|$A/output/libmib2high-carplay-rgi-ipod.so|755" \
   "mm-ipod-rgi.sh|$A/deployment/etap4/mm-ipod-rgi.sh|755" \
   "mib2high-k3346-overrides.jar|$A/output/mib2high-k3346-overrides.jar|644" \
-  "k3346-artwork-probe|$A/diagnostics/k3346-artwork-probe|755"
+  "k3346-artwork-probe|$A/diagnostics/k3346-artwork-probe|755" \
+  "k3346-coverart-fetch|$A/coverart/k3346-coverart-fetch|755"
 PAYLOAD_SPECS=("$@")
 
 rm -rf "$OUT"
@@ -89,13 +90,13 @@ mkdir -p "$OUT/ZNACZNIKI"
 # --- kontrola: zadnych CRLF w plikach tekstowych idacych do auta ---
 bad=0
 while IFS= read -r f; do
-    case "$f" in *.so|*.jar|*vc_render|*v8l-dsitracer-capture|*k3346-artwork-probe) continue;; esac
+    case "$f" in *.so|*.jar|*vc_render|*v8l-dsitracer-capture|*k3346-artwork-probe|*k3346-coverart-fetch) continue;; esac
     if LC_ALL=C grep -qU $'\r' "$f" 2>/dev/null; then echo "CRLF: $f" >&2; bad=1; fi
 done < <(find "$OUT" -type f)
 [ "$bad" -eq 0 ] || fail "w paczce sa pliki z CRLF - na QNX to psuje skrypty"
 
 # --- kontrola: binarki to naprawde QNX ARM ---
-for b in libmib2high-carplay-rgi.so libmib2high-carplay-rgi-ipod.so vc_render v8l-dsitracer-capture k3346-artwork-probe; do
+for b in libmib2high-carplay-rgi.so libmib2high-carplay-rgi-ipod.so vc_render v8l-dsitracer-capture k3346-artwork-probe k3346-coverart-fetch; do
     case "$(file -b "$OUT/mod/$PKG/payload/$b")" in
         *ARM*) ;;
         *) fail "$b nie jest binarka ARM";;

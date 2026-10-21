@@ -21,6 +21,10 @@
 #include "message_table.h"
 #include "status.h"
 #include "diagnostics.h"
+#ifdef K3346_TEL_LISTS
+#include "framework/iap2_protocol.h"
+#include "telephony/k3346_tel.h"
+#endif
 
 typedef int (*iap2_msg_fn)(void *, void *, void *, void *, void *);
 typedef int (*iap2_close_fn)(void *, void *, void *, void *);
@@ -40,8 +44,14 @@ enum {
     ADDPARAM_NUM_OFFSET = 0x0001e3fc, /* K2161: 0x0001d210 */
     SENDLIST_POP_OFFSET = 0x0001f198, /* K2161: 0x0001dfac */
     SENDLIST_PUSH_OFFSET = 0x0001ee00, /* K2161: 0x0001dc14 */
-    LINK_SEND_MESSAGE_OFFSET = 0x0001165c /* link_send_message; K2161: 0x00010530 */
+    LINK_SEND_MESSAGE_OFFSET = 0x0001165c, /* link_send_message; K2161: 0x00010530 */
+    TEL_ADDPARAM_BLOB_OFFSET = 0x0001e2c4  /* packet_addparam_blob (K3346 Etap 6) */
 };
+
+#ifdef K3346_TEL_LISTS
+typedef int (*packet_addparam_blob_fn)(void *, void *, uint16_t, const void *, size_t);
+static packet_addparam_blob_fn addparam_blob;
+#endif
 
 volatile unsigned int k2161_rgi_start_sent;
 
@@ -348,6 +358,9 @@ static void reset_rgi_for_identification(void *ctx)
     k2161_rgi_start_sent = 0;
     k2161_status_reset(ctx);
     (void)rgi_diag_session_bump("start_identification");
+#ifdef K3346_TEL_LISTS
+    k3346_tel_session_reset();
+#endif
 
     pthread_mutex_unlock(&send_lock);
 
@@ -419,6 +432,42 @@ int k2161_send_start_route_guidance(void *ctx)
     pthread_mutex_unlock(&send_lock);
     return send_rc;
 }
+
+#ifdef K3346_TEL_LISTS
+/* K3346 Etap 6: wiadomosc telefonii (0x4170 / 0x415A) przez stock pule pakietow
+ * sterownika; kazdy parametr payloadu TLV dodany jako blob (gotowe bajty BE),
+ * pusty jako nodata. Ta sama blokada co 0x5200. */
+static int k3346_tel_send(void *ctx, uint16_t msgid, const uint8_t *payload, size_t len)
+{
+    void *pkt;
+    iap2_tlv_t t;
+    size_t off = 0;
+    int rc = 0, send_rc = -1, params = 0;
+
+    if (!k3346_msgtable_tel_ready() || !ctx || !addparam_blob || !addparam_nodata ||
+        !sendlist_pop || !sendlist_push || !send_message)
+        return -2;
+    pthread_mutex_lock(&send_lock);
+    pkt = sendlist_pop(ctx);
+    if (!pkt) {
+        pthread_mutex_unlock(&send_lock);
+        return -3;
+    }
+    while (rc == 0 && off < len && iap2_parse_tlv(payload + off, len - off, &t)) {
+        rc = t.value_len ? addparam_blob(ctx, pkt, t.id, t.value, t.value_len)
+                         : addparam_nodata(ctx, pkt, t.id);
+        off += t.len;
+        ++params;
+    }
+    if (rc == 0 && off == len)
+        send_rc = send_message(ctx, pkt, msgid);
+    (void)sendlist_push(ctx, pkt);
+    pthread_mutex_unlock(&send_lock);
+    rgi_diag_log("TEL", "send msg=%04x params=%d addparam_rc=%d send_rc=%d",
+                 (unsigned)msgid, params, rc, send_rc);
+    return send_rc;
+}
+#endif
 
 int MsgReply(int rcvid, int status, const void *msg, int size)
 {
@@ -523,6 +572,9 @@ static int wrapped_iap2_msg(void *ctx, void *ctp, void *msg,
                 (void)k2161_send_start_route_guidance(ctx);
             }
         }
+#ifdef K3346_TEL_LISTS
+        k3346_tel_tick(ctx, k2161_monotonic_ms(), k3346_tel_send);
+#endif
     }
     return rc;
 }
@@ -581,6 +633,9 @@ int k2161_send_hook_try_install_base(void *driver_base)
         sendlist_pop = (packet_sendlist_pop_fn)(base + SENDLIST_POP_OFFSET);
         sendlist_push = (packet_sendlist_push_fn)(base + SENDLIST_PUSH_OFFSET);
         send_message = (link_send_message_fn)(base + LINK_SEND_MESSAGE_OFFSET);
+#ifdef K3346_TEL_LISTS
+        addparam_blob = (packet_addparam_blob_fn)(base + TEL_ADDPARAM_BLOB_OFFSET);
+#endif
         installed_driver_base = base;
         send_hook_installed = 1;
         rgi_diag_log("5200", "send_hook_already_installed base=%p", base);
@@ -622,6 +677,9 @@ int k2161_send_hook_try_install_base(void *driver_base)
 
     installed_driver_base = base;
     send_hook_installed = 1;
+#ifdef K3346_TEL_LISTS
+    addparam_blob = (packet_addparam_blob_fn)(base + TEL_ADDPARAM_BLOB_OFFSET);
+#endif
     k2161_status_send_hooks_ready(1, 1);
     rgi_diag_log("5200", "send_hook_install=PASS base=%p shape=component_qualified", base);
     return 1;

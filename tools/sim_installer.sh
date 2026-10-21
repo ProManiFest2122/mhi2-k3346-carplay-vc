@@ -396,8 +396,9 @@ cmp -s "$SIM/app/root/hooks/libmib2high-carplay-rgi-ipod.so" "$E4M/payload/libmi
 D=$(diff "$SIM/lua.stock" "$LUA")
 [ "$(printf '%s\n' "$D" | grep -c '^[<>]')" = 2 ] && printf '%s\n' "$D" | grep -q '^> .*return "/mnt/app/root/mm-ipod-rgi.sh -d iap2,config=/etc/mm/iap2.cfg,' \
   && ok "lua: zmieniona dokladnie jedna linia (start mm-ipod)" || { bad "lua: zmiany inne niz zapowiedziane"; printf '%s\n' "$D" | head | sed 's/^/        /'; }
-[ "$(head -c 5852 "$CFG" | sha256sum)" = "$(sha256sum < "$SIM/cfg.stock")" ] && tail -n 3 "$CFG" | grep -q '^recvmsgs=0x5201,0x5202,0x5204$' \
-  && tail -n 1 "$CFG" | grep -q '^sendmsgs=0x5200,0x5203$' && ok "iap2.cfg: stock bez zmian + [ident] dopisane na koncu" || bad "iap2.cfg: zmiany inne niz zapowiedziane"
+[ "$(head -c 5852 "$CFG" | sha256sum)" = "$(sha256sum < "$SIM/cfg.stock")" ] && tail -n 3 "$CFG" | grep -q '^recvmsgs=0x5201,0x5202,0x5204,0x4171$' \
+  && tail -n 1 "$CFG" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' && [ "$(wc -c < "$CFG")" = 5991 ] \
+  && ok "iap2.cfg: stock bez zmian + [ident] (RGI + Etap 6) dopisane na koncu, 5991 B" || bad "iap2.cfg: zmiany inne niz zapowiedziane"
 [ "$(stat -c %a "$LUA")" = 644 ] && [ "$(stat -c %a "$CFG")" = 664 ] && ok "tryby lua/cfg zachowane (644/664)" || bad "tryby lua/cfg zmienione"
 if command -v luac5.1 >/dev/null 2>&1; then
     luac5.1 -p "$LUA" && ok "luac -p: nowy usblauncher_otg.lua poprawny skladniowo" || bad "luac -p: BLAD SKLADNI w lua"
@@ -498,6 +499,7 @@ OUT=$(run); case "$OUT" in *"ETAP4_NOT_INSTALLED"*) ok "komunikat: nic do cofnie
 # ----------------------------------------------------------------------- T14
 # Etap 5: JAR z klasami o fabrycznych nazwach. Osobna transakcja.
 OVR="$SIM/app/eso/hmi/lsd/jars/mib2high-k3346-overrides.jar"
+CAF="$SIM/app/root/k3346-coverart-fetch"
 
 echo
 echo "--- T14a: INSTALL_ETAP5 bez v8s -> ODMOWA, zero zapisow"
@@ -520,8 +522,9 @@ cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"
 OUT=$(run); echo "$OUT" | sed 's/^/      | /'
 case "$OUT" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "Etap 5 PASS";; *) bad "brak ETAP5_INSTALL_RESULT=PASS";; esac
 cmp -s "$OVR" "$E4M/payload/mib2high-k3346-overrides.jar" && [ "$(stat -c %a "$OVR")" = 644 ] && ok "JAR na miejscu, 644" || bad "JAR brak/zly tryb"
+cmp -s "$CAF" "$E4M/payload/k3346-coverart-fetch" && [ "$(stat -c %a "$CAF")" = 755 ] && ok "k3346-coverart-fetch w /mnt/app/root, 755" || bad "narzedzie okladki brak/zly tryb"
 D=$(diff <(printf '%s\n' "$E4S") <(snapshot_files "$SIM/app" "$SIM/system") | grep -c '^[<>]')
-[ "$D" = 1 ] && ok "jedyna zmiana w drzewie auta = nowy JAR" || bad "zmian w drzewie: $D (oczekiwano 1)"
+[ "$D" = 2 ] && ok "jedyne zmiany w drzewie auta = JAR + narzedzie okladki" || bad "zmian w drzewie: $D (oczekiwano 2)"
 [ -f "$E4M/etap5.installed.ok" ] && [ ! -e "$E4M/INSTALL_ETAP5" ] && ok "flaga etap5.installed.ok, marker usuniety" || bad "flagi Etapu 5 niezgodne"
 E5S=$(snapshot_files "$SIM/app" "$SIM/system")
 mkdir -p "$SIM/rcc"; echo "123 K3346_OVERRIDE_PROBE class_loaded TerminalModeSDSHandler" > "$SIM/rcc/k3346-override-probe.log"
@@ -605,12 +608,47 @@ OUT=$(run MIB_ARTWORK_PROBE="$SIM/fake-probe-ok" MIB_IPOD_DEV="$SIM/brak-ipod0")
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo auta nietkniete" || bad "drzewo zmienione"
 
 echo
-echo "--- T14f: JAR juz w systemie (stan nieznany) -> ODMOWA, zero zapisow"
+echo "--- T14j: aktualizacja z Etapu 5 sprzed 5.3 (kopia bez k3346-coverart-fetch) -> rollback PASS, nowa wersja z narzedziem"
+setup; run >/dev/null; V8S=$(snapshot_files "$SIM/app" "$SIM/system")
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"; OUT=$(run); case "$OUT" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "Etap 5 zainstalowany";; *) bad "Etap 5 nie przeszedl";; esac
+# stan jak w aucie po starej wersji: narzedzia brak, kopia zna tylko JAR
+rm -f "$CAF" "$E4M/backup/pre-etap5/k3346-coverart-fetch" "$E4M/backup/pre-etap5/k3346-coverart-fetch.absent" "$E4M/backup/pre-etap5/k3346-coverart-fetch.mode"
+cp "$SIM/sd/ZNACZNIKI/ROLLBACK_ETAP5" "$E4M/"; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"
+OUT=$(run); case "$OUT" in *"RESTORE_SKIP_NOT_IN_BACKUP=k3346-coverart-fetch"*"ETAP5_ROLLBACK_RESULT=PASS"*) ok "rollback starej wersji PASS (narzedzie pominiete)";; *) bad "rollback starej wersji nie przeszedl"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ "$V8S" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "pliki = stan przed Etapem 5" || bad "pliki rozne po rollbacku"
+OUT=$(run); case "$OUT" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "instalacja nowej wersji PASS";; *) bad "instalacja nowej wersji nie przeszla"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ -f "$CAF" ] && [ -f "$OVR" ] && [ -f "$E4M/backup/pre-etap5/k3346-coverart-fetch.absent" ] && ok "JAR + narzedzie w aucie, nowa kopia zna narzedzie" || bad "stan po aktualizacji niezgodny"
+
+echo
+echo "--- T14f: JAR albo narzedzie juz w systemie (stan nieznany) -> ODMOWA, zero zapisow"
 setup; run >/dev/null; printf 'obcy' > "$OVR"
 B=$(snapshot_files "$SIM/app" "$SIM/system")
 cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"
 OUT=$(run); case "$OUT" in *"ETAP5: JAR juz jest w systemie"*) ok "odmowa";; *) bad "brak odmowy";; esac
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap5" ] && ok "zero zapisow, bez kopii" || bad "zmiany mimo odmowy"
+rm -f "$OVR"; printf 'obcy' > "$CAF"; B=$(snapshot_files "$SIM/app" "$SIM/system")
+OUT=$(run); case "$OUT" in *"ETAP5: k3346-coverart-fetch juz jest w systemie"*) ok "odmowa: narzedzie juz jest";; *) bad "brak odmowy dla narzedzia";; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap5" ] && ok "zero zapisow, bez kopii (narzedzie)" || bad "zmiany mimo odmowy (narzedzie)"
+
+# ----------------------------------------------------------------------- T15
+echo
+echo "--- T15: aktualizacja Etapu 4 i 5 naraz (Etap 6): 4 znaczniki, 4 uruchomienia, kolejnosc 5->4->4->5"
+setup; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"; OUT=$(run); case "$OUT" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "stan wyjsciowy: v8s + Etap 4 + Etap 5";; *) bad "stan wyjsciowy nie powstal";; esac
+CFGP="$SIM/system/etc/mm/iap2.cfg"; LIBP="$SIM/app/root/hooks/libmib2high-carplay-rgi-ipod.so"
+# jak w aucie: stara biblioteka i stary iap2.cfg (bez Etapu 6)
+printf 'STARA-LIB' > "$LIBP"; head -c 5852 "$SIM/cfg.stock" > "$CFGP"; printf '\n# K3346 Etap 4 (RGI): Route Guidance message directions\n[ident]\nrecvmsgs=0x5201,0x5202,0x5204\nsendmsgs=0x5200,0x5203\n' >> "$CFGP"
+for m in ROLLBACK_ETAP5 ROLLBACK_ETAP4 INSTALL_ETAP4 INSTALL_ETAP5; do cp "$SIM/sd/ZNACZNIKI/$m" "$E4M/"; done
+R1=$(run); R2=$(run); R3=$(run); R4=$(run)
+case "$R1" in *"MODE=ROLLBACK_ETAP5"*"ETAP5_ROLLBACK_RESULT=PASS"*) ok "1.: rollback Etapu 5";; *) bad "1. nie rollback Etapu 5"; echo "$R1" | tail -3 | sed 's/^/      | /';; esac
+case "$R2" in *"MODE=ROLLBACK_ETAP4"*"ETAP4_ROLLBACK_RESULT=PASS"*) ok "2.: rollback Etapu 4";; *) bad "2. nie rollback Etapu 4"; echo "$R2" | tail -3 | sed 's/^/      | /';; esac
+case "$R3" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "3.: instalacja nowego Etapu 4";; *) bad "3. nie zainstalowal Etapu 4"; echo "$R3" | tail -3 | sed 's/^/      | /';; esac
+case "$R4" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "4.: instalacja nowego Etapu 5";; *) bad "4. nie zainstalowal Etapu 5"; echo "$R4" | tail -3 | sed 's/^/      | /';; esac
+cmp -s "$LIBP" "$E4M/payload/libmib2high-carplay-rgi-ipod.so" && tail -n 1 "$CFGP" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' \
+  && cmp -s "$OVR" "$E4M/payload/mib2high-k3346-overrides.jar" && [ -f "$CAF" ] && ok "w aucie: nowa biblioteka, iap2.cfg z Etapem 6, nowy JAR, narzedzie okladki" || bad "stan po aktualizacji niezgodny"
+ls "$E4M" | grep -q -E '^(INSTALL|ROLLBACK)_' && bad "zostaly znaczniki" || ok "wszystkie znaczniki zuzyte"
+OUT=$(run); case "$OUT" in *"MODE=COLLECT"*) ok "5.: zwykly COLLECT";; *) bad "5. nie COLLECT";; esac
 
 echo
 echo "=========================================================="

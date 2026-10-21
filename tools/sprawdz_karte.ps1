@@ -19,7 +19,7 @@
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Karta,
-    [Parameter(Mandatory = $true)][ValidateSet('instalacyjna', 'ratunkowa', 'etap4', 'etap5')][string]$Typ
+    [Parameter(Mandatory = $true)][ValidateSet('instalacyjna', 'ratunkowa', 'etap4', 'etap5', 'etap6')][string]$Typ
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +35,7 @@ $proj = Split-Path -Parent $PSScriptRoot
 $pkgName = 'sd_ratunek'
 if ($Typ -eq 'instalacyjna') { $pkgName = 'sd_etap3' }
 if ($Typ -eq 'etap4') { $pkgName = 'sd_etap4' }
-if ($Typ -eq 'etap5') { $pkgName = 'sd_etap5' }
+if ($Typ -eq 'etap5' -or $Typ -eq 'etap6') { $pkgName = 'sd_etap5' }
 $pkg = Join-Path $proj (Join-Path 'work' $pkgName)
 
 # "E:" -> "E:\"
@@ -104,7 +104,32 @@ $armed    = Test-Path -LiteralPath (Na-Karcie 'Swdlautorun.txt')
 $disarmed = Test-Path -LiteralPath (Na-Karcie '_Swdlautorun.txt')
 $pkgDir   = Na-Karcie 'mod\mib2high-carplay-rgi-v8s-simple'
 
-if ($Typ -eq 'etap4' -or $Typ -eq 'etap5') {
+if ($Typ -eq 'etap6') {
+    # Etap 6 = aktualizacja Etapu 4 (biblioteka mm-ipod + iap2.cfg) i 5 (JAR) naraz (docs\17).
+    if ((Test-Path -LiteralPath (Na-Karcie 'esd\scripts\individual.sh')) -and
+        (Test-Path -LiteralPath (Na-Karcie 'esd\Launcher-sda0.esd'))) {
+        Pisz-OK "jest M.I.B. - 'run individual script' bedzie dzialac"
+    } else { Pisz-Blad "na karcie NIE MA M.I.B." }
+    if ($armed) { Pisz-Blad "jest Swdlautorun.txt (bez podkreslenia) - zmien nazwe na _Swdlautorun.txt" }
+    if ((Test-Path -LiteralPath (Join-Path $pkgDir 'installed.ok')) -and
+        (Test-Path -LiteralPath (Join-Path $pkgDir 'backup\pre-v8s\complete'))) {
+        Pisz-OK "v8s zainstalowany, kopia oryginalow backup\pre-v8s kompletna (NIE KASOWAC)"
+    } else { Pisz-Blad "brak installed.ok albo backup\pre-v8s\complete" }
+    foreach ($e in @('etap4.installed.ok', 'etap5.installed.ok')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $pkgDir $e))) { Pisz-Blad "brak $e - Etap 6 aktualizuje zainstalowane Etapy 4 i 5" }
+    }
+    $brakZn = @()
+    foreach ($m in @('ROLLBACK_ETAP5', 'ROLLBACK_ETAP4', 'INSTALL_ETAP4', 'INSTALL_ETAP5')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $pkgDir $m))) { $brakZn += $m }
+    }
+    if ($brakZn.Count -eq 0) {
+        Pisz-OK "AKTUALIZACJA Etapow 4 i 5: ROLLBACK_ETAP5 + ROLLBACK_ETAP4 + INSTALL_ETAP4 + INSTALL_ETAP5 - run individual script CZTERY razy, potem restart MMI"
+    } else { Pisz-Blad "brak znacznikow: $($brakZn -join ', ')" }
+    foreach ($m in @('ROLLBACK', 'COLLECT_LOGS')) {
+        if (Test-Path -LiteralPath (Join-Path $pkgDir $m)) { Pisz-Blad "jest znacznik $m - ma pierwszenstwo, usun go" }
+    }
+    if (Test-Path -LiteralPath (Na-Karcie 'ratunek\ratunek.sh')) { Pisz-Blad "pliki karty ratunkowej na karcie instalacyjnej" }
+} elseif ($Typ -eq 'etap4' -or $Typ -eq 'etap5') {
     # Karta instalacyjna z ZAINSTALOWANYM v8s, przygotowana do Etapu 4 (docs\15) albo 5 (docs\16).
     $nr = $Typ.Substring(4)
     if ((Test-Path -LiteralPath (Na-Karcie 'esd\scripts\individual.sh')) -and

@@ -8,24 +8,32 @@ A port of [edzenis/mib2high-carplay-altscreen-rgi](https://github.com/edzenis/mi
 [luka-dev/mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi) (MHI2Q).
 Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`docs/00_postep.md`](docs/00_postep.md).
 
-> **Firmware-locked.** The installer refuses to run unless `HMI_Version`, `ipod-drvr-iap2.so`,
-> `lsd.jxe`, `usblauncher_otg.lua`, `iap2.cfg` and `mm-ipod` match K3346/MU1438 byte sizes.
-> Do not bypass the gate on other firmware: hook offsets and replaced HMI classes are K3346-specific.
+> ## ⚠️ For ONE firmware only: `MHI2_ER_AUG22_K3346`, MU 1438
+>
+> `HMI_Version = HMI_AU_MIB2_H_EU_G22_C6_190300`, Harman MHI2 (not MHI2Q). Hook offsets and the
+> replaced HMI classes are specific to this exact build. The installer refuses to run unless
+> `HMI_Version`, `ipod-drvr-iap2.so`, `lsd.jxe`, `usblauncher_otg.lua`, `iap2.cfg` and `mm-ipod` match
+> K3346/MU1438 byte for byte in size. **Any other MU / K-train: do not install, do not bypass the gate.**
+>
+> **→ Read [INSTALL.md](INSTALL.md) first** (build, rescue card, step-by-step install, rollback).
 
-## Status (2026-10-20, all tested in the car unless noted)
+## Status (2026-10-20)
 
 | Feature | Stage | Status |
 |---|---|---|
-| CarPlay map on the Virtual Cockpit (both layouts, VIEW switches) | 3 | ✅ works |
-| Map zoom with the left steering-wheel roller | 3 | ✅ works |
-| Map keeps running while reversing (MMI shows the camera as stock) | 3 | ✅ works |
-| Route guidance (RGI) data → cluster: distance, street, route flag | 4 | ✅ works |
+| CarPlay map on the Virtual Cockpit (both layouts, VIEW switches) | 3 | ✅ works in the car |
+| Map zoom with the left steering-wheel roller | 3 | ✅ works in the car |
+| Map keeps running while reversing (MMI shows the camera as stock) | 3 | ✅ works in the car |
+| Route guidance (RGI) data → cluster: distance, street, route flag | 4 | ✅ works in the car |
 | Maneuver arrow in the right-hand KDK panel | 4b | ❌ always straight (panel image comes from the native nav); own renderer planned |
-| Siri on a **short** press of the voice button | 5.1 | ✅ works |
-| MMI touchpad as a D-pad in CarPlay | 5.1 | ✅ works |
-| CarPlay calls on the VC phone tab (incoming/outgoing/active, name, signal, carrier; no "iPhone is in CarPlay mode" note) | 5.2 | ✅ works |
-| Answer / hang up from the VC, recents/favorites | 5.4 | 📋 planned (`docs/16`) |
-| Album art on the VC | 5.3 | 🔬 probe packaged, not yet run in the car |
+| Siri on a **short** press of the voice button | 5.1 | ✅ works in the car |
+| MMI touchpad as a D-pad in CarPlay | 5.1 | ✅ works in the car |
+| CarPlay calls on the VC phone tab (incoming/outgoing/active, name, signal, carrier; no "iPhone is in CarPlay mode" note) | 5.2 | ✅ works in the car |
+| Answer / Reject / Hang up from the VC; steering-wheel phone key keeps working (no double action) | 5.4 | ✅ works in the car |
+| Album art (CarPlay now playing) on the VC | 5.3 | 🔬 packaged, **not yet tested in the car** (the art itself is fetched fine – probe PASS) |
+| CarPlay recent calls on the VC phone tab, dial from the list | 6 | 🔬 packaged, **not yet tested in the car** |
+| Full address book on the VC | – | ⛔ not possible over CarPlay (iAP2 has only recents/favorites; the phonebook needs Bluetooth PBAP) |
+| Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) | – | 📋 idea, together with the 4b renderer |
 
 ## How it works (short)
 
@@ -40,7 +48,13 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
   K3346 originals with minimal changes (API and every stock call verified with `javap`):
   `TerminalModeSDSHandler` + `CarPlaySpeechRequestHandler` (Siri), `TMTouchscreenVBListener` (touchpad →
   D-pad through stock softkeys), `ServiceManagerPhone` + `K3346GatedPhoneService` (calls read from the stock
-  iAP2 driver's PPS object `/ramdisk/pps/iap2/telephony`; the K3346 DSI call-state listener is an empty stub).
+  iAP2 driver's PPS object `/ramdisk/pps/iap2/telephony`; the K3346 DSI call-state listener is an empty stub),
+  `MFLPhoneButtonsListener` (VC answer/hang-up go the stock steering-wheel key path, CarPlay HID 13/14),
+  `TerminalModeBapCombi` + `AppConnectorTerminalMode` (album art pushed through the stock kombi picture
+  server; the art is fetched from the stock iAP2 daemon by `k3346-coverart-fetch`).
+* **Stage 6:** the `mm-ipod` hook extends the driver's message group 0x41 in memory and sends iAP2
+  `StartListUpdates 0x4170` (byte-identical to a request verified in a car by xPaiiN) and `InitiateCall
+  0x415A`; `ListUpdate 0x4171` is parsed into a file that the Java phone wrapper shows as recents.
 
 ## Layout
 
@@ -55,12 +69,13 @@ Nothing from the car or from Audi firmware images is included: no `lsd.jar`/`lsd
 You need your own K3346 `lsd.jxe` → `lsd.jar` ([luka-dev/jxe2jar](https://github.com/luka-dev/jxe2jar)) to build
 the Java parts, and the [QNX 6.5 toolchain image](docs/10_odtworzenie_builda.md) for native parts.
 
-## Install (summary — read `docs/08`, `docs/12`, `docs/13`, `docs/15`, `docs/16` first)
+## Install
 
-Requires [M.I.B. – More Incredible Bash](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) (3.6.0) on
-an SD card. The installer is `mod/command.sh` (run via GEM → m.i.b. → advanced settings → *run individual script*).
-Every layer has its own backup and rollback: `ROLLBACK` (everything), `ROLLBACK_ETAP4`, `ROLLBACK_ETAP5`;
-marker files are in `ZNACZNIKI/`. Build and test the **rescue card** before installing Stage 5.
+**Step-by-step guide: [INSTALL.md](INSTALL.md).** In short: build the package from source with your own
+`lsd.jxe` (nothing from Audi firmware is distributed here), make the rescue card, then install stage by
+stage with [M.I.B.](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) 3.6.0 (*run individual
+script* runs `mod/command.sh`). Every stage has its own backup and rollback (`ROLLBACK`, `ROLLBACK_ETAP4`,
+`ROLLBACK_ETAP5`; marker files in `ZNACZNIKI/`).
 
 **Use at your own risk.** This modifies the infotainment system of a car. External power, a fresh M.I.B.
 backup and the original firmware must be at hand. No warranty of any kind.

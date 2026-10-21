@@ -17,6 +17,18 @@
 #include "message_table.h"
 #include "rgi_bridge.h"
 #include "diagnostics.h"
+#ifdef K3346_TEL_LISTS
+#include <time.h>
+#include "telephony/k3346_tel.h"
+
+static uint64_t k3346_observer_ms(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0;
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
+#endif
 
 typedef void *(*real_dlopen_fn)(const char *, int);
 typedef void *(*real_memcpy_fn)(void *, const void *, size_t);
@@ -230,6 +242,9 @@ static void observe_transport_copy(const uint8_t *copied, size_t n)
     if (k2161_probe_rgi_start(copied, n, &frame))
         found = &frame;
     write_raw_packet(copied, n, found);
+#ifdef K3346_TEL_LISTS
+    k3346_tel_observe(copied, n, k3346_observer_ms());
+#endif
     if (found == NULL)
         return;
 
@@ -314,6 +329,11 @@ void *memcpy(void *dst, const void *src, size_t n)
                     k2161_send_hook_try_install_base(
                         (void *)driver_base) == 1)
                     send_install_attempted = 1;
+#ifdef K3346_TEL_LISTS
+                /* K3346 Etap 6: blad tabeli 0x41 = brak list, RGI bez zmian */
+                if (send_install_attempted)
+                    (void)k3346_msgtable_tel_try_install_base((void *)driver_base);
+#endif
             }
         }
 

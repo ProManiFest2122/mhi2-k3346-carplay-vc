@@ -7,6 +7,8 @@
  * zamiast samego AppConnectorPhone. Wrapper przy CarPlay pokazuje rozmowy
  * z iPhone'a, poza CarPlay przepuszcza wszystko 1:1. Blad przy tworzeniu
  * wrappera -> rejestracja fabrycznego obiektu.
+ * Etap 5.4: sluchacz akcji VC (CombiBAPServicePhoneListener) jest owijany
+ * przez K3346GatedPhoneListener (odbierz/rozlacz przy CarPlay).
  */
 package de.audi.app.combi.bap.app.phone;
 
@@ -42,7 +44,7 @@ extends AbstractBAPModuleServiceManager {
         Object object = this.bundleContext.getService(serviceReference);
         if (object instanceof CombiBAPServicePhoneListener) {
             this.logChannel.log(10000000, "[CombiModulePhone.ServiceManagerPhone#addingService] CombiBAPServicePhoneListener found");
-            ((AppConnectorPhone)this.module.getAppConnectors().get("Phone")).setAppServiceListener((CombiBAPServicePhoneListener)object);
+            ((AppConnectorPhone)this.module.getAppConnectors().get("Phone")).setAppServiceListener(k3346WrapListener((CombiBAPServicePhoneListener)object));
             return object;
         }
         if (object instanceof CombiBAPServiceAddressBookListener) {
@@ -99,6 +101,18 @@ extends AbstractBAPModuleServiceManager {
         } catch (Throwable t) {
             K3346Diag.log("K3346_PHONE wrap error " + t + " -> stock");
             return phoneConnector;
+        }
+    }
+
+    /* K3346 5.4: odbierz/rozlacz z VC przy CarPlay; blad -> sluchacz fabryczny. */
+    private static CombiBAPServicePhoneListener k3346WrapListener(CombiBAPServicePhoneListener listener) {
+        try {
+            CombiBAPServicePhoneListener wrapped = K3346GatedPhoneListener.wrap(listener);
+            K3346Diag.log("K3346_PHONE listener wrapped=" + (wrapped != listener));
+            return wrapped;
+        } catch (Throwable t) {
+            K3346Diag.log("K3346_PHONE listener wrap error " + t + " -> stock");
+            return listener;
         }
     }
 

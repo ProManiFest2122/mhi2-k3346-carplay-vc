@@ -4,5 +4,7 @@ port_k3346/altscreen/java/build/*_classes/
 port_k3346/altscreen/renderer/build/
 port_k3346/altscreen/diagnostics/k3346-artwork-probe
 port_k3346/altscreen/diagnostics/v8l-dsitracer-capture
+port_k3346/altscreen/coverart/k3346-coverart-fetch
 work/
+repos/
 *.o

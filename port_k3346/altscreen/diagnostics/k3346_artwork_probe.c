@@ -60,7 +60,7 @@ int main(int argc, char **argv)
     report = fopen(path, "w");
     if (report == NULL)
         return 3;
-    say("K3346_ARTWORK_PROBE v1 %s %ld", "start", 0);
+    say("K3346_ARTWORK_PROBE v2 %s %ld", "start", 0);
 
     lib = dlopen("libiap2client.so.1", RTLD_NOW);
     if (lib == NULL)
@@ -81,12 +81,31 @@ int main(int argc, char **argv)
         return 6;
     }
 
-    h = iap2_connect("/dev/ipod0", O_RDWR);
-    if (h == NULL) {
-        say("iap2_connect FAIL %s errno=%ld", "", (long)errno);
-        return 7;
+    /* v2: iap2_connect przy nieudanym open() nadpisuje errno na EINVAL (22) -
+     * najpierw sam open(), zeby poznac prawdziwy blad. */
+    {
+        int fd;
+        errno = 0;
+        fd = open("/dev/ipod0", O_RDONLY);
+        say("open(O_RDONLY) fd %s %ld", "", (long)fd);
+        say("open(O_RDONLY) errno %s %ld", fd < 0 ? strerror(errno) : "", (long)errno);
+        if (fd >= 0)
+            close(fd);
     }
-    say("iap2_connect OK %s %ld", "", 0);
+
+    /* stock dio_manager: iap2_connect(path, 0) = O_RDONLY (0x15ee30) */
+    h = iap2_connect("/dev/ipod0", O_RDONLY);
+    if (h == NULL) {
+        say("iap2_connect(O_RDONLY) FAIL %s errno=%ld", "", (long)errno);
+        h = iap2_connect("/dev/ipod0", O_RDWR);
+        if (h == NULL) {
+            say("iap2_connect(O_RDWR) FAIL %s errno=%ld", "", (long)errno);
+            return 7;
+        }
+        say("iap2_connect(O_RDWR) OK %s %ld", "", 0);
+    } else {
+        say("iap2_connect(O_RDONLY) OK %s %ld", "", 0);
+    }
 
     errno = 0;
     size = iap2_nowplay_getartwork(h, NULL, 0);

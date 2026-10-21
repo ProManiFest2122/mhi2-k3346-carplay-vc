@@ -27,7 +27,23 @@ enum {
     K2161_NP_START_NAME_OFFSET    = 0x00025554, /* 'StartNowPlayingUpdates'; K2161: 0x00023b80 */
     K2161_NP_START_PARAMS_OFFSET  = 0x00028918, /* params_nowplay_start; K2161: 0x00026bd8 */
     K2161_NP_UPDATE_NAME_OFFSET   = 0x0002556c, /* 'NowPlayingUpdate'; K2161: 0x00023b98 */
-    K2161_NP_UPDATE_PARAMS_OFFSET = 0x00028938 /* params_nowplay_upd; K2161: 0x00026bf8 */
+    K2161_NP_UPDATE_PARAMS_OFFSET = 0x00028938, /* params_nowplay_upd; K2161: 0x00026bf8 */
+
+    /* K3346 Etap 6: grupa 0x41 'Telephony' (stock: 90 wpisow, uzyte 0x54-0x59) */
+    K3346_GROUP41_NAME_OFFSET     = 0x00025130, /* 'Telephony' */
+    K3346_GROUP41_MESSAGES_OFFSET = 0x000addd8,
+    K3346_GROUP41_STOCK_COUNT     = 0x5a,       /* 90 */
+    K3346_GROUP41_NEW_COUNT       = 0x72,       /* do 0x4171 ListUpdate wlacznie */
+    K3346_TEL_START_STATE_NAME    = 0x0002532c, /* 0x4154 StartTelephonyCallStateInformation */
+    K3346_TEL_START_STATE_PARAMS  = 0x00028588, /* params_telephony_startstate */
+    K3346_TEL_STATE_NAME          = 0x00025354, /* 0x4155 TelephonyCallStateInformation */
+    K3346_TEL_STATE_PARAMS        = 0x000285e8, /* params_telephony_state */
+    K3346_TEL_STOP_STATE_NAME     = 0x00025350, /* 0x4156 */
+    K3346_TEL_START_UPD_NAME      = 0x00025374, /* 0x4157 StartTelephonyUpdates */
+    K3346_TEL_START_UPD_PARAMS    = 0x00028648, /* params_telephony_startupdates */
+    K3346_TEL_UPDATE_NAME         = 0x0002538c, /* 0x4158 TelephonyUpdate */
+    K3346_TEL_UPDATE_PARAMS       = 0x00028698, /* params_telephony_update */
+    K3346_TEL_STOP_UPD_NAME       = 0x0002539c  /* 0x4159 */
 };
 
 struct k2161_msg_info {
@@ -250,3 +266,105 @@ int k2161_msgtable_try_install_base(void *driver_base)
 
     return 1;
 }
+
+#ifdef K3346_TEL_LISTS
+/* ------------------------------------------------------------------------
+ * K3346 Etap 6: grupa 0x41 'Telephony' - listy ostatnich i dzwonienie.
+ *
+ * Stock K3346 ma w grupie 0x41 tablice 90 wpisow (indeksy 0x00-0x59), uzyte
+ * tylko 0x54-0x59. 0x415A InitiateCall, 0x4170 StartListUpdates i 0x4171
+ * ListUpdate leza poza nia, wiec slot dostaje nasza kopie (0x72 wpisow):
+ * 90 wpisow skopiowanych 1:1 + trzy nowe (params NULL jak RGI 0x52xx).
+ * Niezalezne od RGI: blad = brak list, RGI dziala dalej. Fail-closed:
+ * slot i wszystkie 6 uzywanych wpisow musza byc dokladnie fabryczne.
+ */
+static struct k2161_msg_info tel_messages[K3346_GROUP41_NEW_COUNT];
+static struct k2161_msg_group *tel_slot;
+static volatile int tel_installed;
+
+static int tel_entry_is(const struct k2161_msg_info *m, uint8_t *base,
+                        uint32_t name_off, uint32_t flags, uint32_t params_off)
+{
+    return m->name == (const char *)(base + name_off) &&
+           m->flags == flags &&
+           m->params == (params_off ? (const void *)(base + params_off) : NULL);
+}
+
+int k3346_msgtable_tel_ready(void)
+{
+    return tel_installed && tel_slot != NULL &&
+           tel_slot->messages == tel_messages &&
+           tel_slot->count == K3346_GROUP41_NEW_COUNT;
+}
+
+int k3346_msgtable_tel_try_install_base(void *driver_base)
+{
+    uint8_t *base = (uint8_t *)driver_base;
+    struct k2161_msg_group *slot41;
+    const struct k2161_msg_info *stock;
+    unsigned int i, used = 0;
+
+    if (base == NULL)
+        return 0;
+    if (tel_installed)
+        return k3346_msgtable_tel_ready() ? 1 : -1;
+    /* ta sama zweryfikowana baza co tabela RGI */
+    if (!k2161_msgtable_ready() || installed_driver_base != base) {
+        rgi_diag_log("MSGTABLE", "tel_verify=FAIL reason=rgi_table_not_ready");
+        return -1;
+    }
+
+    slot41 = &((struct k2161_msg_group *)(base + K2161_CTRL_MSG_TABLE_OFFSET))[0x41];
+    stock = (const struct k2161_msg_info *)(base + K3346_GROUP41_MESSAGES_OFFSET);
+    if (slot41->name != (const char *)(base + K3346_GROUP41_NAME_OFFSET) ||
+        slot41->messages != stock ||
+        slot41->count != K3346_GROUP41_STOCK_COUNT) {
+        rgi_diag_log("MSGTABLE", "tel_verify=FAIL reason=slot41_mismatch count=%u",
+                     (unsigned)slot41->count);
+        return -1;
+    }
+    if (!tel_entry_is(&stock[0x54], base, K3346_TEL_START_STATE_NAME, 1U, K3346_TEL_START_STATE_PARAMS) ||
+        !tel_entry_is(&stock[0x55], base, K3346_TEL_STATE_NAME, 2U, K3346_TEL_STATE_PARAMS) ||
+        !tel_entry_is(&stock[0x56], base, K3346_TEL_STOP_STATE_NAME, 1U, 0) ||
+        !tel_entry_is(&stock[0x57], base, K3346_TEL_START_UPD_NAME, 1U, K3346_TEL_START_UPD_PARAMS) ||
+        !tel_entry_is(&stock[0x58], base, K3346_TEL_UPDATE_NAME, 2U, K3346_TEL_UPDATE_PARAMS) ||
+        !tel_entry_is(&stock[0x59], base, K3346_TEL_STOP_UPD_NAME, 1U, 0)) {
+        rgi_diag_log("MSGTABLE", "tel_verify=FAIL reason=entries_mismatch");
+        return -1;
+    }
+    for (i = 0; i < K3346_GROUP41_STOCK_COUNT; ++i) {
+        tel_messages[i] = stock[i];
+        if (stock[i].name != NULL) ++used;
+    }
+    if (used != 6U) {
+        rgi_diag_log("MSGTABLE", "tel_verify=FAIL reason=unexpected_entries used=%u", used);
+        return -1;
+    }
+    tel_messages[0x5A].name = "InitiateCall";
+    tel_messages[0x5A].flags = 0x00000001U;
+    tel_messages[0x70].name = "StartListUpdates";
+    tel_messages[0x70].flags = 0x00000001U;
+    tel_messages[0x71].name = "ListUpdate";
+    tel_messages[0x71].flags = 0x00000002U;
+
+    /* najpierw tablica (pierwsze 90 wpisow identyczne), potem wiekszy count */
+    __sync_synchronize();
+    slot41->messages = tel_messages;
+    __sync_synchronize();
+    slot41->count = K3346_GROUP41_NEW_COUNT;
+    __sync_synchronize();
+
+    if (slot41->messages != tel_messages || slot41->count != K3346_GROUP41_NEW_COUNT) {
+        slot41->count = K3346_GROUP41_STOCK_COUNT;
+        __sync_synchronize();
+        slot41->messages = stock;
+        rgi_diag_log("MSGTABLE", "tel_verify=FAIL reason=write_verify");
+        return -1;
+    }
+    tel_slot = slot41;
+    tel_installed = 1;
+    rgi_diag_log("MSGTABLE", "tel_patch msg=415a/4170 flags=00000001 msg=4171 flags=00000002");
+    rgi_diag_log("MSGTABLE", "tel_verify=PASS slot=%p count=%u", slot41, (unsigned)slot41->count);
+    return 1;
+}
+#endif /* K3346_TEL_LISTS */

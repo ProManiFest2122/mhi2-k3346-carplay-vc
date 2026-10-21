@@ -36,7 +36,108 @@ Jeśli `artwork.bin` = JPEG → pełne 5.3 wg Luki: pobieranie przy zmianie utwo
 256×256, Java `IPictureManager.responseCoverArt` (klasy K3346 = MU1316/1439). Jeśli pusto → plan B
 (odczyt transferu w hooku `mm-ipod`).
 
-## Krok 5.4 – odbierz/rozłącz z VC: PLAN (do zrobienia po teście przycisku na kierownicy)
+## Wynik testu 5.4 / dźwięku / sondy 5.3 (auto 2026-10-20, `work\auto_test_8\karta_mod\…\collected\run-08`, `run-09`)
+
+- **VC „Odrzuć”/„Odłóż” działa:** `END(14)` → stan 0 przy dzwonieniu (odrzucenie), wybieraniu i rozmowie
+  (`vc key worked`). **VC nie ma pozycji „Odbierz”** – przy dzwonieniu tylko „Odrzuć” (zdjęcie); Audi VC
+  odbiera przyciskiem słuchawki.
+- **Regresja „call failed”:** przycisk słuchawki przy dzwonieniu odbierał i od razu rozłączał. Log:
+  `ACCEPT(13)` z wrappera (kombi z flagą `ACCEPT_CALL` zamienia przycisk na BAP `acceptCall`) **plus**
+  fabryczny `flash()` z `MFLPhoneButtonsListener` → PPS `Active`, po 0,3–1,7 s `Disconnected` (3×).
+  **Poprawka (v2 JAR `de46fe80…`):** bez flagi `ACCEPT_CALL` (VC i tak nie ma „Odbierz”); naciśnięcie
+  z akcji VC odroczone o 400 ms i pomijane, gdy w oknie −1,5 s…teraz był przycisk słuchawki
+  (`MFLPhoneButtonsListener.keyTyped` → `K3346CallKeys.noteMflKey()`), log
+  `vc … from steering key - stock flash handles it`. Test 34/34.
+- Okno przychodzącej rozmowy **jest** na zakładce mapy (zdjęcie). Aktywna rozmowa na mapie – brak, przy BT
+  też brak (stock). Po wejściu na kartę Telefon okno na mapie nie wraca – zachowanie VC.
+- **Dźwięk:** tym razem OK w obie strony; iPhone nie oferował „Audi MMI” (HFP niepołączone) → wspiera
+  hipotezę kolizji HFP+CarPlay/kabla. Brak słuchawki iPhone'a w menu audio = iOS w CarPlay (nie mod).
+  Kabel nadal zrywa (`treat as cable removed` 4× w run-08).
+- **Sonda 5.3 v1:** `iap2_connect FAIL errno=22`. K3346 `libiap2client.so.1` `iap2_connect@0x2cec`:
+  nieudany `open(devpath, oflag)` → errno nadpisany na EINVAL. Stock `dio_manager` (`0x15ee30`) woła
+  `iap2_connect(path, 0)` = `O_RDONLY`; sonda dawała `O_RDWR`. PPS `nowplaying` (run-09, Spotify):
+  `MediaItemArtworkSize::98258`, `MediaItemArtworkFileTransferIdentifier::132` → demon **ma** okładkę.
+  **Sonda v2** (`5ba70208…`): najpierw `open(O_RDONLY)` z prawdziwym errno, potem `iap2_connect(O_RDONLY)`,
+  rezerwowo `O_RDWR`.
+- PC: `OVERRIDES_VERIFY=PASS`, bytecode `MFLPhoneButtonsListener$1/$2` = stock + `k3346NoteKey()`;
+  symulacja 157/157 (dash i mksh, z `luac -p`), ratunek 49/49.
+- **v3 (JAR `a5c65035…`) – „Odbierz” na VC:** okno dzwonienia pokazuje `(callOptions | 0x2800) & supported`
+  (RE Luki, `VC_TELEPHONE_TAB.md`) → Accept wymaga flagi `ACCEPT_CALL` **i** opcji rozmowy
+  `setCallOptionAcceptCallEnabled(true)` dla dzwoniącej (my wysyłaliśmy callOptions 0 – dlatego w v1 sama
+  flaga nie wystarczyła). Flaga przywrócona; kopię BAP od przycisku słuchawki usuwa deduplikacja z v2
+  (opóźnienie 700 ms). Test 35/35, symulacja 157/157 (mksh), ratunek 49/49.
+
+## Krok 5.3 – okładka CarPlay na VC: W PACZCE (2026-10-20)
+
+Fabryczna ścieżka okładek do VC (CFR K3346): `AppConnectorMedia.updateCurrentStation` →
+`IPictureManager.responseCoverArt(listRef, sourceType, ResourceLocator(id, plik), push=true)` →
+`AbstractPictureManager` (wymaga adaptacji ANP `isCoverartAvailable()` i powiadomienia nr 0) →
+natywny `DSIKombiPictureServer` (MIBRoot) → VC. **`AppConnectorTerminalMode` (CarPlay) obrazka nie
+obsługuje**, a status BAP stacji (FctID 21/22) nie niesie obrazka – VC dostaje go tylko z serwera obrazków.
+
+| Element | Rola |
+|---|---|
+| `coverart\k3346_coverart_fetch.c` → `/mnt/app/root/k3346-coverart-fetch` (nowy plik Etapu 5) | ścieżka sondy v2 (`iap2_connect O_RDONLY` → `iap2_nowplay_getartwork`), zapis `<baza>.jpg/.png` przez `.tmp` + rename, stdout `OK <bajty> <plik>` |
+| `terminalmode.k3346.K3346CoverArt` (nowa) | przy aktywnym CarPlay co 500 ms czyta PPS `nowplaying`; nowy utwór z `ArtworkFileTransferIdentifier`/`ArtworkSize` → `Runtime.exec` narzędzia (limit 10 s, do 6 prób), plik `/var/app/icab/tmp/37/k3346_cover_{0,1}.jpg`, id = CRC32; okładka ważna tylko dla tytułu z PPS |
+| `terminalmode.combi.TerminalModeBapCombi` (podmiana) | stock 1:1 + start/stop `K3346CoverArt` przy urządzeniu CarPlay, okładka dołączana przy danych utworu, nowa okładka → ponowne wysłanie utworu (dyspozytor TM, tylko przy fokusie audio) |
+| `combi…audio.AppConnectorTerminalMode` (podmiana) | stock 1:1 + metoda pakietowa `k3346PushCoverArt`: `setNotification(0)`, `responseCoverArt(0, 21, RL, true)` (typ 21 jak u Luki) |
+| `K3346CoverArtBridge`, `K3346CoverArtProvider` (nowe) | most TM → kombi (API konektora bez zmian); dostawca dla ponownych próśb VC jako multiplekser przed fabrycznym dostawcą mediów (typ 0, reflection `pictureProviders`) |
+
+Instalator: `E5_NAMES` += `k3346-coverart-fetch` (755, `/mnt/app/root/`), odmowa gdy plik już jest;
+`tx_restore` pomija nazwy, których kopia nie zna (`RESTORE_SKIP_NOT_IN_BACKUP`) → rollback Etapu 5 sprzed
+5.3 działa (T14j). Weryfikacja: API = fabryczne, bytecode = stock + dodatki, test okładki PASS (PPS,
+klucz utworu, brak starej okładki przy nowym utworze, ponowienia, stop), telefon 35/35, D-pad PASS,
+symulacja 165/165 (dash i mksh), ratunek 49/49. JAR `25d6ae95…`, narzędzie `59e70ebb…`.
+
+**Niewiadome do testu:** czy adaptacja ANP auta ma okładki (czy VC pokazuje okładki z USB/BT – jeśli nie,
+to samo dotyczy CarPlay), czy serwer obrazków przyjmie JPEG 600×600 (Luka wysyła PNG 256×256), typ źródła 21.
+Log: `K3346_COVER start`, `new art id=…`, `pushed id=…`, `re-request …`.
+
+## Wynik testu v3 (auto 2026-10-20, `work\auto_test_9\karta_mod\…\collected\run-10`)
+
+- **5.4 działa w całości** (użytkownik + log): VC „Odbierz” → `ACCEPT(13)` → `vc key worked (1 -> 2)`
+  (HID 13 działa na tym aucie, rezerwa FLASH niepotrzebna); „Odłóż” → `END(14)` (2 -> 0); „Odrzuć” → END;
+  przycisk słuchawki → `mfl key` + `vc accept/hangup from steering key - stock flash handles it`, bez „call failed”.
+- **5.3 sonda v2: PASS.** `open(O_RDONLY)` fd 4, `iap2_connect(O_RDONLY) OK`, `getartwork` rozmiar
+  136761, dane 136761, magic `ff d8 ff e0` → `artwork.bin` = JPEG 600×600 (okładka Spotify). Demon iAP2
+  oddaje okładkę w sesji CarPlay → pełne 5.3 bez hooków natywnych (Java/klient iAP2 jak w sondzie).
+- **Otwarte – okno dzwonienia na mapie:** (1) dzwoni na mapie → okno jest; przejście na Telefon → okno
+  tam też; powrót na mapę → okna już nie ma. (2) dzwoni na innej zakładce → przejście na mapę → brak okna.
+  Do ustalenia, czy tak samo robi stock z telefonem BT (wtedy to zachowanie firmware VC), czy to skutek
+  warstwy mapy CarPlay (displayable 58 w kontekście 77) przy zmianie zakładki.
+
+## Krok 5.4 – odbierz/rozłącz z VC: W PACZCE (wariant prosty, 2026-10-20)
+
+Fabryczna ścieżka przycisku słuchawki (CFR K3346): `MFLPhoneButtonsListener` (przyciski 3200047 HOOK /
+3200048 HANGUP) → `IPhoneCallController` z `DSISmartphoneManagerProxy` (zawsze aktywny telefon) →
+`CarPlayDSIManager`: `hook()` = `postDSICarplayButtonEvent(13)` (`BUTTON_ACCEPT_CALL`), `hangup()` = 14
+(`BUTTON_END_CALL`), `flash()` = 20 (`BUTTON_FLASH_CALL`) → `dio_manager` → HID `Eso_Telephony`.
+Auto użytkownika używa `flash()` (jeden przycisk; `hasBothPhoneMFLKeys()` = false), co potwierdzono w aucie.
+
+| Klasa | Zmiana |
+|---|---|
+| `terminalmode.smartphone.MFLPhoneButtonsListener` (podmiana, + `$1`/`$2`) | fabryczna 1:1 + konstruktor zapisuje kontroler w `K3346CallKeys` |
+| `terminalmode.k3346.K3346CallKeys` (nowa) | uchwyt kontrolera; `press(ACCEPT/END/FLASH)`, błędy połykane, log `K3346_CALLKEY` |
+| `combi.bap.app.phone.K3346GatedPhoneListener` (nowa) | wrapper `CombiBAPServicePhoneListener` (port Luki): `acceptCall`/`hangupCall` przy bramce → wrapper usługi; reszta → stock |
+| `ServiceManagerPhone` | słuchacz akcji VC owijany przez `K3346GatedPhoneListener` (błąd → fabryczny) |
+| `K3346GatedPhoneService` | `onVcAction`: odbierz przy dzwonieniu → ACCEPT 13, odłóż przy rozmowie → END 14, wynik do kombi (`acceptCallResult`/`hangupCallResult` 0/1); **rezerwa**: po 2,5 s ta sama rozmowa w niezmienionym stanie → FLASH 20 (iPhone mógł nie przyjąć 13/14 z deskryptora HID). Odrzucenie dzwoniącej: tylko END (FLASH by odebrał). Flagi kombi `ACCEPT_CALL` + `HANGUP_CALL` |
+
+Weryfikacja: API podmienionych klas = fabryczne (`verify_overrides` PASS), wywołania bytecode
+`MFLPhoneButtonsListener`(+`$1/$2`) = stock + `K3346CallKeys.setController`; test telefonu 29/29 (10 nowych:
+akcje, rezerwa, brak FLASH po udanej akcji, poza bramką → stock), D-pad PASS; symulacja instalatora
+156/156 (bez `luac` w kontenerze – test składni Lua pominięty), karta ratunkowa 49/49 (pod `mksh`).
+JAR `d42a240a…`, `command.sh` `620c010f…` (paczka `work\sd_etap5`, zawiera też sondę 5.3).
+
+**Instalacja (aktualizacja JAR-a Etapu 5):** znaczniki `ROLLBACK_ETAP5` + `INSTALL_ETAP5` w folderze pakietu
+→ run script (rollback) → restart → run script (instalacja) → restart.
+
+**Test w aucie:** rozmowa przychodząca → na karcie telefonu VC „Odbierz” → odebrana? Potem „Odłóż” →
+rozłączona? Odrzucenie dzwoniącej z VC. Wychodząca → „Odłóż”. Po teście COLLECT; w
+`k3346-override-probe.log`: `K3346_CALLKEY controller set`, `K3346_PHONE listener wrapped=true`,
+`K3346_PHONE vc accept/hangup … result=OK`, `vc key worked` (13/14 działa) albo `vc key ignored -> FLASH`
+(działa tylko FLASH); w `sloginfo`: `<TELEPHONY> HID device … usage code`.
+
+### Plan pierwotny (iAP2 – zostaje jako wariant B)
 
 1. **Test użytkownika:** czy fabryczny przycisk słuchawki na kierownicy odbiera/kończy rozmowę CarPlay
    (stock: `MFLPhoneButtonsListener` → FLASH 20 → HID `Eso_Telephony` do iPhone'a). Jeśli **tak** → wariant
@@ -50,6 +151,40 @@ Jeśli `artwork.bin` = JPEG → pełne 5.3 wg Luki: pobieranie przy zmianie utwo
 3. Java: port `GatedPhoneListener` (przechwyt akcji VC przy bramce, odpowiedzi `*Result`), flagi
    ACCEPT/HANGUP w `MobileServiceSupport` dopiero gdy akcje działają.
 4. Okno rozmowy na zakładce mapy – po teście użytkownika z telefonem BT (czy stock to robi).
+
+**Wynik testu użytkownika (2026-10-20):** przycisk słuchawki na kierownicy **odbiera i kończy** rozmowę
+CarPlay → 5.4 = wariant prosty (pkt 1). Przy telefonie BT (rozmowa przez „Audi MMI”) okno rozmowy
+**pokazuje się na zakładce mapy** → stock to potrafi; trzeba ustalić, co je wyzwala (inny FctID/stan niż
+nasze 22/23/24 przy Tel_State 15? – porównać z tym, co stock publikuje dla HFP).
+
+## Dźwięk rozmów CarPlay – diagnoza (2026-10-20, zgłoszenie bez logów)
+
+Zgłoszenie: źródło dźwięku w iPhonie „CarPlay” → brak dźwięku w obie strony (raz tylko w jedną);
+„Audi MMI <nr>” (HFP) → zwykle działa, czasem rozmówca nie słyszy kierowcy.
+
+Analiza `run-07` (test 5.2, ten sam stan modu): **5 rozmów CarPlay (00:01:18, 00:03:36, 00:04:14,
+00:04:57, 00:05:43) zestawionych poprawnie** – `dio_manager`: `Main audio … PCM/16000/16/1 for telephony,
+input yes`, `nvaudio_pcm_open TEL2` + `MIC2`, `SSE connected to MIC2`, `TDM1_OUT_TEL connected to TEL2`,
+wątki Rx/Tx, ACK HMI; po rozmowie powrót do TEL/MIC (ścieżka BT). **Uwaga (użytkownik):** w teście
+5.2 nikt nie rozmawiał (dzwoniący się nie odzywali) – log potwierdza tylko zestawienie ścieżek, **nie**
+to, że dźwięk faktycznie płynął; możliwe, że problem był już wtedy. Brak błędów strumienia (jedynie
+9× `Failed to write … Status = 0x4` o 03:16 przy końcu dzwonka). O 00:04:10–11 (zerwanie kabla) rozmowa
+przeszła na **HFP** (`MMI_STATE_ON_TEL`, `sseProc` otwiera TEL), po powrocie sesji CarPlay przejęta na
+TEL2/MIC2 → telefon jest równocześnie połączony przez BT (HFP) i CarPlay; stąd wybór tras w iPhonie.
+
+Wykluczone jako przyczyna modu:
+- identyfikacja iAP2: listy wiadomości = stock (`sd_odczyt_1`, przed modem) + tylko 0x5200–0x5204;
+  komponentu Bluetooth nie ma również w stock (`[bluetooth]` zakomentowane w fabrycznym `iap2.cfg`);
+- Etap 5 (`K3346GatedPhoneService`) zmienia tylko BAP do kombi – nie dotyka audio ani stosu BT.
+
+Nie wykluczone: hooki Etapu 3 siedzą w `dio_manager`, który obsługuje też audio AirPlay (TEL2/MIC2) –
+teoretycznie wpływ na czasy; w `run-07` brak śladów. Najbardziej prawdopodobne: **uszkodzony kabel**
+(audio rozmowy CarPlay idzie przez USB, HFP nie) oraz stockowa kolizja HFP+CarPlay (wspólny blok SSE,
+przełączanie MIC/MIC2 i TEL/TEL2).
+
+Test rozróżniający: inny kabel; rozmowa z wybranym „CarPlay”; **COLLECT zaraz po rozmowie** z problemem
+(sloginfo trzyma tylko ostatnie minuty). Jeśli problem zostaje na dobrym kablu → A/B: `ROLLBACK`
+(wszystko) i ta sama rozmowa na stock.
 
 ## Wynik 5.2 w aucie (2026-10-20, logi `work\auto_test_7\karta_mod\…\collected\run-07`)
 

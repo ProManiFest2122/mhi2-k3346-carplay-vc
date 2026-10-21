@@ -8,9 +8,15 @@
  *    sterownik iAP2 (mm-ipod) wypelnia z TelephonyCallStateInformation 0x4155
  *    (w K3346 DSICarplayListenerImpl.updateCallState to pusty return);
  *    sygnal/operator z tego samego obiektu (TelephonyUpdate 0x4158);
- *  - bez list (ostatnie/ulubione) i bez akcji z VC (odbierz/rozlacz/wybierz):
- *    wymagaja wstrzykiwania iAP2 - Etap 5.4. Kombi nie dostaje flag tych
- *    funkcji, wiec nie oferuje przyciskow, ktore nic by nie zrobily.
+ *  - odbierz/rozlacz z VC (Etap 5.4; "Odbierz" w oknie dzwonienia wymaga flagi
+ *    ACCEPT_CALL i opcji ACCEPT dzwoniacej rozmowy): zamiast iAP2 AcceptCall/EndCall Luki
+ *    fabryczna droga przycisku sluchawki na kierownicy (K3346CallKeys:
+ *    ACCEPT 13 / END 14); gdy po FALLBACK_MS stan rozmowy w PPS sie nie
+ *    zmienil -> FLASH 20 (dziala w aucie). Odrzucenie dzwoniacej rozmowy bez
+ *    rezerwy FLASH (FLASH by ja odebral). Akcja, ktora kombi wyslalo z powodu
+ *    przycisku sluchawki na kierownicy, nie jest powtarzana (stock flash juz
+ *    ja wykonal) - inaczej odebranie + ponowne przelaczenie = "call failed";
+ *  - bez list (ostatnie/ulubione), wybierania, wyciszania i zawieszania z VC.
  * Bramka = werdykt stock: FctID 14 z mobileConnectionType 5 wysyla
  * BAPPropertyTelFSGSetup tylko przy aktywnym CarPlay. Poza bramka wszystko
  * przechodzi 1:1. Kazdy blad watku PPS jest polykany (log K3346Diag).
@@ -18,6 +24,7 @@
  */
 package de.audi.app.combi.bap.app.phone;
 
+import de.audi.app.terminalmode.k3346.K3346CallKeys;
 import de.audi.app.terminalmode.k3346.K3346Diag;
 import de.audi.atip.interapp.combi.bap.phone.CombiBAPServicePhone;
 import de.audi.atip.interapp.combi.bap.phone.data.CallStartTime;
@@ -46,6 +53,36 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     static final String PPS_TELEPHONY = "/ramdisk/pps/iap2/telephony";
     private static final long POLL_MS = 300;
 
+    /* Etap 6: ostatnie polaczenia z hooka mm-ipod (iAP2 0x4171) i dzwonienie (0x415A) */
+    static String RECENTS_FILE = "/tmp/k3346-tel-recents.txt";
+    static String CMD_FILE = "/tmp/k3346-tel-cmd";
+    /* BAP callMode jak stock BAPPropertyTelCombinedNumbers (Luka): */
+    static final int CALLMODE_MISSED = 1, CALLMODE_RECEIVED = 2, CALLMODE_DIALED = 3;
+
+    /* akcje z VC (K3346GatedPhoneListener) */
+    static final int ACT_ACCEPT = 1, ACT_HANGUP = 2;
+    private static final int RESULT_OK = 0, RESULT_FAILED = 1;
+    private static final long FALLBACK_MS = 2500;
+    /* przycisk sluchawki: kombi wysyla rownolegle BAP, a stock MFL robi flash */
+    private static final long MFL_SETTLE_MS = 700, MFL_WINDOW_MS = 1500;
+
+    /** Przyciski telefonu; w tescie atrapa. */
+    interface KeySink {
+        boolean press(int key);
+        long lastSteeringKeyMs();
+    }
+
+    static KeySink keys = new KeySink() {
+        public boolean press(int key) {
+            return K3346CallKeys.press(key);
+        }
+        public long lastSteeringKeyMs() {
+            return K3346CallKeys.lastMflKeyMs();
+        }
+    };
+
+    private static K3346GatedPhoneService instance;
+
     final CombiBAPServicePhone real;
     private boolean gated;
 
@@ -63,6 +100,11 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     private boolean haveStockRegState, haveStockProvider;
     private int stockProvNameValid, stockProvIdValid;
     private String stockProvName, stockProvId;
+    private CombiBAPCallStackEntry[] stockCombined;
+
+    /* Etap 6: lista ostatnich CarPlay */
+    private CombiBAPCallStackEntry[] recents = new CombiBAPCallStackEntry[0];
+    private String recentsText;
 
     /* stan CarPlay z PPS */
     private K3346PpsCall call = K3346PpsCall.NONE;
@@ -76,6 +118,9 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
 
     public K3346GatedPhoneService(CombiBAPServicePhone r) {
         this.real = r;
+        synchronized (K3346GatedPhoneService.class) {
+            instance = this;
+        }
     }
 
     /** Owija raz; ponowna rejestracja nie nawarstwia wrapperow. */
@@ -148,6 +193,117 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         if (!gated) real.updateNetworkProvider(nameValid, name, idValid, id);
     }
 
+    /* ---------------- akcje z VC (5.4) ---------------- */
+
+    /** Akcja z karty telefonu VC; false = bramka zamknieta, obsluguje stock. */
+    static boolean onVcAction(int action) {
+        K3346GatedPhoneService g;
+        synchronized (K3346GatedPhoneService.class) {
+            g = instance;
+        }
+        try {
+            return g != null && g.handle(action);
+        } catch (Throwable t) {
+            K3346Diag.log("K3346_PHONE action " + action + " error " + t + " -> stock");
+            return false;
+        }
+    }
+
+    synchronized boolean handle(int action) {
+        if (!gated) return false;
+        int st = bapState(call);
+        boolean ok;
+        if (action == ACT_ACCEPT) {
+            ok = st == BAP_RINGING;
+            real.acceptCallResult(ok ? RESULT_OK : RESULT_FAILED);
+        } else if (action == ACT_HANGUP) {
+            ok = st != 0;
+            real.hangupCallResult(ok ? RESULT_OK : RESULT_FAILED);
+        } else {
+            return false;
+        }
+        K3346Diag.log("K3346_PHONE vc " + actionName(action) + " state=" + st + " result=" + (ok ? "OK" : "FAILED"));
+        if (ok) schedulePress(action, st, callKey(call), System.currentTimeMillis());
+        return true;
+    }
+
+    /* Nacisniecie odroczone: przycisk sluchawki na kierownicy dociera do HMI
+     * (stock flash) i do kombi (BAP) mniej wiecej rownoczesnie. */
+    private void schedulePress(final int action, final int pressedState, final String key, final long actionMs) {
+        Thread t = new Thread("K3346CallKeyPress") {
+            public void run() {
+                try {
+                    Thread.sleep(MFL_SETTLE_MS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                try {
+                    pressUnlessSteering(action, pressedState, key, actionMs);
+                } catch (Throwable x) {
+                    K3346Diag.log("K3346_PHONE press error " + x);
+                }
+            }
+        };
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /* pakietowa (test): true = przycisk nacisniety przez wrapper */
+    synchronized boolean pressUnlessSteering(int action, int pressedState, String key, long actionMs) {
+        if (keys.lastSteeringKeyMs() >= actionMs - MFL_WINDOW_MS) {
+            K3346Diag.log("K3346_PHONE vc " + actionName(action) + " from steering key - stock flash handles it");
+            return false;
+        }
+        if (!gated || !key.equals(callKey(call)) || bapState(call) != pressedState) {
+            K3346Diag.log("K3346_PHONE vc " + actionName(action) + " skipped (call changed)");
+            return false;
+        }
+        boolean pressed = keys.press(action == ACT_ACCEPT ? K3346CallKeys.ACCEPT : K3346CallKeys.END);
+        if (pressed && (action == ACT_ACCEPT || pressedState != BAP_RINGING)) scheduleFallback(pressedState, key);
+        return pressed;
+    }
+
+    private static String actionName(int action) {
+        return action == ACT_ACCEPT ? "accept" : "hangup";
+    }
+
+    private void scheduleFallback(final int pressedState, final String key) {
+        Thread t = new Thread("K3346CallKeyCheck") {
+            public void run() {
+                try {
+                    Thread.sleep(FALLBACK_MS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                try {
+                    fallbackIfUnchanged(pressedState, key);
+                } catch (Throwable x) {
+                    K3346Diag.log("K3346_PHONE fallback error " + x);
+                }
+            }
+        };
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /* pakietowa (test): po ACCEPT nadal dzwoni / po END nadal trwa ta sama
+     * rozmowa -> iPhone nie przyjal przycisku 13/14, FLASH jak kierownica */
+    synchronized boolean fallbackIfUnchanged(int pressedState, String key) {
+        if (!gated || !key.equals(callKey(call))) return false;
+        int st = bapState(call);
+        boolean unchanged = pressedState == BAP_RINGING ? st == BAP_RINGING : st != 0 && st != BAP_RINGING;
+        if (!unchanged) {
+            K3346Diag.log("K3346_PHONE vc key worked (state " + pressedState + " -> " + st + ")");
+            return false;
+        }
+        K3346Diag.log("K3346_PHONE vc key ignored (state " + st + ") -> FLASH");
+        return keys.press(K3346CallKeys.FLASH);
+    }
+
+    static String callKey(K3346PpsCall c) {
+        return c.uuid.length() > 0 ? c.uuid : c.number + "|" + c.name;
+    }
+
     /* ---------------- PPS ---------------- */
 
     private void startPolling() {
@@ -159,6 +315,12 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
                 int rawLogged = 0;
                 K3346Diag.log("K3346_PHONE pps poller started " + PPS_TELEPHONY);
                 while (polling) {
+                    try {
+                        String rt = readPps(RECENTS_FILE);
+                        if (rt != null && !rt.equals(recentsText)) onRecents(rt);
+                    } catch (Throwable t) {
+                        /* brak pliku do pierwszej listy z iPhone'a - normalne */
+                    }
                     try {
                         String text = readPps(PPS_TELEPHONY);
                         if (text != null && !text.equals(last)) {
@@ -224,6 +386,128 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         }
     }
 
+    /* ---------------- Etap 6: ostatnie polaczenia ---------------- */
+
+    /* plik hooka: "K3346_TEL_RECENTS v1", "n=N", linie "i\ttyp\tts\tocc\tnumer\tnazwa" */
+    synchronized void onRecents(String text) {
+        recentsText = text;
+        java.util.Vector v = new java.util.Vector();
+        int from = 0;
+        while (from < text.length()) {
+            int end = text.indexOf('\n', from);
+            if (end < 0) end = text.length();
+            String line = text.substring(from, end);
+            from = end + 1;
+            String[] f = split(line, '\t');
+            if (f.length < 6) continue;
+            String num = f[4], name = f[5];
+            if (num.length() == 0) continue;
+            v.addElement(recent(v.size(), isNumber(name) ? "" : name, num,
+                                callMode((int)toLong(f[1])), toLong(f[2])));
+        }
+        CombiBAPCallStackEntry[] r = new CombiBAPCallStackEntry[v.size()];
+        v.copyInto(r);
+        recents = r;
+        K3346Diag.log("K3346_PHONE recents n=" + r.length);
+        if (gated) real.updateCombinedNumbers(recents);
+    }
+
+    static long toLong(String s) {
+        try {
+            return Long.parseLong(s.trim());
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    static String[] split(String s, char sep) {
+        java.util.Vector v = new java.util.Vector();
+        int from = 0;
+        while (true) {
+            int i = s.indexOf(sep, from);
+            if (i < 0) { v.addElement(s.substring(from)); break; }
+            v.addElement(s.substring(from, i));
+            from = i + 1;
+        }
+        String[] out = new String[v.size()];
+        v.copyInto(out);
+        return out;
+    }
+
+    static boolean isNumber(String s) {
+        if (s == null || s.length() == 0) return false;
+        for (int i = 0; i < s.length(); i++)
+            if ("0123456789+*#-() ".indexOf(s.charAt(i)) < 0) return false;
+        return true;
+    }
+
+    /* iAP2 Type 1 odebrane / 2 wybrane / 3 nieodebrane (Luka) */
+    static int callMode(int iap2Type) {
+        switch (iap2Type) {
+            case 1: return CALLMODE_RECEIVED;
+            case 2: return CALLMODE_DIALED;
+            case 3: return CALLMODE_MISSED;
+            default: return 0;
+        }
+    }
+
+    static CombiBAPCallStackEntry recent(int pos, String name, String num, int mode, long ts) {
+        if (ts <= 0) return new CombiBAPCallStackEntry(pos, name, num, 0, mode);
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTime(new java.util.Date(ts * 1000L));
+        return new CombiBAPCallStackEntry(pos, name, num, 0, mode,
+            (short)c.get(java.util.Calendar.DAY_OF_MONTH), (short)(c.get(java.util.Calendar.MONTH) + 1),
+            (short)c.get(java.util.Calendar.YEAR), (short)c.get(java.util.Calendar.HOUR_OF_DAY),
+            (short)c.get(java.util.Calendar.MINUTE), (short)c.get(java.util.Calendar.SECOND),
+            new de.audi.atip.interapp.phone.TelAdbEntryStruct());
+    }
+
+    /** Dzwonienie z listy VC; false = bramka zamknieta, obsluguje stock. */
+    static boolean onVcDial(String number) {
+        K3346GatedPhoneService g;
+        synchronized (K3346GatedPhoneService.class) {
+            g = instance;
+        }
+        try {
+            return g != null && g.dial(number);
+        } catch (Throwable t) {
+            K3346Diag.log("K3346_PHONE dial error " + t + " -> stock");
+            return false;
+        }
+    }
+
+    synchronized boolean dial(String number) {
+        if (!gated) return false;
+        String n = number == null ? "" : number.trim();
+        StringBuffer clean = new StringBuffer();
+        for (int i = 0; i < n.length(); i++) {
+            char ch = n.charAt(i);
+            if ((ch >= '0' && ch <= '9') || ch == '+' || ch == '*' || ch == '#') clean.append(ch);
+        }
+        boolean ok = clean.length() > 0 && clean.length() <= 32 && writeCommand("dial " + clean + "\n");
+        real.dialNumberResult(ok ? RESULT_OK : RESULT_FAILED);
+        K3346Diag.log("K3346_PHONE vc dial digits=" + clean.length() + " result=" + (ok ? "OK" : "FAILED"));
+        return true;
+    }
+
+    static boolean writeCommand(String cmd) {
+        java.io.File tmp = new java.io.File(CMD_FILE + ".tmp");
+        try {
+            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
+            try {
+                out.write(cmd.getBytes("UTF-8"));
+            } finally {
+                out.close();
+            }
+            java.io.File dst = new java.io.File(CMD_FILE);
+            dst.delete();
+            return tmp.renameTo(dst);
+        } catch (Throwable t) {
+            K3346Diag.log("K3346_PHONE cmd write error " + t);
+            return false;
+        }
+    }
+
     /* iAP2 RegistrationStatus -> BAP RegisterState (jak u Luki) */
     static int bapRegisterState(int iap2, boolean airplane) {
         if (airplane) return 0;
@@ -266,12 +550,20 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         support[MOBILE_SERVICE_SUPPORT_CALL_STATE] = true;
         support[MOBILE_SERVICE_SUPPORT_CALL_INFO] = true;
         support[MOBILE_SERVICE_SUPPORT_CALL_DURATION_SYNC] = true;
+        /* ACCEPT_CALL + opcja rozmowy ACCEPT = "Odbierz" w oknie dzwonienia VC.
+         * Przycisk sluchawki wysyla wtedy tez BAP acceptCall - tej kopii nie
+         * powtarzamy (pressUnlessSteering), odbiera stock FLASH. */
+        support[MOBILE_SERVICE_SUPPORT_ACCEPT_CALL] = true;
+        support[MOBILE_SERVICE_SUPPORT_HANGUP_CALL] = true;
         support[MOBILE_SERVICE_SUPPORT_REGISTER_STATE] = true;
         support[MOBILE_SERVICE_SUPPORT_NETWORK_PROVIDER] = true;
         support[MOBILE_SERVICE_SUPPORT_SIGNAL_QUALITY] = true;
+        support[MOBILE_SERVICE_SUPPORT_COMBINED_NUMBERS] = true;    /* Etap 6 */
+        support[MOBILE_SERVICE_SUPPORT_DIAL_NUMBER] = true;         /* Etap 6: z listy */
         real.updateMobileServiceSupport(support);
         publishCalls();
         publishComm();
+        real.updateCombinedNumbers(recents);
     }
 
     private void publishCalls() {
@@ -281,6 +573,8 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         int st = bapState(call);
         if (st != 0) {
             states[0] = new CombiBAPCallState(st, BAP_CALL_TYPE_VOICE, 0);
+            /* VC pokazuje Accept tylko dla rozmowy z ta opcja (RE Luki, callOptions 0x01) */
+            states[0].setCallOptionAcceptCallEnabled(st == BAP_RINGING);
             infos[0] = new CombiBAPCallInfo(displayName(call), call.number, BAP_CALL_TYPE_VOICE, 0);
             if (st == BAP_ACTIVE || st == BAP_HELD) {
                 long now = System.currentTimeMillis();
@@ -317,6 +611,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         else real.updateRegisterState(0, 0, 0);
         if (haveStockProvider) real.updateNetworkProvider(stockProvNameValid, stockProvName, stockProvIdValid, stockProvId);
         else real.updateNetworkProvider(0, "", 0, "");
+        real.updateCombinedNumbers(stockCombined != null ? stockCombined : new CombiBAPCallStackEntry[0]);
     }
 
     /* stock pokazuje pusta nazwe, gdy rowna numerowi (TelBAPCall.getDisplayName) */
@@ -360,7 +655,10 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     public void updateMissedCalls(CombiBAPCallStackEntry[] e) { real.updateMissedCalls(e); }
     public void updateReceivedCalls(CombiBAPCallStackEntry[] e) { real.updateReceivedCalls(e); }
     public void updateDialedNumbers(CombiBAPCallStackEntry[] e) { real.updateDialedNumbers(e); }
-    public void updateCombinedNumbers(CombiBAPCallStackEntry[] e) { real.updateCombinedNumbers(e); }
+    public synchronized void updateCombinedNumbers(CombiBAPCallStackEntry[] e) {
+        stockCombined = e;
+        if (!gated) real.updateCombinedNumbers(e);
+    }
     public void updateRingToneMuteState(boolean b) { real.updateRingToneMuteState(b); }
     public void updateAutomaticRedialActive(boolean b) { real.updateAutomaticRedialActive(b); }
     public void updateAutomaticRedialExtendedInfo(int i, String s, String s1, int j) { real.updateAutomaticRedialExtendedInfo(i, s, s1, j); }

@@ -24,9 +24,10 @@ E4_PENDING="$MOD/etap4.installing.flag"; E4_ROLLEDBACK="$MOD/etap4.rolledback.ok
 E4_INSTALL_MARK="$MOD/INSTALL_ETAP4"; E4_ROLLBACK_MARK="$MOD/ROLLBACK_ETAP4"
 E4_NAMES='libmib2high-carplay-rgi-ipod.so mm-ipod-rgi.sh usblauncher_otg.lua iap2.cfg'
 # Stock K3346 (collector v1.2 + backup M.I.B., identyczne): rozmiary plikow, ktore
-# Etap 4 zmienia, oraz oczekiwane rozmiary po zmianie (+21 B lua, +118 B iap2.cfg).
+# Etap 4 zmienia, oraz oczekiwane rozmiary po zmianie (+21 B lua, +139 B iap2.cfg:
+# [ident] RGI + Etap 6 0x415a/0x4170/0x4171).
 K3346_OTG_LUA_SIZE=19907; K3346_OTG_LUA_NEW_SIZE=19928
-K3346_IAP2CFG_SIZE=5852; K3346_IAP2CFG_NEW_SIZE=5970
+K3346_IAP2CFG_SIZE=5852; K3346_IAP2CFG_NEW_SIZE=5991
 K3346_MMIPOD_SIZE=40297
 # --- K3346 Etap 5: JAR z klasami o fabrycznych nazwach (lsd/jars/ jest na
 # -Xbootclasspath przed lsd.jxe). Osobna transakcja i kopia; ROLLBACK_ETAP5 cofa
@@ -34,7 +35,7 @@ K3346_MMIPOD_SIZE=40297
 E5_BACKUP="$MOD/backup/pre-etap5"; E5_INSTALLED="$MOD/etap5.installed.ok"
 E5_PENDING="$MOD/etap5.installing.flag"; E5_ROLLEDBACK="$MOD/etap5.rolledback.ok"
 E5_INSTALL_MARK="$MOD/INSTALL_ETAP5"; E5_ROLLBACK_MARK="$MOD/ROLLBACK_ETAP5"
-E5_NAMES='mib2high-k3346-overrides.jar'
+E5_NAMES='mib2high-k3346-overrides.jar k3346-coverart-fetch'
 say(){ echo "[V8S] $*"; }
 fail(){ say "ERROR $*"; exit 1; }
 # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
@@ -58,7 +59,7 @@ NAMES='libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lv
 pathof(){ case "$1" in
 libmib2high-carplay-rgi.so) echo "$APP/root/hooks/$1";;
 mib2high-carplay-rgi.jar|mib2high-k3346-overrides.jar) echo "$APP/eso/hmi/lsd/jars/$1";;
-vc_render|v8l-dsitracer-capture|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf) echo "$APP/root/$1";;
+vc_render|v8l-dsitracer-capture|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf|k3346-coverart-fetch) echo "$APP/root/$1";;
 bundles_dsitracer_enabled.properties|traceConfig.properties|dsitracer_activated) echo "$APP/eso/hmi/lsd/$1";;
 smartphone_integrator.json) echo "$SYSTEM/etc/eso/production/smartphone_integrator.json";;
 carplay_altscreen) echo "$APP/carplay_altscreen";;
@@ -66,7 +67,7 @@ libmib2high-carplay-rgi-ipod.so) echo "$APP/root/hooks/$1";;
 mm-ipod-rgi.sh) echo "$APP/root/$1";;
 usblauncher_otg.lua) echo "$SYSTEM/etc/usblauncher_otg.lua";;
 iap2.cfg) echo "$SYSTEM/etc/mm/iap2.cfg";; esac; }
-modeof(){ case "$1" in *.so|vc_render|v8l-dsitracer-capture|*.sh) echo 755;;*)echo 644;;esac; }
+modeof(){ case "$1" in *.so|vc_render|v8l-dsitracer-capture|k3346-coverart-fetch|*.sh) echo 755;;*)echo 644;;esac; }
 # Preserve actual pre-install POSIX permissions (including setuid/setgid/sticky).
 # Only uses QNX-standard ls and awk; no stat -c, dirname, cmp or other GNU options.
 filemode() {
@@ -307,6 +308,11 @@ tx_restore(){ TR_DIR="$1"; TR_NAMES="$2"
 [ -f "$TR_DIR/complete" ] || { say "BACKUP_INCOMPLETE=$TR_DIR"; return 1; }
 for n in $TR_NAMES; do
     dest=`pathof "$n"`
+    # Kopia sprzed dodania pliku do etapu (np. Etap 5 bez k3346-coverart-fetch):
+    # ta transakcja go nie instalowala, wiec nie ma czego przywracac.
+    if [ ! -f "$TR_DIR/$n.absent" ] && [ ! -f "$TR_DIR/$n" ] && [ ! -f "$TR_DIR/$n.mode" ]; then
+        say "RESTORE_SKIP_NOT_IN_BACKUP=$n"; continue
+    fi
     if [ -f "$TR_DIR/$n.absent" ]; then
         rm -f "$dest" || return 1
     else
@@ -319,7 +325,8 @@ for n in $TR_NAMES; do
 done
 sync; }
 # ------------------------------------------------------------------------------
-# K3346 Etap 5: mib2high-k3346-overrides.jar -> /mnt/app/eso/hmi/lsd/jars/.
+# K3346 Etap 5: mib2high-k3346-overrides.jar -> /mnt/app/eso/hmi/lsd/jars/,
+# k3346-coverart-fetch (5.3, uruchamiany przez HMI) -> /mnt/app/root/.
 # Dziala po restarcie MMI (lsd.sh buduje bootclasspath przy starcie HMI).
 # Ryzyko: blad w podmienionej klasie moze zatrzymac HMI (bootloop) -> karta
 # ratunkowa usuwa ten JAR (ratunek.sh, R_JAR2), potem ROLLBACK_ETAP5 przez GEM.
@@ -331,11 +338,14 @@ install_etap5(){ say 'MODE=INSTALL_ETAP5'; checkrw "$SD" || fail 'SD not writabl
 preflight; version_gate
 [ -d "$APP/eso/hmi/lsd/jars" ] || fail 'ETAP5: brak katalogu lsd/jars'
 [ ! -e "`pathof mib2high-k3346-overrides.jar`" ] || fail 'ETAP5: JAR juz jest w systemie - stan nieznany, nic nie zmieniono'
+[ ! -e "`pathof k3346-coverart-fetch`" ] || fail 'ETAP5: k3346-coverart-fetch juz jest w systemie - stan nieznany, nic nie zmieniono'
 [ -s "$PAY/mib2high-k3346-overrides.jar" ] || fail 'missing mib2high-k3346-overrides.jar'
+[ -s "$PAY/k3346-coverart-fetch" ] || fail 'missing k3346-coverart-fetch'
 checkrw "$APP" || fail 'app filesystem not writable'
 if [ -e "$E5_BACKUP" ] && [ -f "$E5_ROLLEDBACK" ]; then mv "$E5_BACKUP" "$E5_BACKUP.old.$$" || fail 'cannot rotate old etap5 backup'; rm -f "$E5_ROLLEDBACK"; fi
 tx_backup "$E5_BACKUP" "$E5_NAMES" || fail 'etap5 original backup failed'; : > "$E5_PENDING" || fail 'cannot mark etap5 transaction'; TX5=1
 say 'INSTALLING=mib2high-k3346-overrides.jar'; install_file "$PAY/mib2high-k3346-overrides.jar" "`pathof mib2high-k3346-overrides.jar`" 644 || fail 'install failed mib2high-k3346-overrides.jar'
+say 'INSTALLING=k3346-coverart-fetch'; install_file "$PAY/k3346-coverart-fetch" "`pathof k3346-coverart-fetch`" 755 || fail 'install failed k3346-coverart-fetch'
 sync || fail 'pre-success sync failed'; : > "$E5_INSTALLED" || fail 'cannot mark etap5 success'; sync || fail 'success sync failed'
 rm -f "$E5_PENDING" "$E5_INSTALL_MARK" || fail 'cleanup failed'; sync || fail 'final sync failed'
 TX5=0; say 'ETAP5_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'Restart MMI; gdyby HMI nie wstalo - karta ratunkowa'; say 'SAFE TO REMOVE SD'; }

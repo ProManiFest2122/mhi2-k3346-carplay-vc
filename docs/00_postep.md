@@ -165,7 +165,17 @@
   - [x] Paczka 5.3 (okładka CarPlay na VC): narzędzie `k3346-coverart-fetch` + `K3346CoverArt` (PPS
         nowplaying) + podmiany `TerminalModeBapCombi`/`AppConnectorTerminalMode` (PictureManager, jak Luka);
         instalator zna nowy plik i stare kopie; symulacja 165/165, ratunek 49/49 – `docs\16`
-  - [ ] Test 5.3 w aucie **[Ty]**: okładka Spotify/Apple Music na VC, zmiana utworu
+  - [x] Test 5.3 w aucie (2026-10-21, `work\auto_test_10\`): okładka wysłana, VC pokazał obrazek zastępczy
+        (JPEG 600×600 nieakceptowany) → v2: PNG 256×256 jak Luka
+  - [x] Test 5.3 v3 w aucie (2026-10-21): **okładka CarPlay na VC działa** (`listRef=0` jak Luka)
+  - [x] Etap 6 v5 w aucie (2026-10-21, `work\auto_test_14\`): lista z BT, dzwonienie z listy, rozmowy z sesji
+        działają; lista dopiero po połączeniu BT
+  - [ ] Etap 6b (`docs\17`): iPhone oddaje listę przez iAP2 jak u Luki? Hipoteza: brak
+        `BluetoothTransportComponent` (MAC auta) w identyfikacji. Krok 1 zrobiony (adres BT tylko w chipie,
+        podany przez użytkownika). Krok 2: `BT_MAC` na karcie → `[bluetooth]` z MAC w `iap2.cfg` (Etap 4),
+        symulacja 192/192. Test 6b (run-18): komponent przyjęty, lista iAP2 nadal 0 → obalone.
+        Etap 6c: 5 wariantów żądania 0x4170 (biblioteka `mm-ipod`). Test **[Ty]**: `ROLLBACK_ETAP4` +
+        `INSTALL_ETAP4`, CarPlay 5 min.
 - [ ] **Etap 6 – ostatnie połączenia CarPlay na VC + dzwonienie z listy** (`docs\17`): paczka gotowa
       (grupa 0x41 w tabeli sterownika, 0x4170/0x4171/0x415A z hooka `mm-ipod`, Java lista + wybieranie);
       offsety ALL PASS, testy C/Java PASS, symulacja 173/173, ratunek 49/49. Książka adresowa przez CarPlay

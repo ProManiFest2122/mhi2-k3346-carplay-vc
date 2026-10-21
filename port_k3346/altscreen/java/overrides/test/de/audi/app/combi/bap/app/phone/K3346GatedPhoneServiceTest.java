@@ -114,6 +114,46 @@ public class K3346GatedPhoneServiceTest {
         Thread.sleep(1000);
         ok(keys.length() == 0, "odroczone watki przy przycisku kierownicy nic nie nacisnely");
 
+        /* Etap 6 v4: rozmowy z sesji CarPlay -> wpisy na gorze (dotad: 2 odebrane powyzej) */
+        K3346PpsCall out = K3346PpsCall.parse("CallStateStatus:n:3\nCallStateDirection:n:1\nCallStatePhoneNumber::+00000000005\nUniqueCallID::o1\n");
+        g.onPps(out); out.status = 0; g.onPps(out);
+        K3346PpsCall miss = K3346PpsCall.parse("CallStateStatus:n:3\nCallStateDirection:n:0\nCallStatePhoneNumber::+00000000006\nUniqueCallID::m1\n");
+        g.onPps(miss); miss.status = 0; g.onPps(miss);
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] vc = g.recentsForVc();
+        ok(vc.length == 4 && vc[0].getTelNumber().equals("+00000000006") && vc[0].getCallMode() == K3346GatedPhoneService.CALLMODE_MISSED
+           && vc[1].getCallMode() == K3346GatedPhoneService.CALLMODE_DIALED && vc[2].getCallMode() == K3346GatedPhoneService.CALLMODE_RECEIVED
+           && vc[3].getPbName().equals("Jan Kowalski") && vc[0].getPosID() == 0 && vc[3].getPosID() == 3,
+           "rozmowy sesji: nieodebrana, wybrana, odebrane - najnowsza na gorze, posID 0..3");
+        ok(vc[0].getYear() != 1970, "rozmowa sesji bez daty 1970 (zegar MMX nieustawiony)");
+
+        /* lista z BT zapamietana; czyszczenie MMI po starcie CarPlay (102 -> 66 -> 31 -> 0) pomijane */
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] bt =
+            new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[102];
+        for (int i = 0; i < bt.length; i++)
+            bt[i] = new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry(i, "K" + i, "+0000000" + (1000 + i), 0, 2);
+        g.updateCombinedNumbers(bt);
+        g.updateCombinedNumbers(new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[66]);
+        g.updateCombinedNumbers(new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[31]);
+        calls.clear();
+        g.updateCombinedNumbers(new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[0]);
+        vc = (de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[])((Object[])last("updateCombinedNumbers"))[0];
+        ok(vc.length == 50 && vc[0].getTelNumber().equals("+00000000006") && vc[4].getTelNumber().equals("+00000001000")
+           && vc[4].getPosID() == 4 && vc[49].getPosID() == 49,
+           "CarPlay: VC = 4 rozmowy sesji + lista z BT (max 50), czyszczenie MMI pominiete");
+
+        /* ulubione z BT zapamietane */
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[] fav =
+            new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[]{
+                new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry(0, "Ulub", "+00000000007")};
+        g.updateFavoriteList(fav);
+        calls.clear();
+        g.updateFavoriteList(new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[0]);
+        ok(((Object[])last("updateFavoriteList"))[0] == fav, "CarPlay: ulubione z BT zostaja mimo czyszczenia MMI");
+
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] stockList =
+            new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[]{
+                new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry(0, "Stock", "+00000000009", 0, 2)};
+
         /* Etap 6: ostatnie polaczenia z pliku hooka + wybieranie */
         calls.clear();
         g.onRecents("K3346_TEL_RECENTS v1\nn=3\n0\t2\t1777100628\t2\t+00000000001\tJan Kowalski\n"
@@ -126,6 +166,10 @@ public class K3346GatedPhoneServiceTest {
         ok(rec[1].getPbName().equals("") && rec[1].getCallMode() == K3346GatedPhoneService.CALLMODE_MISSED,
            "ostatnie: nazwa = sformatowany numer -> pusta, nieodebrane");
         ok(rec[2].getCallMode() == K3346GatedPhoneService.CALLMODE_RECEIVED, "ostatnie: odebrane");
+        calls.clear();
+        g.updateCombinedNumbers(stockList);
+        ok(((de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[])((Object[])last("updateCombinedNumbers"))[0]).length == 3,
+           "lista iAP2 niepusta: ma pierwszenstwo przed lista MMI");
         java.io.File cmdDir = new java.io.File(System.getProperty("java.io.tmpdir"));
         K3346GatedPhoneService.CMD_FILE = new java.io.File(cmdDir, "k3346-tel-cmd-test").getPath();
         new java.io.File(K3346GatedPhoneService.CMD_FILE).delete();
@@ -151,7 +195,27 @@ public class K3346GatedPhoneServiceTest {
         ok(!K3346GatedPhoneService.onVcDial("+00000000001"), "bez CarPlay: wybieranie idzie do stock");
         de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] sc =
             (de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[])((Object[])last("updateCombinedNumbers"))[0];
-        ok(sc != null && sc.length == 0, "koniec CarPlay: lista ostatnich stock (pusta) odtworzona");
+        ok(sc == stockList, "koniec CarPlay: lista ostatnich stock odtworzona");
+
+        /* rozmowy z sesji zostaja po ponownym podlaczeniu kabla; swieza lista z BT usuwa duplikat */
+        g.onRecents("K3346_TEL_RECENTS v1\nn=0\n");
+        g.updateFsgSetup(fsg(5));
+        vc = g.recentsForVc();
+        ok(vc.length > 4 && vc[0].getTelNumber().equals("+00000000006"), "ponowny CarPlay: rozmowy sesji nadal na gorze");
+        g.updateFsgSetup(fsg(3));
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] fresh =
+            new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[]{
+                new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry(0, "", "+00 000 000 006", 0,
+                    K3346GatedPhoneService.CALLMODE_MISSED)};
+        g.updateCombinedNumbers(fresh);
+        g.updateFsgSetup(fsg(5));
+        vc = g.recentsForVc();
+        ok(!vc[0].getTelNumber().equals("+00000000006") && vc[0].getCallMode() == K3346GatedPhoneService.CALLMODE_DIALED,
+           "swieza lista z BT ma te rozmowe -> wpis sesji usuniety (bez duplikatu)");
+        g.updateFsgSetup(fsg(3));
+        K3346GatedPhoneService.CMD_FILE = new java.io.File(cmdDir, "k3346-tel-cmd-test2").getPath();
+        ok(K3346GatedPhoneService.writeCommand("dial +1\n") && "dial +1\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)),
+           "polecenie zapisane wprost (bez renameTo)");
         System.out.println("WYNIK_PHONE: " + (fails == 0 ? "PASS" : "FAIL " + fails));
         System.exit(fails == 0 ? 0 : 1);
     }

@@ -81,7 +81,7 @@ setup(){
 
 run(){ # run [dodatkowe env...]
     env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" \
-        MIB_LSD_JXE="$SIM/ifs/lsd.jxe" "$@" \
+        MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" "$@" \
         sh "$SIM/sd/mod/command.sh" 2>&1
 }
 
@@ -582,6 +582,30 @@ cmp -s "$OVR" "$E4M/payload/mib2high-k3346-overrides.jar" && ok "w aucie nowy JA
 OUT=$(run); case "$OUT" in *"MODE=COLLECT"*) ok "3. uruchomienie: zwykly COLLECT";; *) bad "3. uruchomienie nie COLLECT";; esac
 
 echo
+echo "--- T13-BT: Etap 6b - BT_MAC na karcie -> sekcja [bluetooth] z adresem; zly BT_MAC -> odmowa bez zmian"
+setup; run >/dev/null; V8S=$(snapshot_files "$SIM/app" "$SIM/system")
+printf 'zle:00\r\n' > "$E4M/BT_MAC"; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"
+OUT=$(run); case "$OUT" in *"BT_MAC ma zly format"*) ok "zly BT_MAC: odmowa";; *) bad "zly BT_MAC przyjety"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ "$V8S" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/etap4.installed.ok" ] && ok "zly BT_MAC: zero zapisow" || bad "zly BT_MAC: drzewo zmienione"
+printf '00:00:00:00:00:00\n' > "$E4M/BT_MAC"
+OUT=$(run); case "$OUT" in *"BT_MAC to adres pusty"*) ok "pusty adres: odmowa";; *) bad "pusty adres przyjety";; esac
+printf '02:00:00:00:00:01\r\n' > "$E4M/BT_MAC"
+OUT=$(run); echo "$OUT" | grep -E 'ETAP4_BT|ETAP4_INSTALL' | sed 's/^/      | /'
+case "$OUT" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "z BT_MAC: Etap 4 PASS";; *) bad "z BT_MAC: brak PASS"; echo "$OUT" | tail -5 | sed 's/^/      | /';; esac
+case "$OUT" in *"ETAP4_BT=ON"*) ok "log ETAP4_BT=ON";; *) bad "brak ETAP4_BT=ON";; esac
+case "$OUT" in *"02:00:00:00:00:01"*) bad "adres wypisany w logu";; *) ok "adres nie trafil do logu";; esac
+[ "$(head -c 5852 "$CFG" | sha256sum)" = "$(sha256sum < "$SIM/cfg.stock")" ] && ok "iap2.cfg z BT: stockowa czesc bez zmian" || bad "iap2.cfg z BT: stockowa czesc zmieniona"
+[ "$(wc -c < "$CFG")" = 6141 ] && ok "iap2.cfg z BT: 6141 B" || bad "iap2.cfg z BT: $(wc -c < "$CFG") B zamiast 6141"
+[ "$(tail -n 6 "$CFG" | tr '\n' '|')" = '[bluetooth]|enable=yes|id=1111|name=Bluetooth|connectstatus=enable|mac=02:00:00:00:00:01|' ] \
+  && ok "iap2.cfg z BT: sekcja [bluetooth] z mac na koncu" || { bad "iap2.cfg z BT: zla sekcja"; tail -n 7 "$CFG" | od -c | tail -5 | sed 's/^/        /'; }
+grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' "$CFG" && ok "iap2.cfg z BT: [ident] jest" || bad "iap2.cfg z BT: brak [ident]"
+tail -c +5853 "$CFG" | grep -q "$(printf '\r')" && bad "iap2.cfg z BT: CR w dopisku" || ok "iap2.cfg z BT: dopisek bez CR"
+cp "$SIM/sd/ZNACZNIKI/ROLLBACK_ETAP4" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP4_ROLLBACK_RESULT=PASS"*) ok "rollback Etapu 4 z BT PASS";; *) bad "rollback z BT nie PASS";; esac
+[ "$V8S" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "po rollbacku fabryczny iap2.cfg (stan po v8s bit w bit)" || bad "rollback nie przywrocil stanu"
+rm -f "$E4M/BT_MAC"
+
+echo
 echo "--- T14h: COLLECT zbiera obiekty PPS iAP2 (telephony/nowplaying), drzewo auta nietkniete"
 setup; run >/dev/null
 mkdir -p "$SIM/pps"; printf '@telephony\nCallStateStatus:n:0\n' > "$SIM/pps/telephony"; printf '@nowplaying\nMediaItemTitle::x\n' > "$SIM/pps/nowplaying"
@@ -589,6 +613,22 @@ B=$(snapshot_files "$SIM/app" "$SIM/system")
 OUT=$(run MIB_PPS_IAP2="$SIM/pps"); R=$(ls -d "$E4M"/collected/run-* | tail -1)
 grep -q 'CallStateStatus' "$R/pps/telephony.txt" 2>/dev/null && grep -q 'MediaItemTitle' "$R/pps/nowplaying.txt" 2>/dev/null && ok "pps/telephony.txt i pps/nowplaying.txt zebrane" || bad "brak zrzutu PPS"
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo auta nietkniete" || bad "COLLECT zmienil drzewo"
+
+echo
+echo "--- T14k: COLLECT szuka adresu BT (listingi + obiekty z bt/blue w nazwie), tylko odczyt"
+setup; run >/dev/null
+mkdir -p "$SIM/bt1/services/bluetooth" "$SIM/bt2"
+printf '@local\naddress::00:11:22:33:44:55\n' > "$SIM/bt1/services/bluetooth/local"
+printf 'btcfg\n' > "$SIM/bt2/bt.cfg"; printf 'inne\n' > "$SIM/bt2/other.txt"
+dd if=/dev/zero of="$SIM/bt2/btbig" bs=1024 count=64 2>/dev/null
+B=$(snapshot_files "$SIM/app" "$SIM/system"); BB=$(cd "$SIM" && ls -lR bt1 bt2 | md5sum)
+OUT=$(run MIB_BT_ROOTS="$SIM/bt1/services $SIM/bt2 $SIM/brak"); R=$(ls -d "$E4M"/collected/run-* | tail -1)
+grep -q '00:11:22:33:44:55' "$R/bt-addr/objects.txt" 2>/dev/null && grep -q 'btcfg' "$R/bt-addr/objects.txt" && ok "obiekty z katalogu bluetooth i plik bt.cfg zebrane" || bad "brak obiektow BT"
+grep -q 'inne' "$R/bt-addr/objects.txt" 2>/dev/null && bad "skopiowal plik bez bt w nazwie" || ok "pliki bez bt/blue w nazwie pominiete"
+grep -q 'other.txt' "$R/bt-addr/listing.txt" 2>/dev/null && ok "listing katalogu zapisany" || bad "brak listingu"
+SZ=$(wc -c < "$R/bt-addr/objects.txt"); [ "$SZ" -lt 20000 ] && ok "duzy plik uciety do 8 KB (objects.txt=$SZ B)" || bad "duzy plik nieuciety ($SZ B)"
+case "$OUT" in *"COLLECT_RESULT="*) ok "COLLECT dokonczony";; *) bad "COLLECT nie dokonczony";; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ "$BB" = "$(cd "$SIM" && ls -lR bt1 bt2 | md5sum)" ] && ok "drzewo auta i katalogi BT nietkniete" || bad "COLLECT cos zmienil"
 
 echo
 echo "--- T14i: sonda okladki w COLLECT: wynik zapisany; zawieszona sonda zabita po 15 s"

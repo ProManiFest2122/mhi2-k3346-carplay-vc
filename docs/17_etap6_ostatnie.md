@@ -3,6 +3,115 @@
 Stan 2026-10-20: **w paczce, w aucie jeszcze nie testowane.** Paczka `work\sd_etap5` (ta sama co 5.3/5.4,
 aktualizuje Etap 4 i 5 naraz).
 
+## Wynik testu w aucie (2026-10-21, `work\auto_test_10\karta_mod\…\collected\run-11`)
+
+- Instalacja 4 znacznikami: PASS, CarPlay łączy się, identyfikacja **przyjęta** z 0x415A/0x4170/0x4171
+  (sterownik sam dopisał je też z rozszerzonej tabeli 0x41 – na liście są dwa razy, iPhone to przyjął).
+- `tel_verify=PASS count=114`, `send msg=4170 … send_rc=0`, iPhone odpowiedział dwoma 0x4171:
+  `00 05 00 00 01 | 00 06 00 02 00 00` (ostatnie: dostępne, **count 0**) i to samo dla ulubionych.
+  W sesji nie było rozmowy, więc iPhone nie miał powodu wysłać zmiany. VC: „Lista połączeń” i „Ulubione”
+  mają tylko fabryczną pozycję „Skrzynka mailowa”. Przyczyna pustych list nieznana (iOS?).
+  **Poprawka v2:** ponowne 0x4170 przy pustej liście (po 20 s, potem 60 s) i 5 s po każdym 0x4155
+  (zmiana stanu rozmowy), max 4 na sesję; test C PASS (UBSAN, ASAN). Następny test: **zadzwonić w trakcie
+  sesji** i potem COLLECT – czy iPhone wyśle listę z wpisami.
+- „Książka adresowa” na VC = fabryczna książka MMI z Bluetooth (PBAP); przy CarPlay pusta. Do ukrycia
+  w przyszłości jak u Luki (`GatedAddressBook`: „brak książki” przy CarPlay).
+
+## Wynik testu v2 (2026-10-21, `work\auto_test_11\`, run-12)
+
+- 0x4170 wysłany 5× (pierwszy + 4 ponowne), iPhone zawsze `count 0` dla ostatnich i ulubionych; po
+  rozmowie iPhone **sam** przysłał 0x4171 (subskrypcja działa) – nadal 0. Wniosek: iOS celowo nie oddaje
+  historii połączeń temu akcesorium (przyczyna nieznana; hipoteza: brak powiązania iAP2 z parowaniem
+  Bluetooth – fabryczny `iap2.cfg` ma sekcję `[bluetooth]` zakomentowaną).
+- Książka adresowa na VC pokazała kontakty, choć iPhone nie był połączony przez Bluetooth → to kopia
+  zapamiętana w MMI. **Poprawka v3:** przy pustej liście iAP2 wrapper przepuszcza listę połączeń
+  zapamiętaną przez MMI (`stock combined n=…` w logu), zamiast ją zasłaniać.
+
+## Wynik testu v3 (2026-10-21, `work\auto_test_12\`, run-13)
+
+- **Okładka działa** (poprawka `listRef=0` z 5.3).
+- Listy nadal puste. Log `K3346_PHONE stock combined`: przed CarPlay (iPhone na Bluetooth) MMI miało listę
+  połączeń **n=102**; po `gate ON` (CarPlay – MMI wyłącza BT telefonu) samo ją czyści: 66 → 31 → 0.
+  iAP2 dalej 0. **Poprawka v4 (JAR `9d94fdd7…`):** zapamiętana ostatnia pełna lista z BT (przy CarPlay
+  przyjmowana tylko lista nie krótsza – czyszczenie pomijane) + rozmowy z sesji CarPlay dopisywane na
+  górę z PPS (odebrana / nieodebrana / wybrana, czas = koniec rozmowy), max 50, `posID` 0..n-1; tak samo
+  ulubione. Po wyjściu z CarPlay – lista MMI jak w fabryce. Lista z iAP2, gdyby kiedyś przyszła, ma
+  pierwszeństwo. Warunek: iPhone łączy się najpierw przez Bluetooth (jak zwykle przy uruchomieniu).
+
+## Wynik testu v4 (2026-10-21, `work\auto_test_13\`, run-14)
+
+- **Lista połączeń na VC jest** (101 pozycji zapamiętanych z BT, z datami z telefonu).
+- Wybór pozycji → „Błąd sieci”: `vc dial … result=FAILED` – `File.renameTo` w `/tmp` zawodzi (na MMX
+  `/tmp` = `/dev/shmem`, bez zmiany nazwy). Ten sam błąd miał natywny zapis listy iAP2 (nigdy
+  `recents_written`). Okładka pisze do `/var/app/icab/tmp` – działa.
+- Rozmowa z sesji: data 1.1.1970 (zegar MMX nieustawiony, PPS bez czasu rozmowy); po ponownym
+  podłączeniu kabla znikała (czyszczona przy `gate OFF`).
+- Porównanie z Luką: u niego iOS wysłał 12 ostatnich + 4 ulubione w 21 s na **to samo** żądanie
+  (`CARPLAY_TELEPHONY.md`, `[car]`); jego warunek „auto na liście sparowanych CarPlay” u nas przechodzi
+  (`available=1`), a lista i tak 0 – przyczyna po stronie iOS **otwarta**. Dzwonienie: Luka używa
+  `requestUI2("tel:")`, K3346 ma tylko `requestUI(int)` → iAP2 `InitiateCall 0x415A` (z jego tabeli).
+- **Poprawka v5:** polecenie wybierania zapisywane wprost (bez `renameTo`), hook bierze je dopiero z `\n`
+  (bez połowy numeru); natywny zapis listy z zapasową ścieżką bez `rename`; rozmowy z sesji bez daty,
+  zostają do restartu MMI, usuwane gdy świeża lista z BT ma ten sam numer i tryb (5 najnowszych).
+  JAR + biblioteka `mm-ipod` (aktualizacja Etapu 4 i 5, 4 znaczniki). Testy PASS, symulacja 173/173.
+
+## Wynik testu v5 (2026-10-21, `work\auto_test_14\`, run-16)
+
+- Dzwonienie z listy działa (`initiate_call digits=12 rc=0`), rozmowy z sesji na górze bez daty, zostają po
+  ponownym podłączeniu kabla. Lista z BT pojawia się dopiero po połączeniu iPhone'a przez Bluetooth
+  (`stock combined` 0 → 36 → 71 → 101). Użytkownik odrzucił trwałą kopię listy na MMI: „Luki napewno to jakoś
+  rozwiązał”.
+
+## Etap 6b: dlaczego iPhone oddaje Luce listę, a nam nie (2026-10-21)
+
+- Luka i yuedizhibo (V3.8, `tel_hook.c`) nie trzymają żadnej kopii: iPhone przez iAP2 wysyła 12 ostatnich
+  i ulubione, auto nie ma wtedy BT. Nasze 0x4170 w `iap2.log` jest **bajt w bajt** jak ich (różnica tylko
+  max 25/0 zamiast 20/20; iOS i tak tnie do 12). Odpowiedź iPhone'a zawsze `available=1, count=0`.
+- Różnica w identyfikacji 0x1D01 (run-14): mamy USBHostTransport, Location, RG; **brak
+  `BluetoothTransportComponent` (17) z MAC auta**. Hipoteza: iOS nie wiąże akcesorium USB z autem sparowanym
+  przez BT i oddaje pustą historię. Niepotwierdzona.
+- RE sterownika K3346 (`work\re_bt\`, `ipod-drvr-iap2.so`):
+  - `init_features`: `[bluetooth] enable=yes` → bit 4 cech („Bluetooth connection enabled”);
+  - `ident_info_sendmsgs/recvmsgs`: bit 4 dopisuje komunikaty 0x4E0x do identyfikacji;
+  - `ident_info_tspbt@0xd490`: komponent 17 = id (`id=`, domyślnie 0), nazwa (`name=`, domyślnie
+    „bluetooth”), opcjonalnie TransportSupportsiAP2Connection, **MAC: env `IAP2_BT_STATUS_MAC_ADDR`
+    (17 znaków) albo `mac=`** (`%hhx:%hhx:…`). Bez MAC-a komponentu nie ma wcale;
+  - `iap2_start_features`: po akceptacji `bt_send_info(status)` → 0x4E01 BluetoothComponentInformation
+    (status z PPS `btconnectstatus` albo `connectstatus=enable`), potem `bt_start_updates`.
+  - Wniosek: sekcję dodawać **tylko razem z poprawnym MAC** (komunikaty bez komponentu = ryzyko odrzucenia
+    identyfikacji).
+- Krok 1 (karta 2026-10-21): COLLECT zapisuje `bt-addr/listing.txt` i `bt-addr/objects.txt` (tylko odczyt;
+  PPS, /var, /mnt, /net, /dev i to samo na RCC). Celem jest znalezienie lokalnego adresu BT MMI. Symulacja
+  179/179 (dash, mksh).
+- Wynik kroku 1 (run-17): w systemie nie ma adresu. RE `btstack` (`work\re_bt\`): radio Marvell MV8787 (SDIO);
+  `/var/bdaddr` to tylko zapas (losowy adres, gdy chip zgłosi domyślny), na MMX go nie ma. Adres siedzi w chipie,
+  idzie wyłącznie do trace („Local BtAddress is…”) i do HMI (`updateLocalBtAddress`). Użytkownik odczytał go
+  z innego urządzenia. Adres nie trafia do repo ani docs.
+- Krok 2 (paczka 2026-10-21):
+  - plik `BT_MAC` na karcie (`mod/…/BT_MAC`, jedna linia, tylko na karcie);
+  - `INSTALL_ETAP4` sprawdza format; zły albo pusty adres → stop bez zmian, brak pliku → jak dotąd;
+  - `iap2.awk -v btmac=` dopisuje po `[ident]` sekcję `[bluetooth]` (`enable=yes`, `id=1111`,
+    `name=Bluetooth`, `connectstatus=enable`, `mac=`): iap2.cfg 6141 B zamiast 5991;
+  - log `ETAP4_BT=ON/OFF` bez adresu; `ROLLBACK_ETAP4` przywraca fabryczny plik.
+  - Testy: symulacja 192/192 (dash, mksh, nowe T13-BT), ratunek 49/49. `sprawdz_karte.ps1 -Typ etap4`
+    porównuje z `sd_etap5` i sprawdza `BT_MAC`.
+  - Test w aucie: `ROLLBACK_ETAP4` + `INSTALL_ETAP4` (2 uruchomienia), restart MMI, iPhone **bez BT**
+    na kablu. Oczekiwane w `iap2.log`: `BluetoothTransportComponent` w 0x1D01, `IdentificationAccepted`,
+    0x4E01. W `k3346-rgi-ipod-native.log`: `list_update … count>0`.
+- **Wynik testu 6b (2026-10-21, `work\auto_test_15\`, run-18):**
+  - komponent przyjęty: `BluetoothTransportComponent` z MAC w 0x1D01, `IdentificationAccepted`, 0x4E01,
+    iPhone odpowiada 0x4E03/0x4E04 (BluetoothConnectionUpdate). CarPlay i reszta działają;
+  - lista z iAP2 **nadal `available=1, count=0`** → hipoteza BT obalona;
+  - lista na VC pochodziła z pobrania przez BT w tej sesji (`stock combined` 27 → 36 → 71 przy `gate ON`,
+    potem MMI czyści, wrapper trzyma `kept=71/101`);
+  - dzwonienie z listy i rozmowy z sesji (na górze, bez daty) działają.
+- **Etap 6c (paczka 2026-10-21):** warianty 0x4170 (`k3346_tel_build_start_lists_variant`). Kolejne prośby
+  w sesji: v0 xPaiiN (25/0, combine), v1 Luka (20/20, combine), v2 0/0 (domyślny limit iOS), v3 12/12 bez combine,
+  v4 same grupy właściwości. Po pierwszej liście z wpisami (`variant_ok=N`) kolejne prośby tylko tym wariantem.
+  Log: `start_list_updates … variant=N`, `list_update … variant=N`. Test C 45/45 (UBSAN, ASAN), offsety ALL PASS,
+  symulacja 192/192. Biblioteka `mm-ipod` `83950873…`. `BT_MAC` zostaje na czas testu. Test: CarPlay
+  podłączony **5 minut** (ponowienia po 20 s i 60 s).
+
 ## Zakres i ograniczenia
 
 - **Ostatnie połączenia** (odebrane / wybrane / nieodebrane, do 12 – limit iOS dla CarPlay) na karcie

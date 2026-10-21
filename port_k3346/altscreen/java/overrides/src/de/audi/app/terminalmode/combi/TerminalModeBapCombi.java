@@ -5,8 +5,9 @@
  * luka-dev TerminalModeBapCombi, API publiczne bez zmian):
  *  - urzadzenie CarPlay aktywne -> K3346CoverArt.start() (pobieranie okladki
  *    z demona iAP2), koniec CarPlay -> stop + wyczyszczenie okladki w kombi;
- *  - updateNowPlayingData: jesli jest okladka tego utworu, najpierw wysylka do
- *    VC (K3346CoverArtBridge), potem fabryczne dane utworu;
+ *  - updateNowPlayingData: listRef 0 i pozycja 0 (jak Luka; domyslne 65535
+ *    rozlacza okladke od utworu na VC); jesli jest okladka tego utworu,
+ *    najpierw wysylka do VC (K3346CoverArtBridge), potem fabryczne dane utworu;
  *  - nowa okladka po danych utworu -> ponowne wyslanie ostatniego utworu
  *    (tylko przy fokusie audio Terminal Mode, na dyspozytorze Terminal Mode).
  * Kazdy blad dodatkow jest polykany - dane utworu ida jak w fabryce.
@@ -152,6 +153,11 @@ implements ITerminalModeComponent {
             combiBAPCurrentStationInfo.setPrimaryInformation(trackDataChangedEvent.getTitle(), n, 0);
             combiBAPCurrentStationInfo.setSecondaryInformation(trackDataChangedEvent.getArtist(), n2);
             combiBAPCurrentStationInfo.setTertiaryInformation(trackDataChangedEvent.getAlbum(), n3);
+            /* K3346 5.3: domyslny listRef K3346 = 65535 (brak pozycji) - VC nie laczy wtedy
+             * okladki (push dla wpisu 0) z utworem i o nia nie prosi (test 2026-10-21).
+             * Jak luka-dev: listRef 0 ("VC rejects non-zero listRef"), pozycja 0. */
+            combiBAPCurrentStationInfo.setListRef(0);
+            combiBAPCurrentStationInfo.setListAbsolutePosition(0);
             TerminalModeBapCombi.this.k3346AttachCoverArt(trackDataChangedEvent, combiBAPCurrentStationInfo);
             TerminalModeBapCombi.this.bapService.updateCurrentStation(combiBAPCurrentStationInfo);
             TerminalModeBapCombi.this.bapService.updateActiveInfoState(0);

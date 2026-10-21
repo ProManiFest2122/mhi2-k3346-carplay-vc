@@ -89,6 +89,21 @@ Instalator: `E5_NAMES` += `k3346-coverart-fetch` (755, `/mnt/app/root/`), odmowa
 klucz utworu, brak starej okładki przy nowym utworze, ponowienia, stop), telefon 35/35, D-pad PASS,
 symulacja 165/165 (dash i mksh), ratunek 49/49. JAR `25d6ae95…`, narzędzie `59e70ebb…`.
 
+**Wynik w aucie (2026-10-21, run-11):** okładka pobrana i wysłana (`pushed id=…`, przy każdej zmianie
+utworu), ale VC pokazał **pomarańczowy obrazek zastępczy** zamiast okładki (prawdziwa „One Heart” jest
+czarno-biała). `MIBRoot` [PS] nie przerabia pliku: `getPicture(URL)` → „sending Picture over MOST”, VC
+zamawia `desiredPixelSize` i sam dekoduje → JPEG 600×600 nieakceptowany. **Poprawka v2:** narzędzie
+dekoduje (stb_image) i zapisuje **PNG 256×256** jak Luka (`libz.so.2` przez dlopen, bez niej bloki stored);
+test na PC z atrapą `libiap2client` i prawdziwą okładką: PNG poprawny (CRC, inflate, 256×256), 82 KB.
+
+**Wynik v2 w aucie (2026-10-21, `work\auto_test_11\`, run-12):** PNG 256×256 pobierany i wysyłany
+(`tool: OK … zlib=1`, `pushed id=…`), VC nadal obrazek zastępczy, **zero `re-request`** – VC nie prosi
+o okładkę. Okładki przy muzyce przez Bluetooth działają (użytkownik). **Przyczyna:** K3346
+`CombiBAPCurrentStationInfo()` ustawia `listRef = 65535` (javap konstruktora), stock Terminal Mode go nie
+zmienia → `CurrentStation_Handle.fsgHandle = 0xFFFF`, a okładka idzie dla wpisu 0 → VC ich nie łączy.
+Luka: `setListRef(0)` („VC rejects non-zero listRef”) + `setListAbsolutePosition(0)` – pominięte przy
+przenoszeniu. **Poprawka v3:** to samo w `TerminalModeBapCombi.EventListener` (JAR `873bb8a3…`).
+
 **Niewiadome do testu:** czy adaptacja ANP auta ma okładki (czy VC pokazuje okładki z USB/BT – jeśli nie,
 to samo dotyczy CarPlay), czy serwer obrazków przyjmie JPEG 600×600 (Luka wysyła PNG 256×256), typ źródła 21.
 Log: `K3346_COVER start`, `new art id=…`, `pushed id=…`, `re-request …`.

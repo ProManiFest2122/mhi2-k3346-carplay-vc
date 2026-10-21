@@ -101,10 +101,21 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     private int stockProvNameValid, stockProvIdValid;
     private String stockProvName, stockProvId;
     private CombiBAPCallStackEntry[] stockCombined;
+    private CombiBAPFavoriteNumberEntry[] stockFavorites;
 
     /* Etap 6: lista ostatnich CarPlay */
     private CombiBAPCallStackEntry[] recents = new CombiBAPCallStackEntry[0];
     private String recentsText;
+
+    /* Etap 6 v4: MMI przy starcie CarPlay wylacza BT telefonu i czysci swoje listy
+     * (test 2026-10-21: 102 -> 66 -> 31 -> 0), a iPhone przez iAP2 zawsze daje 0.
+     * Zapamietana ostatnia pelna lista z BT + rozmowy z tej sesji CarPlay na gorze. */
+    private static final int RECENTS_MAX = 50;
+    private CombiBAPCallStackEntry[] lastBtCombined;
+    private CombiBAPFavoriteNumberEntry[] lastBtFavorites;
+    private final java.util.Vector sessionCalls = new java.util.Vector();   /* najnowsze pierwsze */
+    private String trackKey, trackNumber, trackName;
+    private boolean trackIncoming, trackActive;
 
     /* stan CarPlay z PPS */
     private K3346PpsCall call = K3346PpsCall.NONE;
@@ -376,6 +387,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
 
     /* pakietowa: wolana przez watek PPS i test jednostkowy */
     synchronized void onPps(K3346PpsCall c) {
+        trackCall(c);
         call = c;
         signalPct = c.signal < 0 ? 0 : Math.min(c.signal, 5) * 20;
         regState = bapRegisterState(c.registration, c.airplane);
@@ -409,7 +421,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         v.copyInto(r);
         recents = r;
         K3346Diag.log("K3346_PHONE recents n=" + r.length);
-        if (gated) real.updateCombinedNumbers(recents);
+        if (gated) publishRecents();
     }
 
     static long toLong(String s) {
@@ -490,18 +502,18 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         return true;
     }
 
+    /* Zapis wprost, bez renameTo: /tmp na MMX to /dev/shmem, gdzie zmiana nazwy nie
+     * dziala (test 2026-10-21: "Blad sieci" przy wybieraniu z listy). Polecenie ma
+     * kilkanascie bajtow i idzie jednym write; hook czyta je i kasuje. */
     static boolean writeCommand(String cmd) {
-        java.io.File tmp = new java.io.File(CMD_FILE + ".tmp");
         try {
-            java.io.FileOutputStream out = new java.io.FileOutputStream(tmp);
+            java.io.FileOutputStream out = new java.io.FileOutputStream(CMD_FILE);
             try {
                 out.write(cmd.getBytes("UTF-8"));
             } finally {
                 out.close();
             }
-            java.io.File dst = new java.io.File(CMD_FILE);
-            dst.delete();
-            return tmp.renameTo(dst);
+            return true;
         } catch (Throwable t) {
             K3346Diag.log("K3346_PHONE cmd write error " + t);
             return false;
@@ -563,7 +575,8 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         real.updateMobileServiceSupport(support);
         publishCalls();
         publishComm();
-        real.updateCombinedNumbers(recents);
+        publishRecents();
+        real.updateFavoriteList(favoritesForVc());
     }
 
     private void publishCalls() {
@@ -612,6 +625,9 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         if (haveStockProvider) real.updateNetworkProvider(stockProvNameValid, stockProvName, stockProvIdValid, stockProvId);
         else real.updateNetworkProvider(0, "", 0, "");
         real.updateCombinedNumbers(stockCombined != null ? stockCombined : new CombiBAPCallStackEntry[0]);
+        real.updateFavoriteList(stockFavorites != null ? stockFavorites : new CombiBAPFavoriteNumberEntry[0]);
+        /* rozmowy z sesji zostaja do restartu MMI (ponowne podlaczenie kabla ich nie kasuje) */
+        trackKey = null;
     }
 
     /* stock pokazuje pusta nazwe, gdy rowna numerowi (TelBAPCall.getDisplayName) */
@@ -657,11 +673,101 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     public void updateDialedNumbers(CombiBAPCallStackEntry[] e) { real.updateDialedNumbers(e); }
     public synchronized void updateCombinedNumbers(CombiBAPCallStackEntry[] e) {
         stockCombined = e;
+        int n = e != null ? e.length : 0;
+        /* przy CarPlay tylko lista nie krotsza od zapamietanej (czyszczenie po wylaczeniu BT pomijane) */
+        if (n > 0 && (!gated || lastBtCombined == null || n >= lastBtCombined.length)) lastBtCombined = e;
+        if (n > 0 && !gated) dropSessionCallsKnownTo(e);
+        K3346Diag.log("K3346_PHONE stock combined n=" + n + " gated=" + gated
+            + " kept=" + (lastBtCombined != null ? lastBtCombined.length : 0));
         if (!gated) real.updateCombinedNumbers(e);
+        else publishRecents();
+    }
+
+    /* Etap 6: iPhone (iAP2) nie oddaje historii temu akcesorium (test 2026-10-21: zawsze
+     * count 0) - wtedy rozmowy z tej sesji + lista zapamietana przez MMI z Bluetooth. */
+    private void publishRecents() {
+        real.updateCombinedNumbers(recentsForVc());
+    }
+
+    synchronized CombiBAPCallStackEntry[] recentsForVc() {
+        if (recents.length > 0) return recents;
+        java.util.Vector v = new java.util.Vector();
+        for (int i = 0; i < sessionCalls.size() && v.size() < RECENTS_MAX; i++) v.addElement(sessionCalls.elementAt(i));
+        if (lastBtCombined != null)
+            for (int i = 0; i < lastBtCombined.length && v.size() < RECENTS_MAX; i++)
+                if (lastBtCombined[i] != null) v.addElement(lastBtCombined[i]);
+        CombiBAPCallStackEntry[] out = new CombiBAPCallStackEntry[v.size()];
+        for (int i = 0; i < out.length; i++) out[i] = withPos((CombiBAPCallStackEntry)v.elementAt(i), i);
+        return out;
+    }
+
+    static CombiBAPCallStackEntry withPos(CombiBAPCallStackEntry e, int pos) {
+        if (e.getPosID() == pos) return e;
+        return new CombiBAPCallStackEntry(pos, e.getPbName(), e.getTelNumber(), e.getNumberType(), e.getCallMode(),
+            e.getDay(), e.getMonth(), e.getYear(), e.getHour(), e.getMinute(), e.getSecond(),
+            e.getCallStackEntry() != null ? e.getCallStackEntry() : new de.audi.atip.interapp.phone.TelAdbEntryStruct());
+    }
+
+    /* Swieza lista z BT (poza CarPlay) zawiera juz rozmowy z telefonu: rozmowa z sesji
+     * o tym samym numerze i trybie wsrod 5 najnowszych pozycji -> usunieta (bez duplikatu). */
+    private void dropSessionCallsKnownTo(CombiBAPCallStackEntry[] bt) {
+        for (int i = sessionCalls.size() - 1; i >= 0; i--) {
+            CombiBAPCallStackEntry s = (CombiBAPCallStackEntry)sessionCalls.elementAt(i);
+            for (int j = 0; j < bt.length && j < 5; j++) {
+                if (bt[j] != null && bt[j].getCallMode() == s.getCallMode()
+                        && digits(bt[j].getTelNumber()).equals(digits(s.getTelNumber()))) {
+                    sessionCalls.removeElementAt(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    static String digits(String s) {
+        StringBuffer b = new StringBuffer();
+        if (s != null)
+            for (int i = 0; i < s.length(); i++) if (Character.isDigit(s.charAt(i))) b.append(s.charAt(i));
+        return b.toString();
+    }
+
+    /* PPS: koniec rozmowy z tej sesji CarPlay -> wpis na gore listy */
+    private void trackCall(K3346PpsCall c) {
+        if (c.status == IAP_CONNECTING || c.status == IAP_ACTIVE || c.status == IAP_HOLDING) {
+            String key = c.uuid.length() > 0 ? c.uuid : c.number;
+            if (!key.equals(trackKey)) {
+                trackKey = key;
+                trackNumber = c.number;
+                trackName = displayName(c);
+                trackIncoming = c.direction == IAP_INCOMING;
+                trackActive = false;
+            }
+            if (c.status == IAP_ACTIVE || c.status == IAP_HOLDING) trackActive = true;
+        } else if (c.status == IAP_DISCONNECTED && trackKey != null) {
+            int mode = !trackIncoming ? CALLMODE_DIALED : (trackActive ? CALLMODE_RECEIVED : CALLMODE_MISSED);
+            if (trackNumber != null && trackNumber.length() > 0) {
+                /* bez daty: zegar MMX nie jest ustawiony (1970), PPS nie ma czasu rozmowy */
+                sessionCalls.insertElementAt(recent(0, trackName, trackNumber, mode, 0), 0);
+                while (sessionCalls.size() > RECENTS_MAX) sessionCalls.removeElementAt(sessionCalls.size() - 1);
+                K3346Diag.log("K3346_PHONE session call mode=" + mode + " n=" + sessionCalls.size());
+                if (gated) publishRecents();
+            }
+            trackKey = null;
+        }
     }
     public void updateRingToneMuteState(boolean b) { real.updateRingToneMuteState(b); }
     public void updateAutomaticRedialActive(boolean b) { real.updateAutomaticRedialActive(b); }
     public void updateAutomaticRedialExtendedInfo(int i, String s, String s1, int j) { real.updateAutomaticRedialExtendedInfo(i, s, s1, j); }
     public void updateSupportedServiceNumbers(boolean a, boolean b, boolean c, boolean d) { real.updateSupportedServiceNumbers(a, b, c, d); }
-    public void updateFavoriteList(CombiBAPFavoriteNumberEntry[] e) { real.updateFavoriteList(e); }
+    public synchronized void updateFavoriteList(CombiBAPFavoriteNumberEntry[] e) {
+        stockFavorites = e;
+        int n = e != null ? e.length : 0;
+        if (n > 0 && (!gated || lastBtFavorites == null || n >= lastBtFavorites.length)) lastBtFavorites = e;
+        K3346Diag.log("K3346_PHONE stock favorites n=" + n + " gated=" + gated);
+        real.updateFavoriteList(gated ? favoritesForVc() : e);
+    }
+
+    private CombiBAPFavoriteNumberEntry[] favoritesForVc() {
+        if (lastBtFavorites != null) return lastBtFavorites;
+        return stockFavorites != null ? stockFavorites : new CombiBAPFavoriteNumberEntry[0];
+    }
 }

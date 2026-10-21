@@ -28,6 +28,9 @@ E4_NAMES='libmib2high-carplay-rgi-ipod.so mm-ipod-rgi.sh usblauncher_otg.lua iap
 # [ident] RGI + Etap 6 0x415a/0x4170/0x4171).
 K3346_OTG_LUA_SIZE=19907; K3346_OTG_LUA_NEW_SIZE=19928
 K3346_IAP2CFG_SIZE=5852; K3346_IAP2CFG_NEW_SIZE=5991
+# Etap 6b: z plikiem BT_MAC na karcie dochodzi sekcja [bluetooth] (+150 B, adres
+# ma zawsze 17 znakow).
+K3346_IAP2CFG_BT_SIZE=6141; E4_BTMAC_FILE="$MOD/BT_MAC"
 K3346_MMIPOD_SIZE=40297
 # --- K3346 Etap 5: JAR z klasami o fabrycznych nazwach (lsd/jars/ jest na
 # -Xbootclasspath przed lsd.jxe). Osobna transakcja i kopia; ROLLBACK_ETAP5 cofa
@@ -261,10 +264,22 @@ e4_need_size "$APP/armle/usr/sbin/mm-ipod" "$K3346_MMIPOD_SIZE"
 [ ! -e "`pathof mm-ipod-rgi.sh`" ] || fail 'ETAP4: launcher juz jest w systemie - stan nieznany, nic nie zmieniono'
 for n in libmib2high-carplay-rgi-ipod.so mm-ipod-rgi.sh; do [ -s "$PAY/$n" ] || fail "missing $n"; done
 for n in usblauncher_otg.awk iap2.awk; do [ -s "$MOD/source/$n" ] || fail "missing source/$n"; done
+# Etap 6b: opcjonalny adres BT MMI z karty (BT_MAC, jedna linia XX:XX:XX:XX:XX:XX).
+# Zly format -> stop przed jakakolwiek zmiana. Adresu nie wypisujemy w logu.
+BTMAC=''; E4_IAP2_SIZE=$K3346_IAP2CFG_NEW_SIZE
+if [ -f "$E4_BTMAC_FILE" ]; then
+    BTMAC=`awk 'NR==1 { gsub(/[\r \t]/, ""); print; exit }' "$E4_BTMAC_FILE"` || fail 'ETAP4: nie moge odczytac BT_MAC - nic nie zmieniono'
+    H='[0-9A-Fa-f][0-9A-Fa-f]'
+    case "$BTMAC" in $H:$H:$H:$H:$H:$H) ;; *) fail 'ETAP4: BT_MAC ma zly format (oczekiwano XX:XX:XX:XX:XX:XX) - nic nie zmieniono';; esac
+    case "$BTMAC" in 00:00:00:00:00:00|[Ff][Ff]:[Ff][Ff]:[Ff][Ff]:[Ff][Ff]:[Ff][Ff]:[Ff][Ff]) fail 'ETAP4: BT_MAC to adres pusty - nic nie zmieniono';; esac
+    E4_IAP2_SIZE=$K3346_IAP2CFG_BT_SIZE; say 'ETAP4_BT=ON (BluetoothTransportComponent z BT_MAC)'
+else
+    say 'ETAP4_BT=OFF (brak BT_MAC na karcie)'
+fi
 awk -f "$MOD/source/usblauncher_otg.awk" "`pathof usblauncher_otg.lua`" > "$MOD/e4lua.$$" || { rm -f "$MOD/e4lua.$$"; fail 'ETAP4: linia startu mm-ipod nie znaleziona dokladnie raz - nic nie zmieniono'; }
-awk -f "$MOD/source/iap2.awk" "`pathof iap2.cfg`" > "$MOD/e4iap2.$$" || { rm -f "$MOD/e4lua.$$" "$MOD/e4iap2.$$"; fail 'ETAP4: iap2.cfg ma juz [ident] - nic nie zmieniono'; }
+awk -v btmac="$BTMAC" -f "$MOD/source/iap2.awk" "`pathof iap2.cfg`" > "$MOD/e4iap2.$$" || { rm -f "$MOD/e4lua.$$" "$MOD/e4iap2.$$"; fail 'ETAP4: iap2.cfg ma juz [ident]/[bluetooth] - nic nie zmieniono'; }
 S=`fsize "$MOD/e4lua.$$"`; [ "$S" = "$K3346_OTG_LUA_NEW_SIZE" ] || { rm -f "$MOD/e4lua.$$" "$MOD/e4iap2.$$"; fail "ETAP4: nowy usblauncher_otg.lua ma $S B, oczekiwano $K3346_OTG_LUA_NEW_SIZE B - nic nie zmieniono"; }
-S=`fsize "$MOD/e4iap2.$$"`; [ "$S" = "$K3346_IAP2CFG_NEW_SIZE" ] || { rm -f "$MOD/e4lua.$$" "$MOD/e4iap2.$$"; fail "ETAP4: nowy iap2.cfg ma $S B, oczekiwano $K3346_IAP2CFG_NEW_SIZE B - nic nie zmieniono"; }
+S=`fsize "$MOD/e4iap2.$$"`; [ "$S" = "$E4_IAP2_SIZE" ] || { rm -f "$MOD/e4lua.$$" "$MOD/e4iap2.$$"; fail "ETAP4: nowy iap2.cfg ma $S B, oczekiwano $E4_IAP2_SIZE B - nic nie zmieniono"; }
 checkrw "$APP" || fail 'app filesystem not writable'; checkrw "$SYSTEM" || fail 'system filesystem not writable'
 mkdir -p "$APP/root/hooks" || fail 'cannot create hooks directory'
 # Kopia sprzed poprzedniej, cofnietej instalacji Etapu 4 nie blokuje nowej:
@@ -509,6 +524,36 @@ collect(){
             cp "$PPS_IAP2/$n" "$d/pps/$n.txt" 2>/dev/null || { RESULT=PARTIAL; echo "PPS_COPY_FAILED=$n" >> "$d/trace/collection-errors.txt"; }
         done
     fi
+    # Etap 6b: gdzie MMI trzyma wlasny adres Bluetooth (do BluetoothTransportComponent
+    # w identyfikacji iAP2). TYLKO ODCZYT: listingi katalogow i kopie (max 8 KB) malych
+    # obiektow z blue/bt w nazwie. Informacyjne - nie zmienia RESULT. Dane osobowe
+    # (adresy sparowanych telefonow) - zostaja na karcie.
+    BT_ROOTS="${MIB_BT_ROOTS:-/ramdisk/pps /pps /pps/services /pps/system /var /var/app /mnt /net /dev /net/rcc/pps /net/rcc/ramdisk/pps /net/rcc/var}"
+    mkdir -p "$d/bt-addr" 2>/dev/null && {
+        for r in $BT_ROOTS; do
+            [ -d "$r" ] || continue
+            echo "== $r" >> "$d/bt-addr/listing.txt"
+            ls -la "$r" >> "$d/bt-addr/listing.txt" 2>&1
+            for f in "$r"/*[Bb][Tt]* "$r"/*[Bb]lue* "$r"/*BLUE*; do
+                [ -e "$f" ] || continue
+                case "$f" in /dev/*) continue;; esac
+                if [ -d "$f" ]; then
+                    echo "== $f" >> "$d/bt-addr/listing.txt"
+                    ls -la "$f" >> "$d/bt-addr/listing.txt" 2>&1
+                    for g in "$f"/*; do
+                        [ -f "$g" ] || continue
+                        echo "== $g" >> "$d/bt-addr/objects.txt"
+                        dd if="$g" bs=4096 count=2 2>/dev/null >> "$d/bt-addr/objects.txt"
+                        echo >> "$d/bt-addr/objects.txt"
+                    done
+                elif [ -f "$f" ]; then
+                    echo "== $f" >> "$d/bt-addr/objects.txt"
+                    dd if="$f" bs=4096 count=2 2>/dev/null >> "$d/bt-addr/objects.txt"
+                    echo >> "$d/bt-addr/objects.txt"
+                fi
+            done
+        done
+    }
     # Stan kontekstow wyswietlacza - TYLKO ODCZYT: 'gc' = get contexts, zadnego
     # 'sc'/'dc', zeby nie zmieniac stanu ekranu w trakcie zbierania logow.
     # Punkt odniesienia z etapu 1 (przed instalacja): 87 kontekstow,

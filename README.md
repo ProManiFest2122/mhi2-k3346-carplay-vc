@@ -17,7 +17,7 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
 >
 > **→ Read [INSTALL.md](INSTALL.md) first** (build, rescue card, step-by-step install, rollback).
 
-## Status (2026-10-20)
+## Status (2026-10-21)
 
 | Feature | Stage | Status |
 |---|---|---|
@@ -30,8 +30,9 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
 | MMI touchpad as a D-pad in CarPlay | 5.1 | ✅ works in the car |
 | CarPlay calls on the VC phone tab (incoming/outgoing/active, name, signal, carrier; no "iPhone is in CarPlay mode" note) | 5.2 | ✅ works in the car |
 | Answer / Reject / Hang up from the VC; steering-wheel phone key keeps working (no double action) | 5.4 | ✅ works in the car |
-| Album art (CarPlay now playing) on the VC | 5.3 | 🔬 packaged, **not yet tested in the car** (the art itself is fetched fine – probe PASS) |
-| CarPlay recent calls on the VC phone tab, dial from the list | 6 | 🔬 packaged, **not yet tested in the car** |
+| Album art (CarPlay now playing) on the VC | 5.3 | ✅ works in the car |
+| Recent calls on the VC phone tab during CarPlay, dial from the list (iPhone dials over iAP2) | 6 | ✅ works in the car – the list is the one the MMI fetched over Bluetooth (kept when CarPlay turns BT off); calls made during the session are added on top (without date) |
+| Recent calls sent by the iPhone over the cable (iAP2 ListUpdate, no Bluetooth needed) | 6b/6c | 🔬 experimental: this iPhone/MMI always answers "available, 0 entries"; a Bluetooth transport component (optional `BT_MAC`) did not change that; request variants are being tested |
 | Full address book on the VC | – | ⛔ not possible over CarPlay (iAP2 has only recents/favorites; the phonebook needs Bluetooth PBAP) |
 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) | – | 📋 idea, together with the 4b renderer |
 
@@ -54,7 +55,9 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
   server; the art is fetched from the stock iAP2 daemon by `k3346-coverart-fetch`).
 * **Stage 6:** the `mm-ipod` hook extends the driver's message group 0x41 in memory and sends iAP2
   `StartListUpdates 0x4170` (byte-identical to a request verified in a car by xPaiiN) and `InitiateCall
-  0x415A`; `ListUpdate 0x4171` is parsed into a file that the Java phone wrapper shows as recents.
+  0x415A`; `ListUpdate 0x4171` is parsed into a file that the Java phone wrapper shows as recents. Because the
+  iPhone returns an empty list here, the wrapper also keeps the last Bluetooth call list of the MMI (the MMI clears
+  it when CarPlay starts) and adds calls made during the CarPlay session.
 
 ## Layout
 

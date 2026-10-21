@@ -188,6 +188,12 @@ Run the script: **GEM → m.i.b. → advanced settings → run individual script
    `ETAP4_INSTALL_RESULT=PASS`, restart the MMI.
 2. Start guidance on the iPhone: distance and street appear on the VC.
 3. If CarPlay no longer connects over the cable: `ROLLBACK_ETAP4` marker → run → restart.
+4. **Experimental (Stage 6b):** to let the installer also declare the MMI's own Bluetooth address to the
+   iPhone (`[bluetooth]` section in `iap2.cfg` → `BluetoothTransportComponent`), put a file `BT_MAC` with one
+   line `XX:XX:XX:XX:XX:XX` (the address of **your MMI**, e.g. read from a laptop paired with it) into
+   `mod/mib2high-carplay-rgi-v8s-simple/` before `INSTALL_ETAP4`. Without the file nothing changes. A wrong
+   format stops the install before any change. Goal: the iPhone sends recents over the cable without BT;
+   **not yet confirmed in a car**.
 
 ### 4.3 Stage 5 – phone, Siri, touchpad, album art, recents (Stages 5.x and 6)
 
@@ -228,7 +234,7 @@ Restart the MMI after a rollback.
 | Stage | Files |
 |---|---|
 | 3 | new: `/mnt/app/root/hooks/libmib2high-carplay-rgi.so`, `/mnt/app/eso/hmi/lsd/jars/mib2high-carplay-rgi.jar`, `/mnt/app/root/{vc_render, v8l-dsitracer-capture, mib2high-lvds-*}`, two marker files; modified (3 small edits, backed up): `bundles_dsitracer_enabled.properties`, `traceConfig.properties`, `smartphone_integrator.json` |
-| 4 | new: `/mnt/app/root/hooks/libmib2high-carplay-rgi-ipod.so`, `/mnt/app/root/mm-ipod-rgi.sh`; modified: `/mnt/system/etc/usblauncher_otg.lua` (1 line: start `mm-ipod` through the launcher), `/mnt/system/etc/mm/iap2.cfg` (`[ident]` section appended: 0x5200–0x5204, 0x415A, 0x4170, 0x4171) |
+| 4 | new: `/mnt/app/root/hooks/libmib2high-carplay-rgi-ipod.so`, `/mnt/app/root/mm-ipod-rgi.sh`; modified: `/mnt/system/etc/usblauncher_otg.lua` (1 line: start `mm-ipod` through the launcher), `/mnt/system/etc/mm/iap2.cfg` (`[ident]` section appended: 0x5200–0x5204, 0x415A, 0x4170, 0x4171; with `BT_MAC` on the card also a `[bluetooth]` section with that address) |
 | 5 | new: `/mnt/app/eso/hmi/lsd/jars/mib2high-k3346-overrides.jar` (replaced HMI classes, loaded before `lsd.jxe` by the stock `lsd.sh`), `/mnt/app/root/k3346-coverart-fetch` |
 
 The stock `lsd.jxe`, the iAP2 driver file and all other files are never modified.

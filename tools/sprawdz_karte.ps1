@@ -34,8 +34,8 @@ function Pisz-Info($t)  { Write-Host "  info   $t" }
 $proj = Split-Path -Parent $PSScriptRoot
 $pkgName = 'sd_ratunek'
 if ($Typ -eq 'instalacyjna') { $pkgName = 'sd_etap3' }
-if ($Typ -eq 'etap4') { $pkgName = 'sd_etap4' }
-if ($Typ -eq 'etap5' -or $Typ -eq 'etap6') { $pkgName = 'sd_etap5' }
+# sd_etap5 = aktualna paczka (Etapy 4-6 w jednej); sd_etap4 to stara wersja.
+if ($Typ -eq 'etap4' -or $Typ -eq 'etap5' -or $Typ -eq 'etap6') { $pkgName = 'sd_etap5' }
 $pkg = Join-Path $proj (Join-Path 'work' $pkgName)
 
 # "E:" -> "E:\"
@@ -46,6 +46,17 @@ if (-not (Test-Path -LiteralPath $Karta)) {
 }
 $root = (Resolve-Path -LiteralPath $Karta).ProviderPath.TrimEnd('\')
 function Na-Karcie($rel) { return (Join-Path $root $rel) }
+# Etap 6b: opcjonalny adres BT MMI (BT_MAC). Adresu nie wypisujemy - to dane auta.
+function Sprawdz-BtMac($dir) {
+    $p = Join-Path $dir 'BT_MAC'
+    if (-not (Test-Path -LiteralPath $p)) { Pisz-Info "brak BT_MAC - Etap 4 bez sekcji [bluetooth] (jak dotad)"; return }
+    $bytes = [System.IO.File]::ReadAllBytes($p)
+    $txt = [System.Text.Encoding]::ASCII.GetString($bytes)
+    $first = ($txt -split "`n")[0].Trim()
+    if ($first -cmatch '^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$' -and $first -ne '00:00:00:00:00:00' -and $first -ne 'FF:FF:FF:FF:FF:FF') {
+        Pisz-OK "BT_MAC poprawny (format XX:XX:XX:XX:XX:XX) - INSTALL_ETAP4 doda sekcje [bluetooth]"
+    } else { Pisz-Blad "BT_MAC ma zly format - INSTALL_ETAP4 odmowi (oczekiwano jednej linii XX:XX:XX:XX:XX:XX)" }
+}
 
 Write-Host ""
 Write-Host "Sprawdzam karte $Typ : $Karta   (wzorzec: work\$pkgName)"
@@ -128,6 +139,7 @@ if ($Typ -eq 'etap6') {
     foreach ($m in @('ROLLBACK', 'COLLECT_LOGS')) {
         if (Test-Path -LiteralPath (Join-Path $pkgDir $m)) { Pisz-Blad "jest znacznik $m - ma pierwszenstwo, usun go" }
     }
+    Sprawdz-BtMac $pkgDir
     if (Test-Path -LiteralPath (Na-Karcie 'ratunek\ratunek.sh')) { Pisz-Blad "pliki karty ratunkowej na karcie instalacyjnej" }
 } elseif ($Typ -eq 'etap4' -or $Typ -eq 'etap5') {
     # Karta instalacyjna z ZAINSTALOWANYM v8s, przygotowana do Etapu 4 (docs\15) albo 5 (docs\16).
@@ -163,6 +175,7 @@ if ($Typ -eq 'etap6') {
             Pisz-Blad "w mod\mib2high-carplay-rgi-v8s-simple\ jest znacznik $m - ma pierwszenstwo przed instalacja Etapu $nr, usun go"
         }
     }
+    if ($nr -eq '4') { Sprawdz-BtMac $pkgDir }
     if (Test-Path -LiteralPath (Na-Karcie 'ratunek\ratunek.sh')) { Pisz-Blad "pliki karty ratunkowej na karcie instalacyjnej" }
 } elseif ($Typ -eq 'instalacyjna') {
     if ((Test-Path -LiteralPath (Na-Karcie 'esd\scripts\individual.sh')) -and

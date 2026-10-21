@@ -3,10 +3,16 @@
 #   MMI -> iPhone: 0x5200, 0x5203     iPhone -> MMI: 0x5201, 0x5202, 0x5204
 # Etap 6 (ostatnie polaczenia, dzwonienie z listy): MMI -> iPhone 0x415A
 # InitiateCall, 0x4170 StartListUpdates; iPhone -> MMI 0x4171 ListUpdate.
+# Etap 6b (opcjonalnie, -v btmac=XX:XX:XX:XX:XX:XX): sekcja [bluetooth] ->
+# sterownik dodaje do identyfikacji BluetoothTransportComponent z adresem MMI
+# (ident_info_tspbt). Bez adresu sekcji nie ma wcale: enable=yes bez mac=
+# deklaruje komunikaty 0x4E0x bez komponentu.
 # Reszta pliku bez zmian. Blad (exit 1), jesli plik ma juz sekcje [ident]
-# albo wpisy recvmsgs/sendmsgs - wtedy nie jest stockowy i nic nie zmieniamy.
+# albo wpisy recvmsgs/sendmsgs (albo aktywna sekcje [bluetooth], gdy jest
+# btmac) - wtedy nie jest stockowy i nic nie zmieniamy.
 { print }
 /^[ \t]*\[ident\]/ || /^[ \t]*(recvmsgs|sendmsgs)[ \t]*=/ { bad = 1 }
+btmac != "" && /^[ \t]*\[bluetooth\]/ { bad = 1 }
 END {
     if (bad) exit 1
     print ""
@@ -14,4 +20,14 @@ END {
     print "[ident]"
     print "recvmsgs=0x5201,0x5202,0x5204,0x4171"
     print "sendmsgs=0x5200,0x5203,0x415a,0x4170"
+    if (btmac != "") {
+        print ""
+        print "# K3346 Etap 6b: BluetoothTransportComponent (adres BT MMI)"
+        print "[bluetooth]"
+        print "enable=yes"
+        print "id=1111"
+        print "name=Bluetooth"
+        print "connectstatus=enable"
+        print "mac=" btmac
+    }
 }

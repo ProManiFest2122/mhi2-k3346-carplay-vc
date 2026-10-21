@@ -279,11 +279,16 @@ public final class K3346CoverArt {
             try { p.getErrorStream().close(); } catch (Throwable t) { /* nic */ }
         }
         out = out.trim();
-        if (out.startsWith("OK ")) {
-            int sp = out.indexOf(' ', 3);
-            if (sp > 0) return out.substring(sp + 1).trim();
-        }
         log("K3346_COVER tool: " + out);
+        if (out.startsWith("OK ")) {
+            /* "OK <bajty> <plik> [dodatkowe pola]" -> trzecie pole */
+            int sp = out.indexOf(' ', 3);
+            if (sp > 0) {
+                String rest = out.substring(sp + 1).trim();
+                int end = rest.indexOf(' ');
+                return end > 0 ? rest.substring(0, end) : rest;
+            }
+        }
         return null;
     }
 

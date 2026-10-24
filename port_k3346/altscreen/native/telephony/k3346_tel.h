@@ -39,11 +39,7 @@ typedef struct {
 typedef int (*k3346_tel_send_fn)(void *ctx, uint16_t msgid, const uint8_t *payload, size_t len);
 
 /* ---- czyste funkcje (testy na PC) ---- */
-#define K3346_TEL_VARIANTS 5
-size_t k3346_tel_build_start_lists(uint8_t *out, size_t max);   /* = wariant 0 */
-size_t k3346_tel_build_start_lists_variant(uint8_t *out, size_t max, int variant);
-/* wariant nastepnej prosby: kolejny w sesji, a po liscie z wpisami ten, ktory ja dal */
-int k3346_tel_next_variant(void);
+size_t k3346_tel_build_start_lists(uint8_t *out, size_t max);
 size_t k3346_tel_build_initiate_call(uint8_t *out, size_t max, const char *number);
 int k3346_tel_parse_list_update(const uint8_t *payload, size_t len, k3346_tel_list *recents_upd);
 void k3346_tel_merge(k3346_tel_list *last, const k3346_tel_list *upd);

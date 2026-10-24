@@ -192,8 +192,8 @@ Run the script: **GEM → m.i.b. → advanced settings → run individual script
    iPhone (`[bluetooth]` section in `iap2.cfg` → `BluetoothTransportComponent`), put a file `BT_MAC` with one
    line `XX:XX:XX:XX:XX:XX` (the address of **your MMI**, e.g. read from a laptop paired with it) into
    `mod/mib2high-carplay-rgi-v8s-simple/` before `INSTALL_ETAP4`. Without the file nothing changes. A wrong
-   format stops the install before any change. Goal: the iPhone sends recents over the cable without BT;
-   **not yet confirmed in a car**.
+   format stops the install before any change. Goal was that the iPhone sends recents over the cable without
+   BT. **Tested in the car: the component is accepted, but the recents list stays empty – not recommended.**
 
 ### 4.3 Stage 5 – phone, Siri, touchpad, album art, recents (Stages 5.x and 6)
 

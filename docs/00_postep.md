@@ -174,8 +174,9 @@
         `BluetoothTransportComponent` (MAC auta) w identyfikacji. Krok 1 zrobiony (adres BT tylko w chipie,
         podany przez użytkownika). Krok 2: `BT_MAC` na karcie → `[bluetooth]` z MAC w `iap2.cfg` (Etap 4),
         symulacja 192/192. Test 6b (run-18): komponent przyjęty, lista iAP2 nadal 0 → obalone.
-        Etap 6c: 5 wariantów żądania 0x4170 (biblioteka `mm-ipod`). Test **[Ty]**: `ROLLBACK_ETAP4` +
-        `INSTALL_ETAP4`, CarPlay 5 min.
+        Etap 6c (run-19/20): wszystkie 5 wariantów 0x4170 → 0. **Koniec tropu iAP2**; lista zostaje z BT
+        w sesji + rozmowy z sesji. Sprzątanie: biblioteka `ef800f54…` (jak v5), karta bez `BT_MAC`.
+        Do zrobienia **[Ty]**: `ROLLBACK_ETAP4` + `INSTALL_ETAP4` (2 uruchomienia), restart MMI.
 - [ ] **Etap 6 – ostatnie połączenia CarPlay na VC + dzwonienie z listy** (`docs\17`): paczka gotowa
       (grupa 0x41 w tabeli sterownika, 0x4170/0x4171/0x415A z hooka `mm-ipod`, Java lista + wybieranie);
       offsety ALL PASS, testy C/Java PASS, symulacja 173/173, ratunek 49/49. Książka adresowa przez CarPlay

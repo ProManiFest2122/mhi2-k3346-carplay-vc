@@ -107,30 +107,6 @@ int main(void)
           "0x4170 bajt w bajt jak zweryfikowane w aucie zadanie xPaiiN");
     CHECK(k3346_tel_build_start_lists(buf, 60) == 0, "0x4170: za maly bufor -> 0");
 
-    /* Etap 6c: warianty 0x4170 */
-    {
-        uint8_t v[512], want[128];
-        size_t vn;
-        memcpy(want, verified_start, sizeof(verified_start) - 1);
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 0);
-        CHECK(vn == sizeof(verified_start) - 1 && memcmp(v, verified_start, vn) == 0, "wariant 0 = xPaiiN");
-        /* Luka tel_build_start_list_updates(…, 20, 20): max 0x0014 w obu miejscach */
-        want[49] = 0x14; want[sizeof(verified_start) - 2] = 0x14;
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 1);
-        CHECK(vn == sizeof(verified_start) - 1 && memcmp(v, want, vn) == 0, "wariant 1 = Luka 20/20");
-        want[49] = 0x00; want[sizeof(verified_start) - 2] = 0x00;
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 2);
-        CHECK(vn == sizeof(verified_start) - 1 && memcmp(v, want, vn) == 0, "wariant 2 = max 0/0");
-        want[49] = 0x0c; want[54] = 0x00; want[sizeof(verified_start) - 2] = 0x0c;
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 3);
-        CHECK(vn == sizeof(verified_start) - 1 && memcmp(v, want, vn) == 0, "wariant 3 = max 12/12, combine 0");
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 4);
-        CHECK(vn == 44 + 28 && memcmp(v, verified_start, 44) == 0 && memcmp(v + 44, verified_start + 55, 28) == 0,
-              "wariant 4 = tylko grupy 1 i 6");
-        CHECK(k3346_tel_build_start_lists_variant(v, sizeof(v), 5) == 0 &&
-              k3346_tel_build_start_lists_variant(v, sizeof(v), -1) == 0, "wariant spoza zakresu -> 0");
-    }
-
     n = k3346_tel_build_initiate_call(buf, sizeof(buf), "+00123");
     CHECK(n == 5 + 4 + 7 + 5 && memcmp(buf, "\x00\x05\x00\x00\x00", 5) == 0 &&
           memcmp(buf + 5, "\x00\x0b\x00\x01+00123\x00", 11) == 0 &&
@@ -226,49 +202,6 @@ int main(void)
         k3346_tel_observe(pkt, n, 202000);
         k3346_tel_tick(&ctx, 400000, fake_send);
         CHECK(sent_count == before + 4, "limit 4 ponownych prosb na sesje");
-        {
-            uint8_t v[512];
-            int k, okv = 1;
-            for (k = 0; k < 5; k++) {
-                size_t vn = k3346_tel_build_start_lists_variant(v, sizeof(v), k);
-                int idx = before - 1 + k;
-                if (idx >= 16 || sent_len[idx] != vn || memcmp(sent_payload[idx], v, vn) != 0) okv = 0;
-            }
-            CHECK(okv, "pusta lista: kolejne prosby = warianty 0,1,2,3,4");
-        }
-    }
-
-    /* lista z wpisami po wariancie 1 -> kolejne prosby (np. po rozmowie) tylko wariantem 1 */
-    {
-        static const uint8_t empty_recents[] = "\x40\x40\x00\x11\x41\x71\x00\x05\x00\x00\x01\x00\x06\x00\x02\x00\x00";
-        uint8_t v[512];
-        size_t vn;
-        int before;
-        sent_count = 0;
-        k3346_tel_session_reset();
-        CHECK(k3346_tel_next_variant() == 0, "nowa sesja: zaczyna od wariantu 0");
-        n = link_packet(pkt, (const uint8_t *)"\x40\x40\x00\x06\x1d\x02", 6);
-        k3346_tel_observe(pkt, n, 600000);
-        k3346_tel_tick(&ctx, 602100, fake_send);                       /* v0 */
-        n = link_packet(pkt, empty_recents, sizeof(empty_recents) - 1);
-        k3346_tel_observe(pkt, n, 602200);
-        k3346_tel_tick(&ctx, 622300, fake_send);                       /* v1 */
-        n = link_packet(pkt, cap_avail, sizeof(cap_avail) - 1);
-        k3346_tel_observe(pkt, n, 622400);
-        n = link_packet(pkt, cap_entries, sizeof(cap_entries) - 1);
-        k3346_tel_observe(pkt, n, 622500);
-        CHECK(sent_count == 2 && k3346_tel_next_variant() == 1, "wpisy po wariancie 1 -> wariant 1 zapamietany");
-        before = sent_count;
-        n = link_packet(pkt, (const uint8_t *)"\x40\x40\x00\x0a\x41\x55\x00\x04\x00\x00", 10);
-        k3346_tel_observe(pkt, n, 630000);
-        k3346_tel_tick(&ctx, 635100, fake_send);
-        vn = k3346_tel_build_start_lists_variant(v, sizeof(v), 1);
-        CHECK(sent_count == before + 1 && sent_len[before] == vn && memcmp(sent_payload[before], v, vn) == 0,
-              "po rozmowie prosba wariantem 1 (nie kolejnym)");
-        k3346_tel_session_reset();
-        CHECK(k3346_tel_next_variant() == 0, "reset sesji kasuje zapamietany wariant");
-        n = link_packet(pkt, (const uint8_t *)"\x40\x40\x00\x06\x1d\x02", 6);
-        k3346_tel_observe(pkt, n, 640000);          /* lacze gotowe dla testu polecen */
     }
 
     /* polecenie z Javy -> 0x415A */

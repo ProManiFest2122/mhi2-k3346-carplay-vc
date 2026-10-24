@@ -56,49 +56,26 @@ static size_t put_tlv(uint8_t *out, size_t max, size_t off, uint16_t id, const v
     return w ? off + w : 0;
 }
 
-/* Etap 6c (test 2026-10-21: iPhone zawsze "available 1, count 0", takze z
- * BluetoothTransportComponent): kolejne prosby wysylaja inne warianty, log
- * pokaze, ktory da liste z wpisami.
- *   v0 max 25 / ulubione 0, combine 1  (bajty xPaiiN, jak dotad)
- *   v1 max 20 / 20, combine 1          (dokladnie Luka, tel_build_start_list_updates)
- *   v2 max 0 / 0 (domyslny limit iOS), combine 1
- *   v3 max 12 / 12, combine 0          (bez scalania)
- *   v4 tylko grupy wlasciwosci 1 i 6   (bez max i combine) */
-size_t k3346_tel_build_start_lists_variant(uint8_t *out, size_t max, int variant)
+size_t k3346_tel_build_start_lists(uint8_t *out, size_t max)
 {
     static const uint8_t recent_props[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
     static const uint8_t favorite_props[] = { 0, 1, 2, 3, 4, 5 };
-    static const uint16_t rmax[K3346_TEL_VARIANTS] = { 25, 20, 0, 12, 0 };
-    static const uint16_t fmax[K3346_TEL_VARIANTS] = { 0, 20, 0, 12, 0 };
+    static const uint8_t recents_max[2] = { 0x00, 0x19 };   /* 25, jak xPaiiN */
+    static const uint8_t favorites_max[2] = { 0x00, 0x00 };
     uint8_t grp[64];
-    uint8_t be[2];
-    uint8_t combine;
+    uint8_t one = 1;
     size_t g = 0, off, i;
-    int with_limits;
 
-    if (variant < 0 || variant >= K3346_TEL_VARIANTS) return 0;
-    with_limits = variant != 4;
-    combine = variant == 3 ? 0 : 1;
     for (i = 0; i < sizeof(recent_props); i++)
         if (!(g = put_tlv(grp, sizeof(grp), g, recent_props[i], NULL, 0))) return 0;
     if (!(off = put_tlv(out, max, 0, 1, grp, g))) return 0;
-    if (with_limits) {
-        be[0] = (uint8_t)(rmax[variant] >> 8); be[1] = (uint8_t)rmax[variant];
-        if (!(off = put_tlv(out, max, off, 3, be, 2))) return 0;
-        if (!(off = put_tlv(out, max, off, 4, &combine, 1))) return 0;
-    }
+    if (!(off = put_tlv(out, max, off, 3, recents_max, 2))) return 0;
+    if (!(off = put_tlv(out, max, off, 4, &one, 1))) return 0;          /* combine */
     g = 0;
     for (i = 0; i < sizeof(favorite_props); i++)
         if (!(g = put_tlv(grp, sizeof(grp), g, favorite_props[i], NULL, 0))) return 0;
     if (!(off = put_tlv(out, max, off, 6, grp, g))) return 0;
-    if (!with_limits) return off;
-    be[0] = (uint8_t)(fmax[variant] >> 8); be[1] = (uint8_t)fmax[variant];
-    return put_tlv(out, max, off, 8, be, 2);
-}
-
-size_t k3346_tel_build_start_lists(uint8_t *out, size_t max)
-{
-    return k3346_tel_build_start_lists_variant(out, max, 0);
+    return put_tlv(out, max, off, 8, favorites_max, 2);
 }
 
 /* InitiateCall: 0 Type (0 = numer), 1 DestinationID (UTF-8 z NUL), 2 Service (1 = telefon) */
@@ -223,25 +200,7 @@ static int tel_attempts, tel_lists_ok;
 static unsigned int tel_updates, tel_partials;
 static uint64_t tel_rereq_ms;   /* 0 = brak zaplanowanej ponownej prosby */
 static int tel_rereqs;
-static int tel_sends;                   /* wyslane 0x4170 w sesji */
-static int tel_last_variant = -1;       /* wariant ostatniej prosby */
-static int tel_good_variant = -1;       /* wariant, po ktorym przyszla lista z wpisami */
 static char tel_last_text[FILE_MAX];
-
-static int next_variant_locked(void)
-{
-    if (tel_good_variant >= 0) return tel_good_variant;
-    return tel_sends < K3346_TEL_VARIANTS ? tel_sends : K3346_TEL_VARIANTS - 1;
-}
-
-int k3346_tel_next_variant(void)
-{
-    int v;
-    pthread_mutex_lock(&tel_lock);
-    v = next_variant_locked();
-    pthread_mutex_unlock(&tel_lock);
-    return v;
-}
 
 static void write_recents_locked(void)
 {
@@ -284,8 +243,6 @@ void k3346_tel_session_reset(void)
     tel_attempts = tel_lists_ok = 0;
     tel_rereq_ms = 0;
     tel_rereqs = 0;
-    tel_sends = 0;
-    tel_last_variant = tel_good_variant = -1;
     memset(&tel_recents, 0, sizeof(tel_recents));
     write_recents_locked();     /* pusta lista: bez starej z innego telefonu */
     pthread_mutex_unlock(&tel_lock);
@@ -323,13 +280,8 @@ void k3346_tel_observe(const uint8_t *transport, size_t n, uint64_t now_ms)
             ++tel_updates;
             if (!tel_lists_ok) rgi_diag_log("TEL", "first_list_update");
             tel_lists_ok = 1;
-            rgi_diag_log("TEL", "list_update #%u entries=%u count=%d n=%u variant=%d", tel_updates,
-                         (unsigned)upd.n, upd.count_set ? (int)upd.count : -1, (unsigned)tel_recents.n,
-                         tel_last_variant);
-            if (tel_recents.n > 0 && tel_good_variant < 0 && tel_last_variant >= 0) {
-                tel_good_variant = tel_last_variant;
-                rgi_diag_log("TEL", "variant_ok=%d n=%u", tel_good_variant, (unsigned)tel_recents.n);
-            }
+            rgi_diag_log("TEL", "list_update #%u entries=%u count=%d n=%u", tel_updates,
+                         (unsigned)upd.n, upd.count_set ? (int)upd.count : -1, (unsigned)tel_recents.n);
             write_recents_locked();
             if (tel_recents.n == 0 && tel_rereq_ms == 0 && tel_rereqs < REREQ_MAX) {
                 tel_rereq_ms = now_ms + (tel_rereqs == 0 ? REREQ_EMPTY_FIRST_MS : REREQ_EMPTY_NEXT_MS);
@@ -367,7 +319,7 @@ void k3346_tel_tick(void *ctx, uint64_t now_ms, k3346_tel_send_fn send)
     uint8_t payload[256];
     char cmd[96], number[40];
     size_t len;
-    int do_lists = 0, rc, variant = 0;
+    int do_lists = 0, rc;
 
     if (ctx == NULL || send == NULL) return;
 
@@ -383,21 +335,15 @@ void k3346_tel_tick(void *ctx, uint64_t now_ms, k3346_tel_send_fn send)
         ++tel_rereqs;
         do_lists = 2;
     }
-    if (do_lists) {
-        /* wariant ustalony przed wysylka: odpowiedz moze przyjsc w trakcie send() */
-        variant = next_variant_locked();
-        tel_last_variant = variant;
-        ++tel_sends;
-    }
     pthread_mutex_unlock(&tel_lock);
 
     if (do_lists) {
-        len = k3346_tel_build_start_lists_variant(payload, sizeof(payload), variant);
+        len = k3346_tel_build_start_lists(payload, sizeof(payload));
         rc = len ? send(ctx, K3346_TEL_MSG_START_LISTS, payload, len) : -1;
         if (do_lists == 1)
-            rgi_diag_log("TEL", "start_list_updates attempt=%d variant=%d len=%u rc=%d", tel_attempts, variant, (unsigned)len, rc);
+            rgi_diag_log("TEL", "start_list_updates attempt=%d len=%u rc=%d", tel_attempts, (unsigned)len, rc);
         else
-            rgi_diag_log("TEL", "start_list_updates rerequest=%d variant=%d len=%u rc=%d", tel_rereqs, variant, (unsigned)len, rc);
+            rgi_diag_log("TEL", "start_list_updates rerequest=%d len=%u rc=%d", tel_rereqs, (unsigned)len, rc);
     }
 
     if (read_command(cmd, sizeof(cmd))) {

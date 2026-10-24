@@ -32,7 +32,7 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
 | Answer / Reject / Hang up from the VC; steering-wheel phone key keeps working (no double action) | 5.4 | ✅ works in the car |
 | Album art (CarPlay now playing) on the VC | 5.3 | ✅ works in the car |
 | Recent calls on the VC phone tab during CarPlay, dial from the list (iPhone dials over iAP2) | 6 | ✅ works in the car – the list is the one the MMI fetched over Bluetooth (kept when CarPlay turns BT off); calls made during the session are added on top (without date) |
-| Recent calls sent by the iPhone over the cable (iAP2 ListUpdate, no Bluetooth needed) | 6b/6c | 🔬 experimental: this iPhone/MMI always answers "available, 0 entries"; a Bluetooth transport component (optional `BT_MAC`) did not change that; request variants are being tested |
+| Recent calls sent by the iPhone over the cable (iAP2 ListUpdate, no Bluetooth needed) | 6b/6c | ⛔ not possible on this MMI/iPhone: the iPhone always answers "available, 0 entries" – tested with 5 request variants (one byte-identical to LuKa's MHI2Q request) and with a Bluetooth transport component (optional `BT_MAC`) |
 | Full address book on the VC | – | ⛔ not possible over CarPlay (iAP2 has only recents/favorites; the phonebook needs Bluetooth PBAP) |
 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) | – | 📋 idea, together with the 4b renderer |
 

@@ -111,6 +111,18 @@ aktualizuje Etap 4 i 5 naraz).
   Log: `start_list_updates … variant=N`, `list_update … variant=N`. Test C 45/45 (UBSAN, ASAN), offsety ALL PASS,
   symulacja 192/192. Biblioteka `mm-ipod` `83950873…`. `BT_MAC` zostaje na czas testu. Test: CarPlay
   podłączony **5 minut** (ponowienia po 20 s i 60 s).
+- **Wynik testu 6c (2026-10-21, `work\auto_test_16\`, run-19/20):**
+  - wszystkie 5 wariantów (w tym bajt w bajt jak Luka) → `available=1, count=0`, także po rozmowie (#16);
+  - lista na VC: tylko rozmowa z sesji (`session call mode=3 n=1`), zostaje po ponownym podłączeniu kabla.
+- **Wniosek – koniec tropu iAP2:** ten iPhone nie oddaje historii połączeń temu MMI przez kabel, niezależnie
+  od treści żądania i od komponentu BT. Różnica jest po stronie akcesorium (MHI2 Harman + stary chip
+  autoryzacji, certyfikat z 2015, zamiast MHI2Q Cinemo) i nie da się jej obejść bez łatania binarek.
+  Decyzja użytkownika: lista zostaje z BT w danej sesji + rozmowy z sesji (bez trwałej kopii).
+- **Sprzątanie:**
+  - warianty 6c usunięte, biblioteka `mm-ipod` wraca do `ef800f54…` (bit w bit ta z testu v5);
+  - z karty usunięty `BT_MAC`, więc iap2.cfg znów ma 5991 B;
+  - opcja `BT_MAC` w instalatorze zostaje, opisana jako nieskuteczna;
+  - test C 34/34, symulacja 192/192.
 
 ## Zakres i ograniczenia
 

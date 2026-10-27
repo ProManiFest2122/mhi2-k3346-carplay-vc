@@ -17,7 +17,7 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
 >
 > **→ Read [INSTALL.md](INSTALL.md) first** (build, rescue card, step-by-step install, rollback).
 
-## Status (2026-10-21)
+## Status (2026-10-27)
 
 | Feature | Stage | Status |
 |---|---|---|
@@ -25,14 +25,14 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
 | Map zoom with the left steering-wheel roller | 3 | ✅ works in the car |
 | Map keeps running while reversing (MMI shows the camera as stock) | 3 | ✅ works in the car |
 | Route guidance (RGI) data → cluster: distance, street, route flag | 4 | ✅ works in the car |
-| Maneuver arrow in the right-hand KDK panel | 4b | ❌ always straight (panel image comes from the native nav); own renderer planned |
+| Maneuver arrow in the right-hand KDK panel | 7d | 🔬 own renderer ported from LuKa's `maneuver_render`. **The overlay is on the cluster and the CarPlay map stays visible around it** — confirmed in the car on 2026-10-27, together with the rest of the display path: the DisplayManager adopts a window that declares its displayable through `KD_WINDOWPROPERTY_CAPTION`, honours its size to the pixel, always places it at (0,0) (so the window is the whole 1440×542 canvas and the panel is drawn at the offset for the current gauge layout), and composites premultiplied alpha per pixel (the probe's alpha staircase came back as exactly 255·a). Three bugs of our own found from car logs and fixed: the readiness marker used `rename()`, which `/tmp` (QNX `/dev/shmem`) does not implement; the window health check read a KD property this DisplayManager never returns, so it destroyed a healthy window every 5 s; and **both ends of the maneuver data link called `connect()`** — LuKa's `server.c` is a TCP client, and so was our hook — so nothing ever bound port 19800 and the renderer drew `commands=0`. The hook now takes the server role Java has on MHI2Q, which keeps his `server.c` unmodified. Car test of the arrow itself still pending; the shell gate keeps the cluster on the working map context unless the renderer reports a live window |
 | Siri on a **short** press of the voice button | 5.1 | ✅ works in the car |
 | MMI touchpad as a D-pad in CarPlay | 5.1 | ✅ works in the car |
 | CarPlay calls on the VC phone tab (incoming/outgoing/active, name, signal, carrier; no "iPhone is in CarPlay mode" note) | 5.2 | ✅ works in the car |
 | Answer / Reject / Hang up from the VC; steering-wheel phone key keeps working (no double action) | 5.4 | ✅ works in the car |
 | Album art (CarPlay now playing) on the VC | 5.3 | ✅ works in the car |
-| Recent calls on the VC phone tab during CarPlay, dial from the list (iPhone dials over iAP2) | 6 | ✅ works in the car – the list is the one the MMI fetched over Bluetooth (kept when CarPlay turns BT off); calls made during the session are added on top (without date) |
-| Recent calls sent by the iPhone over the cable (iAP2 ListUpdate, no Bluetooth needed) | 6b/6c | ⛔ not possible on this MMI/iPhone: the iPhone always answers "available, 0 entries" – tested with 5 request variants (one byte-identical to LuKa's MHI2Q request) and with a Bluetooth transport component (optional `BT_MAC`) |
+| Recent calls on the VC phone tab during CarPlay, dial from the list (iPhone dials over iAP2) | 6 | ✅ works in the car – with iOS 27 the list comes from the iPhone over the cable (row below); with iOS 26.6–26.7.x it is the list the MMI fetched over Bluetooth (kept when CarPlay turns BT off); calls made during the session are added on top (without date) |
+| Recent calls sent by the iPhone over the cable (iAP2 ListUpdate, no Bluetooth needed) | 6b/6c | ✅ works in the car with **iOS 27.2** (Bluetooth off, cable only). iOS 26.6–26.7.x returns "available, 0 entries" – a known **iOS bug** that empties CarPlay recents on factory BMW/Porsche clusters too ([Apple Community](https://communities.apple.com/fr/thread/256343062), [Bimmerpost](https://g05.bimmerpost.com/forums/showthread/2250515/ios-26-6-update-breaks-recent-calls-in-hud-via-carplay)). Favourites from iAP2 are not shown yet (ignored by the parser) |
 | Full address book on the VC | – | ⛔ not possible over CarPlay (iAP2 has only recents/favorites; the phonebook needs Bluetooth PBAP) |
 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) | – | 📋 idea, together with the 4b renderer |
 
@@ -55,9 +55,10 @@ Detailed engineering notes are in Polish in [`docs/`](docs/) — start with [`do
   server; the art is fetched from the stock iAP2 daemon by `k3346-coverart-fetch`).
 * **Stage 6:** the `mm-ipod` hook extends the driver's message group 0x41 in memory and sends iAP2
   `StartListUpdates 0x4170` (byte-identical to a request verified in a car by xPaiiN) and `InitiateCall
-  0x415A`; `ListUpdate 0x4171` is parsed into a file that the Java phone wrapper shows as recents. Because the
-  iPhone returns an empty list here, the wrapper also keeps the last Bluetooth call list of the MMI (the MMI clears
-  it when CarPlay starts) and adds calls made during the CarPlay session.
+  0x415A`; `ListUpdate 0x4171` is parsed into a file that the Java phone wrapper shows as recents (it has
+  priority when not empty; confirmed with iOS 27.2). Because iOS 26.6–26.7.x returns an empty list (iOS bug, see the status table), the wrapper
+  also keeps the last Bluetooth call list of the MMI (the MMI clears it when CarPlay starts) and adds calls made
+  during the CarPlay session.
 
 ## Layout
 
@@ -86,7 +87,41 @@ backup and the original firmware must be at hand. No warranty of any kind.
 ## Credits
 
 * **edzenis** – mib2high-carplay-altscreen-rgi (base of this port)
-* **LuKa (@LuKa_dev)** – mib2q-carplay-rgi (RGI parser/bus, maneuver mapping, Siri/touchpad/telephony designs, docs)
+* **LuKa (@LuKa_dev)** – mib2q-carplay-rgi (RGI parser/bus, maneuver mapping, Siri/touchpad/telephony
+  designs, docs). Beyond the MHI2Q work this port is built on, one document of his settled the
+  single hardest question in Stage 7: **`docs/reference/MHI2_MU1439_PORT.md`**, his IDA pass over
+  MHI2 `MU1439` (K3347, the US twin of our K3346). Its `displaymanager` is **583 837 B, byte for
+  byte the size of ours**, same framework build — so his findings apply to our file directly:
+  * the stock recipe from `libdisplayinit.so display_create_window`: a KD window declares its
+    displayable number through **`KD_WINDOWPROPERTY_CAPTION`**, which the DisplayManager `atoi()`s
+    and validates against nothing;
+  * the caption behaviour table (`"0"` or a non-number stores id 0, `"-1"` is ignored, over 64
+    characters is refused) — which is why our config refuses anything outside 1..109;
+  * that the DM composites with a `premultiplied_alpha` material and never enables `GL_BLEND`
+    itself, so the renderer must write `rgb * a`;
+  * that `komoviewstyle.conf` carries the two KVS_FPK panel styles (210×153 / 328×181), which
+    matched our own measurement on the car exactly.
+
+  His section is marked `[decompile]` and was never run on an MHI2 unit; we reached the same answer
+  independently from strings in our own binary. Two methods, one answer — and on 2026-10-27 the car
+  confirmed both: the caption recipe works, the size is honoured to the pixel, and the compositor
+  blends premultiplied alpha per pixel exactly as his notes say. See
+  [`docs/19`](docs/19_displayable_na_mhi2.md).
+* **Eugene Chefranov (@chefranov)** – [mhi2-au37x-carplay](https://github.com/chefranov/mhi2-au37x-carplay),
+  the sibling project for MHI2 AU37x. Used with the author's permission. What it gave us, concretely:
+  * His public installer description states that on MHI2 the cluster overlay displayable is created
+    **by the HMI from a bitmap** before the renderer draws. That sentence is what made us stop
+    guessing at `KD_WINDOWPROPERTY_ID_STRING_QNX` and go read the `displaymanager` binary instead.
+    The lead pointed *next to* the answer for our firmware — `createImageDisplayable` turned out to
+    be a separate feature, not a prerequisite — but it is what got us to open the binary at all,
+    and `KD_WINDOWPROPERTY_CAPTION` was in there. [`docs/19`](docs/19_displayable_na_mhi2.md) says
+    so in the text as well.
+  * His project is the existence proof that the whole feature set (cluster map, 3D maneuver in the
+    cluster tile, phone, cover art, D-pad, PDC) is reachable on **MHI2 Harman**, not only on MHI2Q.
+    That changed how much risk this direction was worth.
+  * No file, binary, jar, shader or script of his is used here. His firmware train is AU37x
+    (A3/S3/RS3 8V, Q2); this port targets AUG22 / K3346, and all code here is written against our
+    own firmware.
 * **joeyQuery** – MHI2-altScreen (`vc_render` origin)
 * **harman-f** – mhi2_altscreen_carplay research, M.I.B.
 * **Mr-MIBonk** – M.I.B.

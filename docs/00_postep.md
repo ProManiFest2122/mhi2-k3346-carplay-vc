@@ -114,10 +114,196 @@
         Szczegóły `docs\15`, sekcja „Wynik w aucie”.
   - [x] Decyzja użytkownika (2026-10-20): **strzałkę KDK odkładamy** – podpowiedzi pokazuje karta
         Google Maps w mapie CarPlay. Panel zostaje (dobra odległość, zła strzałka). **Etap 4 zaliczony.**
-- [ ] **Etap 4b (później): strzałka manewru „1:1 jak u Luki”** – port `repos\mib2q-carplay-rgi\maneuver_render\`
-      (u Luki OMX/GLES na MHI2Q, displayable 98 zamiast 20, kontekst {98,101,102,mapa}); u nas NvSS/Tegra
-      (`renderer\vc_render`), kontekst 77 = {20,102,101,58} (`work\auto_test_4\…\run-03\dmdt-gc.txt`).
-      Docs Luki: `docs\cluster-and-rgi\CLUSTER_CONTEXTS.md`, `KDK_GEOMETRY_AND_ANIMATION.md`, `VC_FPK_STATE_MACHINE.md`.
+- [ ] **Etap 7 (dawniej 4b): własna warstwa graficzna na VC – strzałka manewru + pasy** → **`docs\18_etap7_nakladka.md`**
+      ← **Zbudowane i sprawdzone na komputerze (2026-10-26), w aucie NIETESTOWANE.** Paczka `work\sd_etap7\`.
+  - [x] Rozpoznanie: `vc_render` nie ma dostępu do pikseli (`NvSSVideoDecode` dekoduje i wyświetla naraz),
+        więc nakładka musi być osobnym displayable. Firmware to potrafi – kontekst 77 to już 4 warstwy.
+  - [x] **Droga znaleziona:** Luka używa QNX Screen, na K3346 nie ma `libscreen`, ale rozszerzenie
+        **KD QNX** ma komplet odpowiedników (`ID_STRING` 1002, `MANAGED` 1013, `SOURCE_ALPHA` 1011).
+        Fabryczne `loadandshowimage` i `libdisplayinit.so` robią dokładnie tę sekwencję (GLES2!).
+  - [x] **Port Luki: 9345 linii bez zmian**, przepisany tylko `platform_harman.c` + `kd_surface.c`
+        (zamiast `platform_qnx.c` + `cluster_surface.c`). Spis: `overlay\PROVENANCE.md`
+  - [x] Zbudowane: `vc_overlay` (602 KB), `vc_overlay_probe` (52 KB), biblioteka hooka z zasilaniem
+  - [x] **Zasilanie bez zmian w Javie HMI** – hook w `mm-ipod` → TCP :19800, pakiety 48 B Luki;
+        renderer jest serwerem (bo `mm-ipod` restartuje się przy każdym kablu), własny wątek
+        z zablokowanym SIGPIPE (SIGPIPE w `mm-ipod` zabiłby CarPlay)
+  - [x] **Mapper C ↔ Java: 126 672 przypadki identyczne** (`tools\run_overlay_map_diff.sh`)
+  - [x] **Format transmisji sprawdzony dekoderem Luki** (`cr_decode_maneuver`): 54 OK, 0 FAIL (ASan+UBSan)
+  - [x] Parser konfiguracji: 69 OK, 0 FAIL (po Etapie 7b; wcześniej 42 – doszły zakresy numeru
+        displayable i offsety panelu). Zależności ELF: PASS (`libiow`/`libscreen` zablokowane)
+  - [x] **Biblioteka v8s bit w bit bez zmian** – sprawdzone buildem z wyciętymi blokami Etapu 7
+  - [x] Brama bezpieczeństwa: kontekst 901 tylko gdy `dmdt gd` potwierdzi nasz displayable,
+        inaczej zostaje 77 (= dzisiejszy stan, mapa działa)
+  - [x] Transakcja `INSTALL_ETAP7`/`ROLLBACK_ETAP7` + sonda `PROBE_ETAP7`; COLLECT zbiera teraz
+        `dmdt gd` i `gs` (gc jest ucinane na 11 264 B – limit `dmdt`, nie nasz)
+  - [x] **Zabezpieczenia dopisane (2026-10-26)**: blok T16 w `sim_installer.sh` (**236 OK, 0 FAIL**,
+        dash i mksh), `sprawdz_karte.ps1 -Typ etap7`, karta ratunkowa usuwa pliki Etapu 7
+        (`sim_rescue.sh` **52 OK, 0 FAIL** pod mksh; ta symulacja wymaga `/bin/ksh`)
+  - [x] **Karta przygotowana i uzbrojona (2026-10-26)**: `sprawdz_karte -Typ etap7` → GOTOWA,
+        0 błędów, 0 uwag. Komplet 4 znaczników w folderze pakietu — dyspozytor zużywa po jednym
+        na uruchomienie, więc **przy aucie nie trzeba czytnika kart** (test T16l). Z Etapów 4–6
+        zmieniony tylko `mib2high-lvds-control.sh` (celowo); `backup\pre-v8s`, znaczniki stanu
+        i 20 katalogów `collected\` nietknięte. Stary `SHA256SUMS.txt` z karty zachowany jako
+        `SHA256SUMS.sprzed-etap7.txt`
+  - [x] **Te zabezpieczenia złapały trzy błędy**, każdy wyszedłby dopiero w aucie:
+        (1) kolizja nazw w payloadzie – `INSTALL_ETAP4` wgrywałby bibliotekę Etapu 7, a
+        `ROLLBACK_ETAP7` nie cofałby niczego → osobna nazwa `…ipod.etap7.so`;
+        (2) pełny `ROLLBACK` nie cofał Etapu 7 → łańcuch 7→5→4→v8s, Etap 7 musi być pierwszy;
+        (3) sonda miała zakodowaną ścieżkę zamiast `pathof` → zawsze odmawiała w symulacji
+  - [x] **Stan karty `I:\` sprawdzony (2026-10-26)**: `ROLLBACK_ETAP4` i `INSTALL_ETAP4` leżą
+        uzbrojone z datą 2026-10-22 i są nietknięte → **sprzątanie po Etapie 6 nie było wykonane**
+        (auto kasuje znacznik po użyciu; pliki z auta mają datę `1980-01-01`). `command.sh` na karcie
+        = `34252c4e…` identyczny z `work\sd_etap5`, `BT_MAC` brak
+  - [x] **Wizyta 1 w aucie (2026-10-26)** – `probe-run` + `run-21` na karcie. Instalacja PASS,
+        sekwencja w zaplanowanej kolejności, **nic się nie zepsuło** (mapa 15–21 kl/s, `rc=0x0`),
+        brama zadziałała (`staying on 77`). Szczegóły: `docs\18`, sekcja „Wynik wizyty 1”
+  - [x] **ZMIERZONA geometria panelu manewru**: **210×153** w obu kotwiczeniach,
+        pozycje **(1091, 110)** i **(1055, 207)**; płótno 1440×542. Z zrzutów `dmdt ts 4`.
+        Koryguje `docs\02:133` („large … 328×180” było szacunkiem z innego auta, nieprawdziwym dla K3346).
+        Wartość wpisana w `config\mib2high-overlay.conf`
+  - [x] **`dmdt ts` to działający przyrząd pomiarowy** – zrzuca kompozyt DisplayManagera
+        (widać displayable 20, nie widać mapy – mapa to warstwa sprzętowa)
+  - [x] **PRZYCZYNA ZNALEZIONA offline (2026-10-27)** → **`docs\19_displayable_na_mhi2.md`**.
+        W binarce `displaymanager` **z naszego auta**: napisy `ID_STRING` i `MANAGED` **nie występują
+        w ogóle**, jest za to `KD_WINDOWPROPERTY_CAPTION (%p): %d` oraz
+        `CAPTION evaluated to 0. Most likely CAPTION string was invalid`.
+        **Okno GL deklaruje numer displayable przez CAPTION (69), nie przez `ID_STRING_QNX` (1002)** —
+        a my ustawialiśmy to drugie. Strumienie wideo idą osobnym kanałem
+        (`KD_STREAMPROPERTY_DISPLAYABLE_ID_NV`), co tłumaczy, czemu `vc_render --layer 58` działa od Etapu 3.
+        Poprawka: jedna właściwość w `overlay\kd_surface.c`. **Etap 7 zostaje bez zmian w Javie HMI.**
+  - [x] **Niezależne potwierdzenie (2026-10-27)**: `repos\mib2q-carplay-rgi\docs\reference\MHI2_MU1439_PORT.md`
+        – Luka rozebrał w IDA **ten sam build** `displaymanager` (583 837 B, bajt w bajt jak nasz,
+        framework `5.41.10.SR5 MIB2CLU6`), tylko z firmware K3347/MU1439. Podaje fabryczny przepis
+        z `libdisplayinit.so display_create_window`: caption → `atoi()` → numer, **bez żadnej
+        walidacji**; `"0"`/nie-liczba daje id 0, `"-1"` jest ignorowane, >64 znaki odrzucane.
+        Stąd zakres 1..109 w `overlay_cfg_sanitize()`. Dwie metody (napisy vs dekompilacja),
+        jedna odpowiedź – ale jego sekcja ma `[decompile]` i **nie była testowana na aucie**
+  - [x] Trop pochodzi z projektu **chefranov/mhi2-au37x-carplay** (MHI2 AU37x) — użyty **za zgodą autora**,
+        adnotacja wpisana w `publish_src\README.md` i `LICENSING.md`. Żaden jego plik nie trafia do repo
+  - [x] `dmdt gd`/`gs` zwracają **zero bajtów** na tej jednostce (`gc` działa) – przestaje mieć
+        znaczenie, bo dowodem przyjęcia okna jest log renderera, a nie lista z `dmdt`
+  - [ ] **Nadal nieustalone:** czemu główny blok starej sondy w ogóle się nie wykonał.
+        Odrzucone: `$*` po `shift 4` przy `set -u` (działa w dash i mksh), uszkodzenie pliku,
+        różnica powłok – **stara sonda w symulacji przechodzi pod obiema**. Awarii nie da się
+        odtworzyć poza autem; nowa sonda łapie stderr, więc następnym razem sama to powie
+  - [x] **Poprawki na wizytę 2 (2026-10-26)**: sonda przepisana – cały stderr do `probe.log`
+        (`exec 2>>`), każdy blok loguje kod wyjścia i rozmiar osobno, rozpoznanie `dmdt`
+        w 5 wariantach; dowodem przyjęcia okna jest **log renderera**, nie lista z `dmdt`;
+        `collect()` zbiera `/tmp/vc_overlay*.log`. Nowa symulacja `tools\sim_probe.sh`
+        (**43 OK**, dash + mksh) wymusza, żeby **każdy blok zostawił ślad** – „kod wyjścia 0”
+        okazał się za słabym sprawdzianem
+  - [x] **Etap 7b zrobiony (2026-10-27)** – poprawka wdrożona, nie tylko opisana:
+        1. `overlay\kd_surface.c` ustawia **CAPTION (69)**; `ID_STRING_QNX` i `MANAGED_QNX`
+           usunięte, `DISPLAY_QNX` domyślnie nie ustawiane (`display -1`, jak fabryczny przepis).
+           Sprawdzone w **zbudowanej binarce**: `vc_overlay` i `vc_overlay_probe` nie zawierają
+           napisów `ID_STRING`/`MANAGED`, zawierają `CAPTION` (`strings` nie ma w Git Bash –
+           liczone po bajtach w Pythonie)
+        2. **brama przestała pytać `dmdt gd`**: renderer po pierwszej wystawionej klatce pisze
+           `/tmp/vc-overlay-ready` („id w h", atomowo przez `rename`), a `mib2high-lvds-control.sh`
+           czeka do 6 s, sprawdza numer i tylko wtedy bierze kontekst 901. Nieświeży meldunek
+           (renderer ubity na twardo) jest **usuwany przed startem** nakładki
+        3. slot układu VC czytany z `V8H_LAYOUT slot=` w `/tmp/carplay_hook.log` i **logowany**,
+           jeszcze nie stosowany – biblioteka Etapu 3 nietknięta
+        4. sonda ma na **każdym** zrzucie schodek alfy (6 stopni nad czystym buforem)
+        5. geometria potwierdzona z naszego firmware: `komoviewstyle.conf` zna `2; KVS_FPK;210x153`
+           i `3; KVS_FPK;328x181` – pomiar 210×153 to styl 2 co do piksela
+  - [x] **Nowa symulacja `tools\sim_gate.sh`** – pierwszy test bramy w ogóle (8 przypadków,
+        **54 OK** pod dash i mksh): brak nakładki, brak meldunku, meldunek dobry, zły numer, śmieci,
+        **nieświeży meldunek**, `dmdt dc` odmawia, sprzątanie po sesji. Miara to kontekst, na którym
+        **pracowała pętla**, nie ostatni `sc` – skrypt kończy przywróceniem 72
+  - [x] **Karta odświeżona (2026-10-27)**: `sprawdz_karte -Typ etap7` → **GOTOWA, 0 uwag**.
+        Wymienione 5 plików + manifest; biblioteka Etapu 7 **bit-identyczna** (`4d81839730c0…`),
+        czyli hook natywny nietknięty. Sekwencja: `ROLLBACK_ETAP7` → `INSTALL_ETAP7` → restart MMI
+        → `PROBE_ETAP7` → sesja CarPlay z trasą → COLLECT
+  - [x] **Ściągawka do auta: `docs\20_sciagawka_etap7b.md`** (2026-10-27) – oś czasu sondy co do
+        sekundy, lista zdjęć, drzewo „kiedy przerwać". Przy jej pisaniu wyszło, że **dwa komunikaty
+        na ekranie MMI były nieaktualne** po przejściu na procedurę z odłączonym iPhonem:
+        `custom.sh` zapowiadał „ok. 3 minut" (realnie 56 s przerw + 8 zrzutów, czyli ~1,5 min)
+        i prosił o „zakonczenie trasy", a sonda wypisywała to samo – przy odłączonym telefonie nie
+        ma czego kończyć. Druga przerwa dostała zadanie wykonalne: **ocenę schodka alfy**, bo to
+        jedyne pytanie, na które zrzut nie odpowie (mapy w kompozycie nie ma)
+  - [x] **Wizyta 2 wykonana (2026-10-27)** – sonda przeszła, dane w `collected\probe-run\`
+        i `collected\run-22\`. Zdjęć MMI nie ma (zapomniane) i nie były potrzebne: nakładka jest
+        na zrzutach `dmdt ts`, bo idzie przez kompozytor DisplayManagera.
+        **Poprawka CAPTION działa** – `kd_surface: CAPTION="98"` →
+        `window caption="98" 210x153 display=-1 alpha=1 realized native=beeb0006`.
+        Zmierzone w pikselach ze zrzutów (dekoder PNG w czystym Pythonie, bez Pillow):
+
+        | Pytanie | Odpowiedź |
+        |---|---|
+        | DM przyjmuje nasze okno? | **tak** – zrealizowane i skomponowane |
+        | rozmiar | **dokładnie** 210×153, bbox `(0,0)-(209,152)` |
+        | pozycja | **(0,0)** – DM **nie nadaje** pozycji displayable'owi bez wpisu |
+        | pełne płótno (wariant B) | działa, pełne 1440×542, bez obcięcia |
+        | alfa | schodek **0, 51, 102, 153, 204, 255** = `255·a` co do jedynki |
+        | VIEW | okno nie zniknęło ani nie drgnęło (`vc-11` = `vc-10`) |
+
+  - [x] **Dwa własne błędy znalezione z logów wizyty 2** – z telefonem brama odmówiła
+        (`overlay did not report a window within 6s; staying on 77`), mapa działała normalnie:
+        1. **`rename()` nie działa na `/tmp`** – `cannot write /tmp/vc-overlay-ready errno=18`
+           (EXDEV). Sam `/tmp` jest zapisywalny (leżą tam wszystkie nasze logi), więc padało
+           wyłącznie `rename()`. To **rozstrzyga starą niewiadomą: `/tmp` to `/dev/shmem`,
+           czyli RAM** – a ten system plików nie ma `rename()`.
+        2. **health-check był nieprawdziwy** – `kdGetWindowPropertyiv(VISIBILITY)` na tym DM
+           **nigdy** się nie udaje. Dowód: drukowane `errno` to 18, 89, 236, 236, 236… – śmieć po
+           poprzednim wywołaniu, nie błąd tego odczytu. Sonda loguje to samo i rysuje 282 klatki.
+           Co 5 s renderer niszczył zdrowe okno i kasował meldunek: 15 cykli na sesję, 2 sesje.
+        3. pochodna: meldunek powstawał tylko przy swapie, a renderer swapuje tylko mając scenę –
+           po pierwszej nieudanej próbie nie było już kolejnej
+  - [x] **Etap 7c wdrożony (2026-10-27)** – naprawa + pełne płótno:
+        1. `overlay_ready.h` pisze meldunek jednym `open`+`write`, **bez `rename()`** i bez `.tmp`
+        2. `kd_surface_lost()`: nieudany odczyt `VISIBILITY` to **nie** utrata okna (ostrzeżenie raz
+           na proces); utratę zgłasza dopiero nieudany `eglSwapBuffers`
+        3. meldunek wychodzi po **wyrenderowaniu pustej przezroczystej klatki** zaraz po powstaniu
+           okna – nie czeka na pierwszy manewr
+        4. **okno = całe płótno 1440×542**, panel rysowany na offsecie w środku.
+           Kod Luki **nietknięty**: `render_init()` adoptuje framebuffer, który jest związany w
+           chwili startu (`glGetIntegerv(GL_FRAMEBUFFER_BINDING)`), więc platforma podstawia mu
+           własne FBO w rozmiarze panelu, a `platform_swap()` przenosi je na płótno
+        5. slot układu VC **stosowany**, nie tylko logowany – po VIEW strzałka jedzie z zegarami
+        6. brama czeka **10 s** zamiast 6
+        7. nowe klucze `canvas_width`/`canvas_height` w `mib2high-overlay.conf` + **furtka awaryjna**
+           opisana w pliku: wpisanie `210`/`153` wraca do małego okna w rogu, bez przebudowy
+        8. `composite_panel()` wyłącza wszystkie tablice atrybutów przed swoim rysowaniem –
+           `vb_flush()` Luki zostawia je włączone (patrz pułapki na końcu tego pliku)
+  - [x] **Wizyta 3 wykonana (2026-10-27)** – Etap 7c zadziałał w całości. Z `collected/run-23/`:
+        `overlay ready after 0s; context=901 {98,102,101,58} declared`,
+        `READY /tmp/vc-overlay-ready -> 98 1440x542`, `render: init multi-layer 210x153
+        (default fbo=1)` i **jedna** linia o nieczytelnym `VISIBILITY` zamiast 15 cykli recreate.
+        Zdjęcia dokładają odpowiedź na jedyne otwarte pytanie: **mapa CarPlay jest widoczna dookoła
+        naszego okna**, czyli przezroczystość pełnego płótna dociera do warstwy sprzętowej z mapą.
+  - [x] **Dlaczego nie było strzałki – oba końca łącza były klientami**
+        (rozstrzygnięte z `run-23/netstat-an.txt`: **portu 19800 nie ma tam w ogóle**):
+        `overlay/upstream/server.c` to u Luki TCP **klient**, a nasz `overlay_feed.c` też robił
+        `connect()`. Nikt nie wołał `bind()`/`listen()`. Stąd `not yet listening, will retry`
+        i `commands=0`. Co gorsza komentarz w naszym `overlay_feed.h` **opisywał topologię
+        odwrotnie** niż kod – twierdził, że serwerem jest renderer.
+  - [x] **Etap 7d wdrożony (2026-10-27)**:
+        1. **feed nasłuchuje** (`bind`/`listen`/`accept` na 127.0.0.1:19800), renderer zostaje
+           klientem – czyli dokładnie topologia Luki (producent nasłuchuje), więc jego `server.c`
+           z pętlą ponawiania co 200 ms **zostaje nietknięty**
+        2. **odtwarzanie stanu po połączeniu** – inaczej panel czeka na kolejny `RGI update`
+        3. **czytanie z gniazda** – renderer pisze w tę stronę (`cr_server_mark_frame_ready`);
+           nieczytany bufor prędzej czy później zablokowałby mu wysyłkę, a bez czytania nie
+           wiadomo, że się rozłączył, dopóki nie padnie zapis
+        4. **panel nie jest malowany, gdy nie ma czego** (`platform_set_content_present()`
+           przez istniejący szew `platform.h`) – to też rozstrzygnie, czyj jest czarny prostokąt
+        5. **recepta kontekstu w pliku na karcie** (`context_recipe`), żeby ewentualna poprawka
+           na podkładki 101/102 nie wymagała przebudowy
+        6. doinstalowany **`flag_atlas.rgba`** (896 kB, mieliśmy go w repo, nigdy nie trafił do auta)
+           i renderer startuje z `/mnt/app/root` jako katalogiem bieżącym
+  - [ ] **Wizyta 4 [Ty]** – 3 uruchomienia, telefon może być podłączony od początku.
+        Rozstrzygające: `LISTEN` na 19800 w `netstat-an.txt`, `server: connected to 127.0.0.1:19800`
+        w logu renderera, `scene: … commands=N` z N > 0, **strzałka w prawym panelu**, oraz przy
+        wyłączonej nawigacji – czy czarny prostokąt zniknął (był nasz) czy został (podkładki)
+  - [ ] Fizyczna karta ratunkowa ma jeszcze stary `ratunek.sh`; **przed tą wizytą nie trzeba jej
+        wgrywać** (Etap 7 nie dotyka Javy ani HMI), a poprzednia podmiana wymagała formatowania karty
+  - [ ] **Etap 7d: karta rozmowy** – layout ustalony ze zdjęć (2026-10-26), brakuje renderowania tekstu
+        (atlas glyphów; w rendererze Luki nie ma żadnego fontu). Wariant B sondy już odpowiedział:
+        okno może wziąć całe płótno, więc karta rozmowy ma gdzie się zmieścić – zostaje sam tekst
+- [ ] **Do wyjaśnienia:** świeży build v8s daje `b8da2da0…`, a w aucie jest `058413dd…`.
+      **Nie jest to skutek Etapu 7** (build z wyciętymi blokami daje tę samą sumę). Dlatego paczka
+      Etapu 7 nie zawiera v8s ani `vc_render` i nie rusza `work\sd_etap5\`.
 - [ ] **Etap 5: Siri, touchpad, telefon, okładka** – plan i instrukcja: `docs\16_etap5_plan.md`
   - [x] Paczka 5.0 (sonda przesłaniania klas) `work\sd_etap5\`: `mib2high-k3346-overrides.jar`
         (1 klasa = fabryczna + znacznik), transakcja `INSTALL_ETAP5`/`ROLLBACK_ETAP5`, symulacja 142/142;
@@ -174,8 +360,16 @@
         `BluetoothTransportComponent` (MAC auta) w identyfikacji. Krok 1 zrobiony (adres BT tylko w chipie,
         podany przez użytkownika). Krok 2: `BT_MAC` na karcie → `[bluetooth]` z MAC w `iap2.cfg` (Etap 4),
         symulacja 192/192. Test 6b (run-18): komponent przyjęty, lista iAP2 nadal 0 → obalone.
-        Etap 6c (run-19/20): wszystkie 5 wariantów 0x4170 → 0. **Koniec tropu iAP2**; lista zostaje z BT
-        w sesji + rozmowy z sesji. Sprzątanie: biblioteka `ef800f54…` (jak v5), karta bez `BT_MAC`.
+        Etap 6c (run-19/20): wszystkie 5 wariantów 0x4170 → 0. Sprzątanie: biblioteka `ef800f54…`
+        (jak v5), karta bez `BT_MAC`.
+  - [x] **Korekta 2026-10-27 (`docs\17`, sekcja „Korekta”)**: pusta lista to **błąd iOS od 26.6**
+        (Apple Community, Bimmerpost; ten sam objaw na fabrycznych BMW i Porsche), naprawiony według forum
+        w iOS 27. Wniosek „Harman + stary chip” odwołany – chefranov ma listy przez iAP2 na MHI2 Harman.
+        iPhone użytkownika: iOS 26.7.1. Kod v5 bez zmian (lista iAP2 ma pierwszeństwo).
+  - [x] **Test na iOS 27.2 (2026-10-27): DZIAŁA** – BT wyłączony, kabel, historia połączeń z iPhone'a na VC
+        od razu, bez zmian w kodzie (`docs\17`, „Wynik na iOS 27.2”). Logi jeszcze niezebrane.
+  - [ ] Opcjonalnie: **ulubione z iAP2 na VC** – nasz parser je dziś ignoruje (0x4171 param 5–7);
+        dopisać parser + Java `updateFavoriteList` (wzór Luka `GatedPhoneService`).
         Do zrobienia **[Ty]**: `ROLLBACK_ETAP4` + `INSTALL_ETAP4` (2 uruchomienia), restart MMI.
 - [ ] **Etap 6 – ostatnie połączenia CarPlay na VC + dzwonienie z listy** (`docs\17`): paczka gotowa
       (grupa 0x41 w tabeli sterownika, 0x4170/0x4171/0x415A z hooka `mm-ipod`, Java lista + wybieranie);
@@ -204,6 +398,10 @@
 | `14_wyniki_etap3.md` | Wyniki pierwszych testów w aucie: co działa, analiza wstecznego, zerwania USB |
 | `15_etap4_rgi.md` | Etap 4 (RGI w `mm-ipod`): co zmienia, dlaczego tak, bezpieczeństwo, instrukcja w aucie |
 | `16_etap5_plan.md` | Etap 5 (Siri, touchpad, telefon, okładka): rozpoznanie K3346, kolejność, sonda 5.0 |
+| `17_etap6_ostatnie.md` | Etap 6 (ostatnie połączenia, dzwonienie z listy): dlaczego iAP2 nie oddaje historii |
+| `18_etap7_nakladka.md` | **Etap 7 (własna warstwa na VC: strzałka + pasy)**: dlaczego osobny renderer, port Luki, sonda, instrukcja |
+| `19_displayable_na_mhi2.md` | **Jak powstaje displayable na MHI2**: CAPTION vs ID_STRING, protokół adopcji okna, `createImageDisplayable`, dowody z binarki z auta |
+| `20_sciagawka_etap7b.md` | **Do auta, na telefon (Etap 7c)**: trzy uruchomienia, bez sondy, na co patrzeć w pierwszej sekundzie sesji, co sfotografować, kiedy przerwać |
 | `01`–`06` | Analiza: backup, różnice K2161→K3346, HMI Java, odczyt z auta |
 
 ## Narzędzia zrobione po drodze (`tools\`)
@@ -217,9 +415,28 @@
 | `sim_rescue.sh` | symulacja karty ratunkowej (45 testów, w tym warunki z auta: karta RO, ubogi `PATH`) – w jednorazowym kontenerze, pod `mksh`; `RESCUE=` / `TYLKO_R678=1` do testowania innej wersji |
 | `sprawdz_karte.ps1` | sprawdza przygotowaną kartę SD (tylko odczyt): sumy względem paczki, FAT32, uzbrojenie, typowe pomyłki |
 | `verify_port_offsets.py` | weryfikacja offsetów hooków przeciw prawdziwemu driverowi iAP2 |
+| `verify_overlay_elf.py` | zależności binarek nakładki; blokuje `libiow`/`libscreen`, których w aucie nie ma |
+| `run_overlay_map_diff.sh` | mapper manewrów C vs Java na 126 672 przypadkach – chroni przed rozjechaniem się dwóch kopii |
+| `make_sd_etap7.sh` | składa paczkę Etapu 7 **obok** `sd_etap5` (nie nadpisuje plików już sprawdzonych w aucie) |
+| `sim_gate.sh` | symulacja **bramy kontekstu kombi** (8 przypadków, 54 testy, dash + mksh): decyduje o przejściu 77 → 901. Sprawdza też **nieświeży** meldunek po rendererze ubitym na twardo. Potrzebuje `/mnt` i `/eso`, więc **tylko w kontenerze** |
+| `sim_probe.sh` | symulacja sondy Etapu 7 (43 testy, dash + mksh): wymusza, by **każdy blok zostawił ślad** w logu i plikach — po tym, jak w aucie cały blok wykonał się „po cichu" i skrypt i tak zwrócił 0. Od Etapu 7b sprawdza też **odmowę przy żywym rendererze** (duplikat captionu 98) |
 
 ## Pułapki, o których trzeba pamiętać
 
+- **Heredoc w tej powłoce zjada jeden backslash z `\\`.** Pisanie skryptu Pythona przez
+  `cat > plik <<'EOF'` **nie jest przezroczyste**: `\\n` dochodzi jako `\n`, a Python zamienia to na
+  prawdziwy znak nowej linii **wewnątrz literału C** – plik przestaje się kompilować, a podmiana
+  wzorca zawierającego `\` po cichu nie trafia (0 wystąpień). Trafiło dziś 4 razy.
+  Obejście: w skryptach, które generują kod, składać backslash przez `chr(92)`, a wzorców
+  z backslashem (ścieżki Windows, kontynuacja linii w `sh`) **nie używać w ogóle** – ciąć plik
+  po indeksie znacznika. **Po każdej podmianie oglądać literały**; `\n` przed `"` da się policzyć
+  jednym `python -c`.
+- **W Git Bash na tym komputerze nie ma `strings`.** `strings plik | grep X` nie zgłasza błędu
+  w sposób, który widać w wyniku potoku – wygląda jak „nie znaleziono", czyli jak sukces przy
+  sprawdzaniu, że czegoś **nie ma**. Liczyć bajty w Pythonie.
+- **`$'\r'` w złożonym poleceniu psuje parsowanie** tej powłoki („unexpected EOF"). Zdarzyło się
+  to przy `grep -c $'\r'` w jednej linii z heredokiem – całe polecenie nie wykonało się wcale,
+  a plik nie powstał.
 - **awk na Windows zjada `\r`.** Pliki HMI w aucie mają mieszane końce linii (CRLF + LF).
   Wszystko, co dotyka tych plików, musi iść przez kontener Linux albo przez auto.
 - **QNX binutils (`nm`, `ld`) to 32-bitowe binarki bez obsługi dużych i-węzłów.** Na bind-mountach
@@ -233,11 +450,12 @@
 - **Rollback kasuje możliwość zbierania logów.** `rollback()` usuwa `installed.ok` i tworzy
   `rolledback.ok`; dyspozytor wchodzi wtedy w `ALREADY_ROLLED_BACK` i nic nie zbiera.
   Dlatego: **logi przed rollbackiem**, a awaryjnie marker `COLLECT_LOGS`.
-- **Nie wiemy, czy `/tmp` w aucie to RAM czy dysk.** Logi runtime na pewno siedzą w pamięci
-  współdzielonej (`mm-ipod` → `/dev/shmem/iap2.log`), ale na aucie istnieje też dyskowy
-  `/fs/tmpfs` (`hd130t77`). `/tmp` nie jest osobnym punktem montowania i nie ma go w zebranych
-  listach katalogów. Zakładamy wariant gorszy: **logi przed wyłączeniem auta.** Porównanie
-  `run-01` (przed) i `run-02` (po wyłączeniu) z Etapu 3 ma to rozstrzygnąć.
+- **`/tmp` w aucie to RAM (`/dev/shmem`) — rozstrzygnięte 2026-10-27.** Dowód przyszedł z błędu
+  renderera: zapis pliku działa (leżą tam wszystkie nasze logi), ale `rename()` na tym samym
+  katalogu zwraca **`errno 18` (EXDEV)**. Tak zachowuje się wyłącznie `/dev/shmem`, który
+  `rename()` po prostu nie implementuje. Czyli: **logi zbierać przed wyłączeniem auta**, a kod
+  piszący do `/tmp` nie może zakładać `rename()` (`overlay\overlay_ready.h` pisze jednym
+  `open`+`write`).
 - Zmienna `COLLECT` w `custom.sh` to **katalog wyjściowy** (`$MOD/collected`), nie marker –
   dlatego marker nazywa się `FORCECOLLECT` / plik `COLLECT_LOGS`.
 - **Kopia oryginalnych plików auta leży na karcie SD** (`mod\...\backup\pre-v8s\`), nie w aucie.
@@ -260,3 +478,27 @@
   instalacyjna nie może mieć uzbrojonego `Swdlautorun.txt`, a karta ratunkowa nie może mieć `mod/command.sh`.
 - **Przy aucie potrzebny laptop albo telefon z czytnikiem kart** – rollback i wymuszone
   zbieranie logów wymagają skopiowania pliku na kartę.
+- **`vb_flush()` w rendererze Luki zostawia WŁĄCZONE tablice atrybutów wierzchołków**
+  (`render.c`, gałąź flat-program: dwa `glEnableVertexAttribArray`, zero `Disable`). Każdy nasz
+  własny `glDrawArrays` po jego klatce – np. przeniesienie panelu na płótno – pobierałby też z
+  jego wskaźników, z jego stride. Dlatego `composite_panel()` wyłącza **wszystkie** atrybuty
+  przed włączeniem swoich. Jego kodu to nie psuje: włącza je sobie z powrotem w każdej klatce.
+  Znalezione czytaniem kodu 2026-10-27, nie awarią – i żaden test na komputerze by tego nie złapał,
+  bo nie mamy tu GL-a.
+- **ASan w tym kontenerze nie startuje mniej więcej raz na sześć uruchomień** – wypisuje
+  `AddressSanitizer:DEADLYSIGNAL` i **kręci się w nieskończoność na 100% CPU** zamiast paść.
+  To znana niezgodność ASan z entropią ASLR nowych jąder; obejścia nie ma pod ręką
+  (`setarch -R` wymaga syscalla `personality`, którego seccomp tego kontenera zabrania, a sysctl
+  siedzi w maszynie wirtualnej Docker Desktop). Zmierzone 2026-10-27: 1 na 6, bez zmiany po
+  `ASAN_OPTIONS=detect_leaks=0`. Dwa razy jednego dnia wyglądało to na regresję w kodzie, którego
+  te testy nawet nie kompilują, a jeden zapomniany kontener spalił 5 godzin CPU. Od tej pory
+  `run_host_tests.sh` uruchamia każdy test pod `timeout -k 10 60` i **ponawia** przy awarii startu;
+  prawdziwa porażka nie jest ponawiana, bo test, który się wykonał, wypisuje „N OK, M FAIL".
+- **Testy hosta budują się do `/tmp` w kontenerze, nie do drzewa źródeł.** Drzewo przychodzi jako
+  bind-mount dzielony przez wszystkie kontenery; budowanie do `overlay/tests/.hostbuild` sprawiało,
+  że dwa przebiegi naraz nadpisywały sobie binarki **w trakcie wykonywania**.
+- **`tools\sim_rescue.sh` bez `/bin/ksh` nie odmawia – CICHO zdaje część testów.** Obraz bazowy ma
+  tylko `dash`; bez `ksh` `ratunek.sh` w ogóle się nie uruchamia, więc każdy przypadek typu „drzewo
+  auta bez zmian" wychodzi OK, a reszta sypie się 34 razy i wygląda na regresję. Uruchamiać:
+  `apt-get install -y mksh && ln -sf /bin/mksh /bin/ksh`. Od 2026-10-27 skrypt sam tego pilnuje
+  i kończy się kodem 2, zamiast udawać wynik.

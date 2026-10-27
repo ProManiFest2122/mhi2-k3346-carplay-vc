@@ -114,7 +114,8 @@ aktualizuje Etap 4 i 5 naraz).
 - **Wynik testu 6c (2026-10-21, `work\auto_test_16\`, run-19/20):**
   - wszystkie 5 wariantów (w tym bajt w bajt jak Luka) → `available=1, count=0`, także po rozmowie (#16);
   - lista na VC: tylko rozmowa z sesji (`session call mode=3 n=1`), zostaje po ponownym podłączeniu kabla.
-- **Wniosek – koniec tropu iAP2:** ten iPhone nie oddaje historii połączeń temu MMI przez kabel, niezależnie
+- **Wniosek – koniec tropu iAP2** (**ODWOŁANY 2026-10-27**, patrz „Korekta” niżej – przyczyną jest błąd
+  iOS 26.6+): ten iPhone nie oddaje historii połączeń temu MMI przez kabel, niezależnie
   od treści żądania i od komponentu BT. Różnica jest po stronie akcesorium (MHI2 Harman + stary chip
   autoryzacji, certyfikat z 2015, zamiast MHI2Q Cinemo) i nie da się jej obejść bez łatania binarek.
   Decyzja użytkownika: lista zostaje z BT w danej sesji + rozmowy z sesji (bez trwałej kopii).
@@ -123,6 +124,50 @@ aktualizuje Etap 4 i 5 naraz).
   - z karty usunięty `BT_MAC`, więc iap2.cfg znów ma 5991 B;
   - opcja `BT_MAC` w instalatorze zostaje, opisana jako nieskuteczna;
   - test C 34/34, symulacja 192/192.
+
+## Korekta 2026-10-27: pusta lista to błąd iOS, nie MMI
+
+**Wniosek z 6c („różnica po stronie akcesorium: Harman + stary chip autoryzacji”) jest odwołany.**
+
+- Dowód przeciw: projekt [chefranov/mhi2-au37x-carplay](https://github.com/chefranov/mhi2-au37x-carplay)
+  działa na **MHI2 Harman** (MU1326, wiki: „HARMAN iAP2 stack, Media 1.0.61.9”; nasza identyfikacja:
+  `Media_1.0.61.1`). Jego CHANGELOG v1.1.0 (2026-10-17): „dialling from recents and favourites work from the
+  cluster”, v1.1.3 (2026-10-18): „The iPhone sends favourites with the number as the contact spells it”.
+  Czyli na tej samej platformie iPhone **wysyła** listy przez iAP2. Tylko publiczny opis – żaden jego plik
+  nie jest użyty (patrz `publish_src\LICENSING.md`).
+- Prawdziwa przyczyna (źródła publiczne):
+  - Apple Community (FR) [wątek 256343062](https://communities.apple.com/fr/thread/256343062), 18–20.08.2026:
+    od **iOS 26.6** lista ostatnich połączeń na zegarach przy CarPlay jest pusta, przez sam Bluetooth działa.
+    BMW 220d (OS 9), zgłoszenia z BMW X5 G05, i5, Porsche Macan EV. Na tym samym iPhonie i aucie iOS 26.5.2
+    działa, 26.6.1 nie. Kabel i bezprzewodowo tak samo.
+  - Bimmerpost G05 [„iOS 26.6 Update Breaks Recent Calls in HUD via CarPlay”](https://g05.bimmerpost.com/forums/showthread/2250515/ios-26-6-update-breaks-recent-calls-in-hud-via-carplay):
+    26.6.1 i 26.6.2 nadal źle; po **iOS 27** (beta 5 / RC) lista w aucie wraca.
+  - To ten sam objaw co u nas: iPhone odpowiada „dostępna, 0 pozycji”, a lista z BT (PBAP) jest pełna.
+    Dotyczy fabrycznych systemów, więc nie zależy od naszego żądania ani od identyfikacji.
+- iPhone użytkownika: **iOS 26.7.1**. Nie ma doniesień, że gałąź 26.7 ma poprawkę.
+- Luka (test 23.09) i chefranov (17.10) najpewniej testowali na iOS bez tego błędu albo już z poprawką.
+- Kod Etapu 6 (v5) **nie wymaga zmian**: hook wysyła 0x4170 i parsuje 0x4171, a
+  `K3346GatedPhoneService.recentsForVc()` daje pierwszeństwo liście z iAP2, gdy jest niepusta. Lista z BT
+  i rozmowy z sesji zostają jako zapas.
+- Komponent BT (6b) i warianty żądania (6c) nie miały związku z przyczyną. Wyniki testów zostają jako zapis,
+  że ani identyfikacja, ani treść żądania tego nie zmieniają.
+- **Test [Ty]:** po aktualizacji iPhone'a do **iOS 27** (decyzja użytkownika – powrotu do starszego iOS nie ma):
+  Bluetooth w iPhonie wyłączony w Ustawieniach, kabel → VC Telefon → Lista połączeń od razu z pozycjami
+  z iPhone'a (do 12, z datami). Przy najbliższym COLLECT: `k3346-rgi-ipod-native.log` → `list_update …
+  count=N` z N>0 i `recents_written n=N`, log Java `K3346_PHONE recents n=N`. Jeśli na iOS 27 nadal 0 →
+  porównanie z publicznym opisem chefranov.
+
+## Wynik na iOS 27.2 (2026-10-27) – POTWIERDZONE
+
+- iPhone zaktualizowany do **iOS 27.2**. Bluetooth wyłączony, podłączenie kabla → na VC od razu **historia
+  połączeń z iPhone'a** (iAP2 ListUpdate). Bez zmian w kodzie, na instalacji v5. Korekta potwierdzona:
+  pusta lista była błędem iOS 26.6–26.7.x, a nie ograniczeniem MMI.
+- **Ulubione** się nie pojawiły. Dwa powody:
+  - użytkownik prawdopodobnie nie ma ulubionych w iPhonie;
+  - nasz parser natywny **celowo ignoruje ulubione** z 0x4171 (param 5–7; `k3346_tel.c`, test
+    „ulubione ignorowane”), więc nawet z ulubionymi nie trafiłyby na VC.
+  - Do zrobienia opcjonalnie: parser ulubionych + Java `updateFavoriteList` (wzór: Luka `GatedPhoneService`).
+- Logi z tego testu nie były zbierane. Przy najbliższym COLLECT oczekiwane `list_update … count=N` z N>0.
 
 ## Zakres i ograniczenia
 

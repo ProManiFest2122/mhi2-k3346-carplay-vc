@@ -107,21 +107,6 @@ backup and the original firmware must be at hand. No warranty of any kind.
   confirmed both: the caption recipe works, the size is honoured to the pixel, and the compositor
   blends premultiplied alpha per pixel exactly as his notes say. See
   [`docs/19`](docs/19_displayable_na_mhi2.md).
-* **Eugene Chefranov (@chefranov)** – [mhi2-au37x-carplay](https://github.com/chefranov/mhi2-au37x-carplay),
-  the sibling project for MHI2 AU37x. Used with the author's permission. What it gave us, concretely:
-  * His public installer description states that on MHI2 the cluster overlay displayable is created
-    **by the HMI from a bitmap** before the renderer draws. That sentence is what made us stop
-    guessing at `KD_WINDOWPROPERTY_ID_STRING_QNX` and go read the `displaymanager` binary instead.
-    The lead pointed *next to* the answer for our firmware — `createImageDisplayable` turned out to
-    be a separate feature, not a prerequisite — but it is what got us to open the binary at all,
-    and `KD_WINDOWPROPERTY_CAPTION` was in there. [`docs/19`](docs/19_displayable_na_mhi2.md) says
-    so in the text as well.
-  * His project is the existence proof that the whole feature set (cluster map, 3D maneuver in the
-    cluster tile, phone, cover art, D-pad, PDC) is reachable on **MHI2 Harman**, not only on MHI2Q.
-    That changed how much risk this direction was worth.
-  * No file, binary, jar, shader or script of his is used here. His firmware train is AU37x
-    (A3/S3/RS3 8V, Q2); this port targets AUG22 / K3346, and all code here is written against our
-    own firmware.
 * **joeyQuery** – MHI2-altScreen (`vc_render` origin)
 * **harman-f** – mhi2_altscreen_carplay research, M.I.B.
 * **Mr-MIBonk** – M.I.B.

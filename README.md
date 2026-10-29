@@ -28,6 +28,15 @@ wired CarPlay.
 | 🎙️ | **Siri** on a short press of the voice button |
 | 👆 | MMI **touchpad as arrow keys** in CarPlay |
 
+## What next?
+
+| | Feature |
+|---|---|
+| 🔧 | **BugFixs |
+| 🎧 | **CarPlay 5-speaker system support (Thanks yety-ua for your research) |
+| ➡️ | **Turn arrows on HUD  |
+| 🔙 | **Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) |
+
 ## Will it work in my car?
 
 You need **all** of these:

@@ -41,6 +41,10 @@ things: the text **`K3346`** and the number **`1438`**.
 
 ### 0.3 What M.I.B. is and whether you have it
 
+![MMI buttons on A4 / A5 / Q5 B9: red menu, green menu, reboot, screenshot](images/audi-b9-mmi-buttons.png)
+
+*Buttons on A4 / A5 / Q5 (B9, 2017–2020), marked in red. From the left: red menu, **green menu**, **reboot**, screenshot. Press them on the MMI home screen. Source: [M.I.B. wiki](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).*
+
 **M.I.B. (More Incredible Bash)** is a free tool on an SD card that lets you run scripts on the MMI.
 This mod is installed **through M.I.B.**, so M.I.B. must already work in your car.
 
@@ -338,6 +342,10 @@ the car, it does not matter.
 ## 5. Restart the MMI and first start
 
 ### 5.1 Restart the MMI
+
+![MMI buttons on A4 / A5 / Q5 B9: red menu, green menu, reboot, screenshot](images/audi-b9-mmi-buttons.png)
+
+*Buttons on A4 / A5 / Q5 (B9, 2017–2020), marked in red. From the left: red menu, **green menu**, **reboot**, screenshot. Press them on the MMI home screen. Source: [M.I.B. wiki](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).*
 
 Without this the new features do not switch on.
 

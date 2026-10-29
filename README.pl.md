@@ -64,6 +64,10 @@ Potrzebne jest **wszystko** z listy:
 
 ### Jak zrestartować MMI
 
+![Przyciski MMI w A4 / A5 / Q5 B9: czerwone menu, zielone menu, restart, zrzut ekranu](images/audi-b9-mmi-buttons.png)
+
+*Przyciski w A4 / A5 / Q5 (B9, 2017–2020), zaznaczone na czerwono. Od lewej: czerwone menu, **zielone menu**, **restart**, zrzut ekranu. Przyciski naciska się na ekranie głównym MMI. Źródło: [wiki M.I.B.](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).*
+
 **A4 / A5 / Q5 (B9, 2017–2020):** przytrzymaj jednocześnie **duże pokrętło MMI + NAV/MAP + RADIO**
 przez ok. 10 sekund, aż ekran zgaśnie i MMI uruchomi się od nowa. Inne modele: tabela przycisków
 w [wiki M.I.B.](https://wiki.mibsolution.one/en/MHI2).

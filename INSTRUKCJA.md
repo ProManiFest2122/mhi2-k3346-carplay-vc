@@ -40,6 +40,10 @@ napisu **`K3346`** i numeru **`1438`**.
 
 ### 0.3 Co to jest M.I.B. i czy go masz
 
+![Przyciski MMI w A4 / A5 / Q5 B9: czerwone menu, zielone menu, restart, zrzut ekranu](images/audi-b9-mmi-buttons.png)
+
+*Przyciski w A4 / A5 / Q5 (B9, 2017–2020), zaznaczone na czerwono. Od lewej: czerwone menu, **zielone menu**, **restart**, zrzut ekranu. Przyciski naciska się na ekranie głównym MMI. Źródło: [wiki M.I.B.](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).*
+
 **M.I.B. (More Incredible Bash)** to darmowe narzędzie na kartę SD, które pozwala uruchamiać skrypty
 w MMI. Ta modyfikacja instaluje się **przez M.I.B.**, więc M.I.B. musi już działać w Twoim aucie.
 
@@ -335,6 +339,10 @@ w aucie, bez różnicy.
 ## 5. Restart MMI i pierwsze uruchomienie
 
 ### 5.1 Zrestartuj MMI
+
+![Przyciski MMI w A4 / A5 / Q5 B9: czerwone menu, zielone menu, restart, zrzut ekranu](images/audi-b9-mmi-buttons.png)
+
+*Przyciski w A4 / A5 / Q5 (B9, 2017–2020), zaznaczone na czerwono. Od lewej: czerwone menu, **zielone menu**, **restart**, zrzut ekranu. Przyciski naciska się na ekranie głównym MMI. Źródło: [wiki M.I.B.](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/%22hidden-menus%22---key-combinations).*
 
 Bez tego nowe funkcje się nie włączą.
 

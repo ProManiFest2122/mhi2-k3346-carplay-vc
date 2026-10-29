@@ -35,7 +35,7 @@ wired CarPlay.
 | 🔧 | BugFixs |
 | 🎧 | CarPlay 5-speaker system support (Thanks yety-ua for your research) |
 | ➡️ | Turn arrows on HUD  |
-| 🔙 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) |
+| 📞 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) |
 
 ## Will it work in my car?
 

@@ -37,6 +37,7 @@ Potrzebne jest **wszystko** z listy:
 - **iPhone z CarPlay** (po kablu),
 - [**M.I.B. – More Incredible Bash**](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) na karcie
   SD, już działające w Twoim aucie (zielone menu → *m.i.b.* się otwiera). Sprawdzone z **M.I.B. 3.6.0**.
+  Nie masz M.I.B.? Jak przygotować kartę SD (FAT32) i zainstalować M.I.B.: [INSTRUKCJA.md, rozdział 1](INSTRUKCJA.md#1-karta-sd-i-mib-tylko-jeśli-jeszcze-nie-masz-mib).
 
 ## Zanim zaczniesz
 
@@ -69,7 +70,7 @@ w [wiki M.I.B.](https://wiki.mibsolution.one/en/MHI2).
 
 ## Odinstalowanie (i przed każdą aktualizacją)
 
-*Krok po kroku: [INSTRUKCJA.md, rozdział 5](INSTRUKCJA.md#5-odinstalowanie-i-przed-każdą-aktualizacją).*
+*Krok po kroku: [INSTRUKCJA.md, rozdział 6](INSTRUKCJA.md#6-odinstalowanie-i-przed-każdą-aktualizacją).*
 
 1. Rozpakuj `…-uninstall.zip` do katalogu głównego **tej samej** karty (dodaje jeden pusty plik `ROLLBACK`).
 2. Uruchom skrypt jak w kroku 3. Czekaj na **`ROLLBACK_RESULT=PASS`** i **`SAFE TO REMOVE SD`**,

@@ -39,6 +39,24 @@ E5_BACKUP="$MOD/backup/pre-etap5"; E5_INSTALLED="$MOD/etap5.installed.ok"
 E5_PENDING="$MOD/etap5.installing.flag"; E5_ROLLEDBACK="$MOD/etap5.rolledback.ok"
 E5_INSTALL_MARK="$MOD/INSTALL_ETAP5"; E5_ROLLBACK_MARK="$MOD/ROLLBACK_ETAP5"
 E5_NAMES='mib2high-k3346-overrides.jar k3346-coverart-fetch'
+# --- K3346 Etap 7: warstwa graficzna na VC (strzalka manewru + pasy).
+# Nowe pliki (vc_overlay, sonda, konfiguracja, skrypt sondy) ORAZ dwa pliki
+# nalezace do wczesniejszych etapow, ktore Etap 7 musi podmienic:
+#   mib2high-lvds-control.sh        (v8s)    - startuje nakladke i deklaruje kontekst
+#   libmib2high-carplay-rgi-ipod.so (Etap 4) - dosyla pakiety manewru do renderera
+# Obie podmiany ida przez wlasna kopie Etapu 7, wiec ROLLBACK_ETAP7 przywraca
+# dokladnie te wersje, ktore byly przed nim - bez ruszania transakcji 4 i 5.
+# vc_render NIE jest na tej liscie: zostaje nietkniety.
+E7_BACKUP="$MOD/backup/pre-etap7"; E7_INSTALLED="$MOD/etap7.installed.ok"
+E7_PENDING="$MOD/etap7.installing.flag"; E7_ROLLEDBACK="$MOD/etap7.rolledback.ok"
+E7_INSTALL_MARK="$MOD/INSTALL_ETAP7"; E7_ROLLBACK_MARK="$MOD/ROLLBACK_ETAP7"
+E7_PROBE_MARK="$MOD/PROBE_ETAP7"
+E7_NAMES='vc_overlay vc_overlay_probe mib2high-overlay.conf flag_atlas.rgba k3346-overlay-probe.sh mib2high-lvds-control.sh libmib2high-carplay-rgi-ipod.so'
+# --- Wydanie 1.0: wszystkie etapy jednym uruchomieniem (dla uzytkownika bez
+# doswiadczenia). Kazdy etap zostaje OSOBNA transakcja z wlasna kopia i
+# auto-cofnieciem - INSTALL_ALL tylko wola je po kolei. Pierwszy blad konczy
+# przebieg; ponowne uruchomienie wznawia od pierwszego brakujacego etapu.
+ALL_INSTALL_MARK="$MOD/INSTALL_ALL"
 say(){ echo "[V8S] $*"; }
 fail(){ say "ERROR $*"; exit 1; }
 # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
@@ -63,6 +81,7 @@ pathof(){ case "$1" in
 libmib2high-carplay-rgi.so) echo "$APP/root/hooks/$1";;
 mib2high-carplay-rgi.jar|mib2high-k3346-overrides.jar) echo "$APP/eso/hmi/lsd/jars/$1";;
 vc_render|v8l-dsitracer-capture|mib2high-lvds-control.sh|mib2high-lvds-profile.conf|mib2high-lvds-viewareas.conf|k3346-coverart-fetch) echo "$APP/root/$1";;
+vc_overlay|vc_overlay_probe|mib2high-overlay.conf|flag_atlas.rgba|k3346-overlay-probe.sh) echo "$APP/root/$1";;
 bundles_dsitracer_enabled.properties|traceConfig.properties|dsitracer_activated) echo "$APP/eso/hmi/lsd/$1";;
 smartphone_integrator.json) echo "$SYSTEM/etc/eso/production/smartphone_integrator.json";;
 carplay_altscreen) echo "$APP/carplay_altscreen";;
@@ -140,10 +159,22 @@ for n in $NAMES; do
     fi
 done
 sync; }
-TX=0; TX4=0; TX5=0
-onexit(){ rc="$1"; trap - 0; if [ "$TX" -eq 1 ]; then say 'INSTALL_FAILED: restoring originals'; if restore_all; then rm -f "$PENDING" "$INSTALLED"; say 'AUTO_ROLLBACK_RESULT=PASS'; else say 'AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
-if [ "$TX5" -eq 1 ]; then say 'ETAP5_INSTALL_FAILED: restoring originals'; if tx_restore "$E5_BACKUP" "$E5_NAMES"; then rm -f "$E5_PENDING" "$E5_INSTALLED"; : > "$E5_ROLLEDBACK"; sync; say 'ETAP5_AUTO_ROLLBACK_RESULT=PASS'; else say 'ETAP5_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
-if [ "$TX4" -eq 1 ]; then say 'ETAP4_INSTALL_FAILED: restoring originals'; if e4_restore; then rm -f "$E4_PENDING" "$E4_INSTALLED"; : > "$E4_ROLLEDBACK"; sync; say 'ETAP4_AUTO_ROLLBACK_RESULT=PASS'; else say 'ETAP4_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi; exit "$rc"; }
+TX=0; TX4=0; TX5=0; TX7=0
+# W trybie INSTALL_ALL etapy NIE moga mowic "SAFE TO REMOVE SD" po drodze: kto
+# wyjmie karte po pierwszym etapie, wyjmie ja w trakcie zapisu nastepnego, a jego
+# auto-cofniecie potrzebuje kopii z tej karty. Ten komunikat pada raz, na koncu.
+ALL=0; RBFAIL=0
+stage_done(){ [ "$ALL" -eq 1 ] || say "$@"; }
+# Ostatnie slowo przebiegu INSTALL_ALL, ktory sie nie udal. Laik czyta tylko
+# koniec ekranu, wiec tam musi stac wynik i jedno polecenie, co dalej.
+all_failed(){ [ "$ALL" -eq 1 ] || return 0; say 'INSTALL_ALL_RESULT=FAIL (see the ERROR line above)'
+if [ "$RBFAIL" -eq 1 ]; then say 'Do NOT restart the MMI. Uninstall now: put the ROLLBACK file on this card and run the script again.'
+else say 'The car is in a safe state: finished parts stay, the failed part was undone.'; say 'Run the script again to retry, or uninstall.'; fi; }
+onexit(){ rc="$1"; trap - 0; if [ "$TX" -eq 1 ]; then say 'INSTALL_FAILED: restoring originals'; if restore_all; then rm -f "$PENDING" "$INSTALLED"; say 'AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
+if [ "$TX5" -eq 1 ]; then say 'ETAP5_INSTALL_FAILED: restoring originals'; if tx_restore "$E5_BACKUP" "$E5_NAMES"; then rm -f "$E5_PENDING" "$E5_INSTALLED"; : > "$E5_ROLLEDBACK"; sync; say 'ETAP5_AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'ETAP5_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
+if [ "$TX7" -eq 1 ]; then say 'ETAP7_INSTALL_FAILED: restoring originals'; if tx_restore "$E7_BACKUP" "$E7_NAMES"; then rm -f "$E7_PENDING" "$E7_INSTALLED"; : > "$E7_ROLLEDBACK"; sync; say 'ETAP7_AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'ETAP7_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
+if [ "$TX4" -eq 1 ]; then say 'ETAP4_INSTALL_FAILED: restoring originals'; if e4_restore; then rm -f "$E4_PENDING" "$E4_INSTALLED"; : > "$E4_ROLLEDBACK"; sync; say 'ETAP4_AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'ETAP4_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
+[ "$rc" -eq 0 ] || all_failed; exit "$rc"; }
 trap 'onexit $?' 0
 preflight(){ [ -d "$APP/eso/hmi/lsd" ] || fail 'missing stock LSD directory'; [ -d "$SYSTEM/etc/eso/production" ] || fail 'missing system config directory'; [ -d "$APP/root" ] || fail 'missing stock root directory'; [ -f "$APP/eso/hmi/lsd/DSITracer.jar" ] || fail 'stock DSITracer.jar missing'; [ -f "$APP/eso/hmi/lsd/bundles_dsitracer_enabled.properties" ] || fail 'tracer bundle registry missing'; [ -f "$APP/eso/hmi/lsd/traceConfig.properties" ] || fail 'tracer config missing'; [ -f "$SYSTEM/etc/eso/production/smartphone_integrator.json" ] || fail 'smartphone integrator config missing'; }
 # --- Brama wersji K3346 (dodane w porcie na MHI2_ER_AUG22_K3346 / MU1438) ---
@@ -187,7 +218,12 @@ fi
 say 'VERSION_GATE=PASS'
 }
 install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight; version_gate
-[ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'; [ ! -e "$BACKUP" ] || fail 'existing backup retained: use ROLLBACK';
+[ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'
+# Po UDANYM pelnym cofnieciu (rolledback.ok) auto jest znow fabryczne, wiec
+# nowa instalacja moze zrobic nowa kopie. Stara nie znika: odsuwamy ja na bok,
+# tak samo jak Etapy 4/5/7. Tak wyglada aktualizacja: odinstaluj -> zainstaluj.
+if [ -e "$BACKUP" ] && [ -f "$MOD/rolledback.ok" ] && [ ! -e "$INSTALLED" ]; then mv "$BACKUP" "$BACKUP.old.$$" || fail 'cannot rotate old v8s backup'; rm -f "$MOD/rolledback.ok" || fail 'cannot clear rollback flag'; say 'OLD_BACKUP_KEPT=pre-v8s.old'; fi
+[ ! -e "$BACKUP" ] || fail 'existing backup retained: use ROLLBACK';
 for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8l-dsitracer-capture; do [ -s "$PAY/$n" ] || fail "missing $n"; done
 # Payload files checked for presence above. Wersji firmware pilnuje version_gate
 # (awk + wc -c); na tym MMI nie ma narzedzi do sum kontrolnych.
@@ -206,9 +242,20 @@ install_file "$MOD/smartphone.$$" "`pathof smartphone_integrator.json`" 644 || f
 : > "`pathof dsitracer_activated`" || fail 'tracer marker failed'
 sync || fail 'pre-success sync failed'; : > "$INSTALLED" || fail 'cannot mark success'; sync || fail 'success sync failed'
 rm -f "$PENDING" "$MOD/bundles.$$" "$MOD/trace.$$" "$MOD/smartphone.$$" || fail 'cleanup failed'; sync || fail 'final sync failed'
-TX=0; say 'INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'NAVIGNORE=UNTOUCHED'; say 'Reboot MMI manually, test route/zoom/gauges, run custom script again to collect'; say 'SAFE TO REMOVE SD'; }
-rollback(){ say 'MODE=ROLLBACK'; checkrw "$SD" || fail 'SD not writable'; checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not writable'
-# Warstwy od najnowszej: Etap 5, Etap 4, potem v8s - pelny powrot do fabryki.
+TX=0; say 'INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'NAVIGNORE=UNTOUCHED'; stage_done 'Reboot MMI manually, test route/zoom/gauges, run custom script again to collect'; stage_done 'SAFE TO REMOVE SD'; }
+rollback(){ say 'MODE=ROLLBACK'; checkrw "$SD" || fail 'SD not writable'
+# Karta bez zadnej kopii i bez zadnego znacznika instalacji: ta karta niczego w
+# tym aucie nie instalowala, wiec nie ma czego cofac - i NIC nie zostalo ruszone.
+# Dawniej konczylo sie to 'restore failed: do not reboot', co laika straszy
+# na prozno. Mod zainstalowany z INNEJ karty cofa sie TA karta (ma kopie).
+if [ ! -e "$BACKUP" ] && [ ! -e "$INSTALLED" ] && [ ! -e "$PENDING" ] && [ ! -e "$E4_INSTALLED" ] && [ ! -e "$E4_PENDING" ] && [ ! -e "$E5_INSTALLED" ] && [ ! -e "$E5_PENDING" ] && [ ! -e "$E7_INSTALLED" ] && [ ! -e "$E7_PENDING" ]; then
+rm -f "$ROLLBACK"; say 'ROLLBACK_RESULT=NOTHING_TO_UNDO (no backup on this card, nothing was changed)'
+say 'If the mod is installed in this car, uninstall it with the SD card that installed it.'; say 'SAFE TO REMOVE SD'; return 0; fi
+checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not writable'
+# Warstwy od najnowszej: Etap 7, Etap 5, Etap 4, potem v8s - pelny powrot do fabryki.
+# Etap 7 MUSI isc pierwszy: jego kopia zawiera biblioteke z czasow Etapu 4, wiec
+# odtworzony po Etapie 4 nalozylby ja z powrotem na przywrocony plik fabryczny.
+if [ -f "$E7_INSTALLED" ] || [ -f "$E7_PENDING" ]; then tx_restore "$E7_BACKUP" "$E7_NAMES" || fail 'etap7 restore failed: do not reboot'; rm -f "$E7_INSTALLED" "$E7_PENDING" || fail 'cannot clear etap7 flags'; : > "$E7_ROLLEDBACK" || fail 'cannot mark etap7 rollback'; say 'ETAP7_ROLLBACK=PASS'; fi
 if [ -f "$E5_INSTALLED" ] || [ -f "$E5_PENDING" ]; then tx_restore "$E5_BACKUP" "$E5_NAMES" || fail 'etap5 restore failed: do not reboot'; rm -f "$E5_INSTALLED" "$E5_PENDING" || fail 'cannot clear etap5 flags'; : > "$E5_ROLLEDBACK" || fail 'cannot mark etap5 rollback'; say 'ETAP5_ROLLBACK=PASS'; fi
 if [ -f "$E4_INSTALLED" ] || [ -f "$E4_PENDING" ]; then e4_restore || fail 'etap4 restore failed: do not reboot'; rm -f "$E4_INSTALLED" "$E4_PENDING" || fail 'cannot clear etap4 flags'; : > "$E4_ROLLEDBACK" || fail 'cannot mark etap4 rollback'; say 'ETAP4_ROLLBACK=PASS'; fi
 restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'SAFE TO REMOVE SD'; }
@@ -291,7 +338,7 @@ say 'INSTALLING=usblauncher_otg.lua'; install_file "$MOD/e4lua.$$" "`pathof usbl
 say 'INSTALLING=iap2.cfg'; install_file "$MOD/e4iap2.$$" "`pathof iap2.cfg`" "`cat "$E4_BACKUP/iap2.cfg.mode"`" || fail 'install failed iap2.cfg'
 sync || fail 'pre-success sync failed'; : > "$E4_INSTALLED" || fail 'cannot mark etap4 success'; sync || fail 'success sync failed'
 rm -f "$E4_PENDING" "$MOD/e4lua.$$" "$MOD/e4iap2.$$" "$E4_INSTALL_MARK" || fail 'cleanup failed'; sync || fail 'final sync failed'
-TX4=0; say 'ETAP4_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'Restart MMI (usblauncher czyta lua tylko przy starcie), potem nawigacja CarPlay z trasa'; say 'SAFE TO REMOVE SD'; }
+TX4=0; say 'ETAP4_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; stage_done 'Restart MMI (usblauncher czyta lua tylko przy starcie), potem nawigacja CarPlay z trasa'; stage_done 'SAFE TO REMOVE SD'; }
 rollback_etap4(){ say 'MODE=ROLLBACK_ETAP4'; checkrw "$SD" || fail 'SD not writable'
 if [ ! -f "$E4_INSTALLED" ] && [ ! -f "$E4_PENDING" ]; then rm -f "$E4_ROLLBACK_MARK"; say 'ETAP4_NOT_INSTALLED: nic do cofniecia'; say 'SAFE TO REMOVE SD'; return 0; fi
 checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not writable'
@@ -363,13 +410,84 @@ say 'INSTALLING=mib2high-k3346-overrides.jar'; install_file "$PAY/mib2high-k3346
 say 'INSTALLING=k3346-coverart-fetch'; install_file "$PAY/k3346-coverart-fetch" "`pathof k3346-coverart-fetch`" 755 || fail 'install failed k3346-coverart-fetch'
 sync || fail 'pre-success sync failed'; : > "$E5_INSTALLED" || fail 'cannot mark etap5 success'; sync || fail 'success sync failed'
 rm -f "$E5_PENDING" "$E5_INSTALL_MARK" || fail 'cleanup failed'; sync || fail 'final sync failed'
-TX5=0; say 'ETAP5_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'Restart MMI; gdyby HMI nie wstalo - karta ratunkowa'; say 'SAFE TO REMOVE SD'; }
+TX5=0; say 'ETAP5_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; stage_done 'Restart MMI; gdyby HMI nie wstalo - karta ratunkowa'; stage_done 'SAFE TO REMOVE SD'; }
 rollback_etap5(){ say 'MODE=ROLLBACK_ETAP5'; checkrw "$SD" || fail 'SD not writable'
 if [ ! -f "$E5_INSTALLED" ] && [ ! -f "$E5_PENDING" ]; then rm -f "$E5_ROLLBACK_MARK"; say 'ETAP5_NOT_INSTALLED: nic do cofniecia'; say 'SAFE TO REMOVE SD'; return 0; fi
 checkrw "$APP" || fail 'app not writable'
 tx_restore "$E5_BACKUP" "$E5_NAMES" || fail 'etap5 restore failed: do not reboot'; rm -f "$E5_INSTALLED" "$E5_PENDING" "$E5_ROLLBACK_MARK" || fail 'cannot clear etap5 flags'
 : > "$E5_ROLLEDBACK" || fail 'cannot mark etap5 rollback'; sync || fail 'etap5 rollback sync failed'
 say 'ETAP5_ROLLBACK_RESULT=PASS (v8s i Etap 4 zostaja)'; say 'Restart MMI'; say 'SAFE TO REMOVE SD'; }
+# --- Etap 7 ---------------------------------------------------------------
+# Instalacja wymaga Etapu 4 (hook w mm-ipod dostarcza dane manewru) i v8s
+# (mapa na VC, nad ktora rysujemy). Bez Etapu 4 nakladka nie mialaby czego
+# pokazac, wiec odmawiamy zamiast instalowac polowe funkcji.
+install_etap7(){ say 'MODE=INSTALL_ETAP7'; checkrw "$SD" || fail 'SD not writable'
+[ -f "$INSTALLED" ] || fail 'ETAP7: najpierw musi byc zainstalowany v8s (brak installed.ok)'
+[ ! -e "$PENDING" ] || fail 'ETAP7: niedokonczona instalacja v8s - use ROLLBACK'
+[ -f "$E4_INSTALLED" ] || fail 'ETAP7: wymaga Etapu 4 (dane manewru z mm-ipod)'
+[ ! -e "$E4_PENDING" ] || fail 'ETAP7: niedokonczona instalacja Etapu 4 - use ROLLBACK_ETAP4'
+[ ! -e "$E7_PENDING" ] || fail 'ETAP7: niedokonczona instalacja Etapu 7 - use ROLLBACK_ETAP7'
+[ ! -e "$E7_INSTALLED" ] || fail 'ETAP7: juz zainstalowany'
+preflight; version_gate
+# Biblioteka Etapu 7 lezy w payloadzie pod WLASNA nazwa (.etap7.so). Gdyby
+# dzielila nazwe z payloadem Etapu 4, INSTALL_ETAP4 instalowalby ja zamiast
+# swojej, a ROLLBACK_ETAP7 przywracalby ja "sprzed Etapu 7" - czyli nic by nie
+# cofal. Cel instalacji jest ten sam plik co u Etapu 4, zrodlo inne.
+E7_LIB_SRC=libmib2high-carplay-rgi-ipod.etap7.so
+for n in vc_overlay vc_overlay_probe mib2high-overlay.conf flag_atlas.rgba k3346-overlay-probe.sh mib2high-lvds-control.sh "$E7_LIB_SRC"; do
+    [ -s "$PAY/$n" ] || fail "ETAP7: missing $n w payload"
+done
+# Pliki wspoldzielone musza istniec w aucie - inaczej kopia zapisalaby znacznik
+# .absent i rollback by ich nie przywrocil.
+[ -f "`pathof mib2high-lvds-control.sh`" ] || fail 'ETAP7: brak mib2high-lvds-control.sh w aucie - stan nieznany'
+[ -f "`pathof libmib2high-carplay-rgi-ipod.so`" ] || fail 'ETAP7: brak biblioteki Etapu 4 w aucie - stan nieznany'
+checkrw "$APP" || fail 'app filesystem not writable'
+if [ -e "$E7_BACKUP" ] && [ -f "$E7_ROLLEDBACK" ]; then mv "$E7_BACKUP" "$E7_BACKUP.old.$$" || fail 'cannot rotate old etap7 backup'; rm -f "$E7_ROLLEDBACK"; fi
+tx_backup "$E7_BACKUP" "$E7_NAMES" || fail 'etap7 original backup failed'; : > "$E7_PENDING" || fail 'cannot mark etap7 transaction'; TX7=1
+for n in vc_overlay vc_overlay_probe k3346-overlay-probe.sh mib2high-lvds-control.sh; do
+    say "INSTALLING=$n"; install_file "$PAY/$n" "`pathof $n`" 755 || fail "install failed $n"
+done
+# Konfiguracja i tekstura flagi celu - oba 644, oba czytane w locie.
+for n in mib2high-overlay.conf flag_atlas.rgba; do
+    say "INSTALLING=$n"; install_file "$PAY/$n" "`pathof $n`" 644 || fail "install failed $n"
+done
+say 'INSTALLING=libmib2high-carplay-rgi-ipod.so'
+install_file "$PAY/$E7_LIB_SRC" "`pathof libmib2high-carplay-rgi-ipod.so`" 755 || fail 'install failed libmib2high-carplay-rgi-ipod.so'
+sync || fail 'pre-success sync failed'; : > "$E7_INSTALLED" || fail 'cannot mark etap7 success'; sync || fail 'success sync failed'
+rm -f "$E7_PENDING" "$E7_INSTALL_MARK" || fail 'cleanup failed'; sync || fail 'final sync failed'
+TX7=0; say 'ETAP7_INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'
+stage_done 'Restart MMI, potem CarPlay z trasa. Jesli DisplayManager nie przyjmie naszego'
+stage_done 'displayable, skrypt zostaje na kontekscie 77 i wszystko dziala jak dotad.'
+stage_done 'SAFE TO REMOVE SD'; }
+rollback_etap7(){ say 'MODE=ROLLBACK_ETAP7'; checkrw "$SD" || fail 'SD not writable'
+if [ ! -f "$E7_INSTALLED" ] && [ ! -f "$E7_PENDING" ]; then rm -f "$E7_ROLLBACK_MARK"; say 'ETAP7_NOT_INSTALLED: nic do cofniecia'; say 'SAFE TO REMOVE SD'; return 0; fi
+checkrw "$APP" || fail 'app not writable'
+tx_restore "$E7_BACKUP" "$E7_NAMES" || fail 'etap7 restore failed: do not reboot'; rm -f "$E7_INSTALLED" "$E7_PENDING" "$E7_ROLLBACK_MARK" || fail 'cannot clear etap7 flags'
+: > "$E7_ROLLEDBACK" || fail 'cannot mark etap7 rollback'; sync || fail 'etap7 rollback sync failed'
+say 'ETAP7_ROLLBACK_RESULT=PASS (v8s, Etap 4 i 5 zostaja)'; say 'Restart MMI'; say 'SAFE TO REMOVE SD'; }
+# Sonda Etapu 7a: tylko odczyt + jeden odwracalny eksperyment z kontekstem.
+# Nie wymaga zainstalowanego Etapu 7 jako transakcji, ale potrzebuje binarek,
+# wiec dziala po INSTALL_ETAP7 (albo gdy ktos wgral je recznie).
+probe_etap7(){ say 'MODE=PROBE_ETAP7'; checkrw "$SD" || fail 'SD not writable'
+# pathof, nie zakodowana sciezka: inaczej sonda jest niesprawdzalna w symulacji
+# (tam drzewo auta stoi pod MIB_APP) i cicho zawsze odmawia.
+P=`pathof k3346-overlay-probe.sh`
+[ -x "$P" ] || fail 'ETAP7: brak k3346-overlay-probe.sh w aucie - najpierw INSTALL_ETAP7'
+d="$COLLECT/probe-`date +%Y%m%d-%H%M%S 2>/dev/null || echo run`"
+mkdir -p "$d" || fail 'cannot create probe output dir'
+say "PROBE_OUT=$d"
+say 'Sonda trwa ok. 1,5 minuty. Dwa razy zrobi 20-sekundowa przerwe:'
+say '  1) nacisnij VIEW - przelacz na drugi uklad zegarow'
+say '  2) popatrz na VC i ocen schodek alfy na dole siatki'
+say 'iPhone ma byc ODLACZONY - inaczej sonda odmowi.'
+say 'UWAGA: po wizycie 2026-10-27 sonda nie jest juz potrzebna do niczego'
+say 'nowego - odpowiedziala na swoje pytania (okno przyjete, rozmiar co do'
+say 'piksela, pozycja zawsze (0,0), alfa mieszana per-piksel). Zostaje jako'
+say 'narzedzie regresji, gdyby nakladka przestala sie pokazywac.'
+sh "$P" "$d" 2>&1 | while read -r l; do say "$l"; done
+sync || fail 'probe sync failed'
+rm -f "$E7_PROBE_MARK"
+say 'PROBE_ETAP7_RESULT=DONE'; say 'SAFE TO REMOVE SD'; }
 # Collect files emitted by the already running car services. No additional services
 # or network listeners are started, and no unverified QNX utilities are needed.
 copyif(){
@@ -407,6 +525,7 @@ collect(){
     for f in /tmp/carplay_hook.log /tmp/carplay_hook.log.1 /tmp/carplay_hook.log.2 /tmp/carplay_hook.log.3 \
              /tmp/mib2high-carplay-rgi-native.log /tmp/k2161-rgi-rx.log /tmp/k2161-rgi-launcher.log \
              /tmp/mib2high-lvds-control.log /tmp/vc_render.log /tmp/vc_render-launch.log \
+             /tmp/vc_overlay.log /tmp/vc_overlay-launch.log /tmp/vc-overlay-probe.log \
              /tmp/mib2high-vc-render.profile /tmp/*rgi*.log /tmp/*rgd*.log /tmp/*bap*.log \
              /tmp/*DSI*.log /tmp/*dsi*.log /tmp/*tracer*.log /tmp/*zoom*.log \
              /tmp/*gauge*.log /tmp/v8l-dsitracer-*.log /tmp/v8l-dsitracer-status.log /tmp/v8l-dsitracer-launch.log /tmp/v8k-rgi-vc-java.log /tmp/v8k-rgi-vc-java.log.1 \
@@ -566,6 +685,18 @@ collect(){
         if LD_LIBRARY_PATH=/eso/lib IPL_CONFIG_DIR=/etc/eso/production \
            "$DMDT_BIN" gc > "$d/dmdt-gc.txt" 2>&1; then :
         else RESULT=PARTIAL; echo 'DMDT_GC_FAILED' >> "$d/trace/collection-errors.txt"; fi
+        # Etap 7: gd to jedyne miejsce, gdzie widac displayable z ID, TYPEM,
+        # ROZMIAREM i liczba buforow - czyli czy nasz numer jest wolny i jaka
+        # geometrie dostaje panel manewru. gs daje liste wyswietlaczy.
+        # Oba sa krotkie, w przeciwienstwie do gc, ktore DisplayManager i tak
+        # ucina na 11264 B (wszystkie dotychczasowe zrzuty koncza sie na
+        # kontekscie 78 z 88 - to limit po stronie dmdt, nie tego skryptu).
+        if LD_LIBRARY_PATH=/eso/lib IPL_CONFIG_DIR=/etc/eso/production \
+           "$DMDT_BIN" gd > "$d/dmdt-gd.txt" 2>&1; then :
+        else RESULT=PARTIAL; echo 'DMDT_GD_FAILED' >> "$d/trace/collection-errors.txt"; fi
+        if LD_LIBRARY_PATH=/eso/lib IPL_CONFIG_DIR=/etc/eso/production \
+           "$DMDT_BIN" gs > "$d/dmdt-gs.txt" 2>&1; then :
+        else RESULT=PARTIAL; echo 'DMDT_GS_FAILED' >> "$d/trace/collection-errors.txt"; fi
     else
         RESULT=PARTIAL; echo "DMDT_MISSING=$DMDT_BIN" >> "$d/trace/collection-errors.txt"
     fi
@@ -584,20 +715,52 @@ collect(){
         echo "FACTORY_LOG_FILES_COPIED=$FACTORY_FILES"
         echo 'DSIBAP=full DSICarKombi=full expected after install'
         echo 'dmdt-gc.txt: oczekiwany kontekst 900 z displayable 58 oraz 77={20,102,101,58}; etap 1 (przed instalacja) mial 87 kontekstow i brak 900'
+        if [ -f "$E7_INSTALLED" ]; then echo 'ETAP7=INSTALLED'; elif [ -f "$E7_PENDING" ]; then echo 'ETAP7=PENDING'; elif [ -f "$E7_ROLLEDBACK" ]; then echo 'ETAP7=ROLLED_BACK'; else echo 'ETAP7=NOT_INSTALLED'; fi
+        if [ -f "$MOD/RELEASE" ]; then echo "RELEASE=`cat "$MOD/RELEASE"`"; else echo 'RELEASE=dev (paczka etapowa)'; fi
+        echo 'ETAP7 logi: /tmp/vc_overlay.log (EVT_READY, pierwsza klatka, fps, brak progress watchdog TIMEOUT), vc_overlay-launch.log'
+        echo 'ETAP7 dmdt-gd.txt: czy nasz displayable (domyslnie 98) jest na liscie = czy DisplayManager przyjal okno'
+        echo 'ETAP7 lvds-control.log: overlay start / overlay context=901 declared / staying on 77'
+        echo 'ETAP7 k3346-rgi-ipod-native.log: overlay_build i overlay_send = hook wysyla manewry do renderera'
     } > "$d/trace/metadata.txt" || RESULT=PARTIAL
     sync || fail 'collection sync failed'
     say "COLLECT_RESULT=$RESULT saved=$d"
     say 'SAFE TO REMOVE SD'
 }
+# Wszystkie etapy, po kolei, kazdy tylko jesli go jeszcze nie ma. Funkcje etapow
+# sa te same co przy znacznikach pojedynczych - ich odmowy, kopie i auto-cofniecia
+# dzialaja bez zmian; fail() w etapie konczy caly przebieg.
+install_all(){ say 'MODE=INSTALL_ALL'; ALL=1
+[ ! -f "$MOD/RELEASE" ] || say "RELEASE=`cat "$MOD/RELEASE"`"
+# Wszystko juz jest: niczego nie nadpisujemy. Nowa wersja na karcie NIE
+# podmienia starej po cichu - aktualizacja to odinstaluj, potem zainstaluj,
+# zeby kazdy etap dostal swieza kopie oryginalow.
+if [ -f "$INSTALLED" ] && [ -f "$E4_INSTALLED" ] && [ -f "$E5_INSTALLED" ] && [ -f "$E7_INSTALLED" ]; then
+rm -f "$ALL_INSTALL_MARK" || fail 'cannot clear INSTALL_ALL'; sync
+say 'INSTALL_ALL_RESULT=ALREADY_INSTALLED (nothing changed)'
+say 'To update to a new version: uninstall first, then install again.'; say 'SAFE TO REMOVE SD'; return 0; fi
+if [ -f "$INSTALLED" ]; then say 'STAGE_MAP=already installed'; else install; fi
+if [ -f "$E4_INSTALLED" ]; then say 'STAGE_ROUTE=already installed'; else install_etap4; fi
+if [ -f "$E5_INSTALLED" ]; then say 'STAGE_PHONE=already installed'; else install_etap5; fi
+if [ -f "$E7_INSTALLED" ]; then say 'STAGE_ARROW=already installed'; else install_etap7; fi
+rm -f "$ALL_INSTALL_MARK" || fail 'cannot clear INSTALL_ALL'; sync || fail 'final sync failed'
+say 'INSTALL_ALL_RESULT=PASS'
+say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
+say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'Then connect the iPhone and start CarPlay navigation.'
+say 'SAFE TO REMOVE SD'; }
 [ -d "$SD" ] || fail 'SD not mounted'; [ -d "$MOD" ] || fail 'package missing'
 # ROLLBACK ma pierwszenstwo NAD wymuszonym zbieraniem: zapomniany na karcie plik
 # COLLECT_LOGS nie moze nigdy zablokowac sciezki ratunku. Bezpieczenstwo przed wygoda.
 if [ -f "$ROLLBACK" ]; then rollback
+elif [ -f "$E7_ROLLBACK_MARK" ]; then rollback_etap7
 elif [ -f "$E5_ROLLBACK_MARK" ]; then rollback_etap5
 elif [ -f "$E4_ROLLBACK_MARK" ]; then rollback_etap4
 elif [ -f "$FORCECOLLECT" ]; then say 'FORCED_COLLECT=1 (plik COLLECT_LOGS)'; collect
+elif [ -f "$ALL_INSTALL_MARK" ]; then install_all
 elif [ -f "$E4_INSTALL_MARK" ]; then install_etap4
 elif [ -f "$E5_INSTALL_MARK" ]; then install_etap5
+elif [ -f "$E7_INSTALL_MARK" ]; then install_etap7
+elif [ -f "$E7_PROBE_MARK" ]; then probe_etap7
 elif [ -f "$INSTALLED" ]; then collect
 elif [ -f "$MOD/rolledback.ok" ]; then say 'ALREADY_ROLLED_BACK; no automatic reinstallation'
 else install; fi

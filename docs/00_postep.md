@@ -114,7 +114,9 @@
         Szczegóły `docs\15`, sekcja „Wynik w aucie”.
   - [x] Decyzja użytkownika (2026-10-20): **strzałkę KDK odkładamy** – podpowiedzi pokazuje karta
         Google Maps w mapie CarPlay. Panel zostaje (dobra odległość, zła strzałka). **Etap 4 zaliczony.**
-- [ ] **Etap 7 (dawniej 4b): własna warstwa graficzna na VC – strzałka manewru + pasy** → **`docs\18_etap7_nakladka.md`**
+- [x] **Etap 7 (dawniej 4b): własna warstwa graficzna na VC – strzałka manewru + pasy — STRZAŁKA DZIAŁA
+  (2026-10-28, wizyta 9).** Pasy ruchu: ścieżka podpięta, ale **niesprawdzone w aucie** – nie było jazdy
+  trasą z wieloma pasami (0 linii `engine: lanes` we wszystkich przebiegach) → **`docs\18_etap7_nakladka.md`**
       ← **Zbudowane i sprawdzone na komputerze (2026-10-26), w aucie NIETESTOWANE.** Paczka `work\sd_etap7\`.
   - [x] Rozpoznanie: `vc_render` nie ma dostępu do pikseli (`NvSSVideoDecode` dekoduje i wyświetla naraz),
         więc nakładka musi być osobnym displayable. Firmware to potrafi – kontekst 77 to już 4 warstwy.
@@ -292,10 +294,176 @@
            na podkładki 101/102 nie wymagała przebudowy
         6. doinstalowany **`flag_atlas.rgba`** (896 kB, mieliśmy go w repo, nigdy nie trafił do auta)
            i renderer startuje z `/mnt/app/root` jako katalogiem bieżącym
-  - [ ] **Wizyta 4 [Ty]** – 3 uruchomienia, telefon może być podłączony od początku.
-        Rozstrzygające: `LISTEN` na 19800 w `netstat-an.txt`, `server: connected to 127.0.0.1:19800`
-        w logu renderera, `scene: … commands=N` z N > 0, **strzałka w prawym panelu**, oraz przy
-        wyłączonej nawigacji – czy czarny prostokąt zniknął (był nasz) czy został (podkładki)
+  - [x] **Wizyta 4 wykonana (2026-10-27)** – Etap 7d zadziałał. Z `collected/run-24/`:
+        `server: connected to 127.0.0.1:19800`, `engine: reveal from clear icon=2`,
+        `scene: kind=0 fallback=0 commands=34`, `platform_harman: panel drawn`,
+        `engine: first frame ready`, `render: flag atlas loaded 1792x128 (14 frames)`.
+        Bramka „nie maluj pustego panelu” też działa – **bez nawigacji czarny prostokąt zniknął**.
+        Strzałki nadal nie ma, a z nawigacją prostokąt wraca.
+  - [x] **Dlaczego nie ma strzałki – renderer dostawał płótno, na którym nie umie rysować.**
+        `maneuver_render` Luki **nie skaluje się**: `CR_DEFAULT_WIDTH/HEIGHT` (328×181) to jego
+        układ współrzędnych, nie rozmiar okna. Z tych stałych liczy się środkowanie manewru
+        (`render.c:1219`), przesunięcie MVP (`render.c:1280`), nożyce (`render.c:1407`) i **każdy**
+        element 2D (`render.c:1425`), a solver kadrowania pasów ma aspekt `328.f/181` wpisany
+        na sztywno (`scene/lane_panel.cpp:286`). My podawaliśmy **210×153**, bo po pomiarze
+        fabrycznego kafelka (2026-10-26) wpisaliśmy pomiar w `width/height`, czyli w rozmiar
+        renderu zamiast w rozmiar wycinka. Scena renderowała się poprawnie, w złym kadrze –
+        34 komendy rysowania i zero strzałki na kombi.
+        **Minę mieliśmy opisaną własną ręką**: `overlay_cfg.h:14` mówił `width 328
+        # render source size`, a trzy linijki niżej ostrzegał, że zmiana tego psuje aspekt i FOV.
+        Sonda z Etapu 7a ma nawet stałe `REF_CROP_X/Y/W/H` = 59/27/210/153 z komentarzem
+        „Luka's popup crop”. Wniosek na przyszłość: **gdy komentarz nazywa pole `render source
+        size`, pomiar ekranu do niego nie należy.**
+  - [x] **Etap 7e wdrożony (2026-10-27)** – trzy prostokąty rozdzielone w konfiguracji:
+        1. `render_width/render_height` (328×181) – płótno renderera, **nie dotykać**;
+           `platform_get_framebuffer_size()` zwraca właśnie to, więc `render_init` dostaje
+           swój układ z powrotem
+        2. `crop_x/crop_y` (59/27) + `width/height` (210×153) – wycinek, który trafia na kombi;
+           to `CR_POPUP_*` Luki, czyli dokładnie prostokąt, w który renderer wkadrowuje manewr
+        3. `x/y`, `x_alt/y_alt` – gdzie ten wycinek ląduje na płótnie 1440×542 (bez zmian)
+        Matematyka blitu wyjechała do `overlay/overlay_blit.h` (dwa odwrócenia osi i mapowanie
+        1:1 w jednym miejscu) i ma własny test hosta – **221 asercji**, sprawdzających nie osiem
+        liczb, tylko własność, dla której istnieją: *teksel `(crop_x+i, crop_y+j)` pokazuje się
+        w pikselu kombi `(dst_x+i, dst_y+j)`*. Stara karta (sam `width/height`) czyta się
+        poprawnie – brakujące klucze biorą wartości Luki.
+  - [x] **Renderer czyta swój własny panel i wpisuje wynik do logu** (`panel probe` w
+        `platform_harman.c`): pokrycie alfy na całym płótnie i osobno w wycinku, zakres alfy,
+        najjaśniejszy piksel i mapka 16×8. Powód: zawartości panelu nie dało się dotąd ustalić
+        **żadną** drogą poza zdjęciem – mapa CarPlay jedzie warstwą sprzętową i nie ma jej na
+        `dmdt ts`, a ciemny prostokąt na nocnym zdjęciu wygląda tak samo, czy to nasz panel
+        malowany nieprzezroczyście, czy fabryczna podkładka 101/102 prześwitująca tam, gdzie my
+        jesteśmy przezroczyści. Dwie wizyty poszły na tę niejednoznaczność.
+  - [x] **`context_recipe` zostaje `102 101 58`** – zdjęcie bez nawigacji pokazuje, że na tych
+        podkładkach siedzi fabryczna chrome mapy („85m”, „<ulica>”, „200m”, „offroad”), więc
+        wpisanie samego `58` kosztowałoby te elementy. Zielona karta („towards <ulica>”) jest
+        **po angielsku przy polskim UI auta** → rysuje ją iPhone w strumieniu CarPlay (58),
+        nie kombi; jej żadna zmiana recepty nie dotyczy.
+  - [x] **Wizyta 5 wykonana (2026-10-28)** – Etap 7e zadziałał: `framebuffer 328x181`,
+        `SSAA 525x290 -> 328x181`, `crop=210x153@(59,27)`, `server: connected`, `commands=34`,
+        ~25 cykli silnika z treścią. Strzałki nadal nie ma, czarny prostokąt **w obu** układach.
+  - [x] **Sonda rozstrzygnęła: prostokąt jest NASZ, a nasz FBO nie ma alfy.**
+        `panel probe 1/8 canvas=100.0% crop=100.0% a=[255..255] brightest=(0,0,0)`, mapka
+        `################` w całości. Odczyt padł zaraz po tym, jak `render_end_frame` wyczyścił
+        bufor do `(0,0,0,0)` – gdyby kanał alfa istniał, tło musiałoby wyjść jako 0. Wyszło 255,
+        jednolicie na całym 328×181. A blit kopiuje panel z **wyłączonym** mieszaniem, więc
+        wpisywał alfę 255 na cały kafelek: nieprzezroczysta czarna płyta niezależnie od tego, co
+        renderer narysował. Okno (FBO 0) alfę ma – EGL prosi o 8 bitów, schodek z Etapu 7a wrócił
+        jako `255·a`. Problem dotyczy **tekstury podpiętej jako FBO**: GLES2 gwarantuje alfę
+        tylko dla `RGBA4` i `RGB5_A1`, `RGBA8` w FBO to rozszerzenie (`GL_OES_rgb8_rgba8`).
+  - [x] **Trzy wady mojej sondy**, przez które ta wizyta dała mniej, niż mogła:
+        (1) zmierzyła **pierwszą klatkę treści**, czyli moment, w którym `main.c` ustawia
+        `g_fade_alpha = 0` – `brightest=(0,0,0)` niczego tam nie dowodzi; (2) drugi odczyt
+        wyłączył ją **na całą sesję** (`glReadPixels refused`), bo `glGetError()` złapał błąd
+        zostawiony w kolejce przez kod Luki, a nie przez odczyt; (3) mapka liczyła **tylko
+        wycinek**, więc „rysuje obok" i „nie rysuje wcale" dawały ten sam log.
+  - [x] **Etap 7f wdrożony (2026-10-28)**:
+        1. **format FBO mierzony, nie zakładany** – kandydaci `RGBA8`, `RGBA4`, `RGB5A1`,
+           wygrywa pierwszy, który przejdzie test. Test pyta o alfę **przez RGB**, nie przez
+           kanał alfa (sterownik, który gubi alfę w FBO, może też kłamać w `glReadPixels`):
+           czyść do `(0,0,0,A)`, rysuj biały kwadrat z `glBlendFunc(GL_DST_ALPHA, GL_ZERO)`,
+           czytaj RGB. Przy `A=0` ma wyjść 0; 255 znaczy brak kanału, bo GLES2 definiuje
+           `GL_DST_ALPHA` jako 1, gdy alfy nie ma. Decyzja w `overlay/overlay_fbo.h`, test
+           hosta przechodzi **wszystkie 64 kombinacje** werdyktów
+        2. **brak alfy = brak blitu.** Jeśli żaden format nie przejdzie, `composite_panel()`
+           nie kładzie panelu w ogóle – kombi zostaje przy obrazie fabrycznym. Nakładka,
+           która nie umie się wtopić, ma zniknąć, a nie zasłonić mapę
+        3. **bufory Luki biorą ten sam typ** (`platform_fbo_type()` przez szew `platform.h`,
+           pięć alokacji w `render.c`). Przy sprawnym `RGBA8` zwraca `GL_UNSIGNED_BYTE`, czyli
+           dokładnie to, co było
+        4. **sonda naprawiona** – pierwszy odczyt po 1 s, kolejka błędów GL czyszczona
+           i logowana przed odczytem, nieudany odczyt nie wyłącza sondy, mapka i pokrycie RGB
+           liczone na **całym** płótnie, z zaznaczonym wycinkiem
+        5. `PROVENANCE.md` wymienia teraz **wszystkie** zmiany w kodzie Luki – twierdził, że
+           jest jedna, a od Etapu 7d były już trzy
+  - [x] **Wizyta 6 wykonana (2026-10-28)** – bez poprawy na kombi: bez trasy czysto, z trasą
+        czarny prostokąt bez strzałki, w obu układach. Ale log rozstrzygnął sprawę:
+        `fbo alpha test RGBA8: alpha OK (dst.a=0 -> rgb 0, dst.a=1 -> rgb 255)`, a mimo to
+        trzy odczyty w ciągu 10 s: `alpha canvas=100.0% | rgb canvas=0.0%`, czyli panel to
+        **dokładnie `(0,0,0,255)` w każdym pikselu całego płótna**. Do tego `GL error 0x502`.
+  - [x] **SPROSTOWANIE: diagnoza z Etapu 7f była błędna.** Bufor RGBA8 kanał alfa **ma** – test
+        przez RGB to dowodzi. Alfa 255 przy zerowym RGB to nie „brak kanału", tylko wartość,
+        którą GLES2 **z definicji zwraca przy próbkowaniu niekompletnej tekstury**: `(0,0,0,1)`
+        (spec. GLES 2.0, §3.8.2). Siatka „bez alfy nie kładź panelu" z 7f zostaje – jest poprawna
+        i tani bezpiecznik – ale nie trafiła w przyczynę.
+  - [x] **Przyczyna czarnej płyty (cztery wizyty): bufory Luki NPOT bez `CLAMP_TO_EDGE`.**
+        Tekstura NPOT z trybem zawijania innym niż `CLAMP_TO_EDGE` jest w czystym GLES2
+        niekompletna. Luka ustawia `CLAMP_TO_EDGE` na każdej teksturze (maski, atlas flagi)
+        **poza dwiema, które niosą gotowy obraz**: `g_ss_tex` i `g_fxaa_tex`, 525×290, domyślne
+        `GL_REPEAT`. FXAA czyta więc `(0,0,0,1)` z SSAA, ostatni przebieg czyta `(0,0,0,1)` z FXAA,
+        panel wychodzi nieprzezroczysty i czarny. Scena (34 komendy) rysuje się poprawnie –
+        tylko nikt nie umie jej odczytać. Na Adreno w MHI2Q (`GL_OES_texture_npot`) `REPEAT` na
+        NPOT jest legalne, dlatego u Luki działa, a jego aktualny `render.c` ma nadal ten sam kod.
+        Na wizytach 3–5 bufor SSAA też był NPOT (336×245, 525×290) – płyta była zawsze ta sama,
+        zmieniały się tylko moje hipotezy.
+  - [x] **Etap 7g wdrożony (2026-10-28)**:
+        1. `CLAMP_TO_EDGE` na `g_ss_tex` i `g_fxaa_tex` (`overlay/upstream/render.c`, piąta
+           zmiana w kodzie Luki, opisana w `PROVENANCE.md`). `render_set_viewport` tylko
+           re-specyfikuje te same obiekty, parametry przeżywają – tam zmiana niepotrzebna.
+           W naszej binarce: **3 → 5** miejsc `WRAP_S`, **6 → 10** `CLAMP_TO_EDGE` (zliczone
+           w kodzie ARM) – dowód, że poprawka weszła do pliku, który jedzie do auta
+        2. log `GL_OES_texture_npot: yes/no` plus pełna lista rozszerzeń – diagnoza jako fakt
+        3. **druga siatka**: kafelek z ≥ 99% alfy i < 1% koloru to podpis awarii, nie obraz
+           (`overlay_tile_is_degenerate` w `overlay/overlay_fbo.h`). Sonda sprawdza to cicho już
+           w pierwszej klatce treści i biegnie **przed** blitem, więc taki kafelek nie trafia na
+           kombi ani na jedną klatkę; kolejny odczyt z treścią przywraca kompozycję
+        4. `0x502` lokalizowany w `platform_swap()` przez pierwsze 150 klatek: czy podnosi go
+           renderer, czy nasza sonda/kompozycja, w której klatce pierwszy raz i ile razy
+  - [x] **Wizyta 7 wykonana (2026-10-28) — STRZAŁKA JEST NA KOMBI.** `GL_OES_texture_npot: no`
+        (przyczyna czarnego prostokąta potwierdzona jako fakt), sonda: `rgb crop=23–27%`,
+        najjaśniejszy piksel biały w wycinku. Przy małych zegarach kafelek wygląda dobrze. Przy
+        **dużych** widać głównie podłoże jezdni — strzałka „wychodzi poza obszar". Błędy GL:
+        5 na 150 klatek, wszystkie od renderera, sporadyczne — nie blokują niczego.
+        Ciemnoszare tło pod strzałką to **fabryczne tło kafelka** (podkładka KDK 101/102 —
+        nasz wycinek jest w ~76% przezroczysty), takie samo jak pod fabryczną strzałką.
+        **Zostaje — decyzja użytkownika.**
+  - [x] **Przyczyna 1: układ zegarów nie był wykrywany NIGDY.** `overlay_layout.h` czytał
+        `V8H_LAYOUT` z `/tmp/carplay_hook.log`, a hook pisze tę linię przez `LOG_INFO`
+        (`altscreen_session.c:1391`) przy loggerze z `.min_level = LOG_LEVEL_WARN`
+        (`framework/logging.h:57`). W logu hooka są wyłącznie linie `[WRN]`. Kafelek stał więc
+        zawsze w `x/y`, w obu układach — a ja opisywałem przełączanie po VIEW jako działające.
+        Test hosta tego nie złapał, bo sprawdzał parser na liniach zmyślonych, nie na tym, co
+        hook naprawdę zapisuje.
+  - [x] **Przyczyna 2: etykiety pomiaru z 2026-10-26 były zamienione.** Pozycje są dokładne,
+        ale sonda kazała tylko „przełączyć VIEW na drugi układ", a „duże zegary" dla (1091,110)
+        było założeniem. Geometria: przy małych zegarach mały prędkościomierz zaczyna się ok.
+        y≈296, więc kafelek kończący się na y=360 wszedłby na niego; przy dużych (1091,110)
+        leży pod napisem odległości VC. **Duże zegary = (1055,207), małe = (1091,110).**
+  - [x] **Etap 7h wdrożony (2026-10-28)**:
+        1. układ z **pierścienia przechwytu DSI** (`/tmp/v8l-dsitracer-1798-NN.log`, uruchamiany
+           przez `lvds-control` w każdej sesji), parserem **hooka** (`native/gauge_bap54.h`,
+           BAP 50/54, tylko `2#`) i zapasowo `setZoomArea` (460 → duże, 700 → małe) do pierwszego
+           BAP 54 — polityka hooka 1:1. Nie port 1798 na żywo: rekord stanu przyszedł o 52.424 s,
+           renderer wystartował o 52.464 s. Nie zmiana poziomu logu w hooku: to biblioteka v8s
+        2. **zamienione pozycje** w kodzie i na karcie
+        3. pokrętło `visible_top_big/small` (domyślnie 0) → `render_set_visible_area()`, to samo
+           wywołanie co `CMD_VISIBLE_AREA` z Javy na MHI2Q; na wypadek gdyby VC przy dużych
+           zegarach zasłaniał górę kafelka, gdzie leży ramię skrętu
+        **Sprawdzone na prawdziwym przechwycie z jazdy** (`run-30`): czytnik daje 12 zmian
+        układu (49,7 s zoom → duże, potem BAP 54 na zmianę aż do 385,9 s), ostatni stan: duże
+        zegary, kafelek w (1055,207). Podczas tej jazdy układ zmienił się 11 razy, a kafelek
+        ani razu.
+  - [x] **Wizyta 8 wykonana (2026-10-28) — DZIAŁA W OBU UKŁADACH.** Przy dużych zegarach strzałka
+        w środku prawego zegara, przy małych w fabrycznym kafelku; `run-31` loguje każde VIEW
+        (`layout slot=… (… clocks, bap54) panel at (…)`). Zostało jedno: po VIEW strzałka przez
+        chwilę stoi w miejscu **poprzedniego** układu, potem przeskakuje.
+  - [x] **Skąd ta chwila — zmierzone na śladzie:** klawisz VIEW to `DSIKeyPanelListener#updateKey2`
+        z `int:4|int:35` (10 naciśnięć → 10 zmian BAP 54, 1:1; klawisze 36/37 układu nie
+        zmieniają). VC przełącza się przy klawiszu, a raport BAP 54 przychodzi **~575 ms później**
+        (9 z 10 razy 572–593 ms). Do tego dwa nasze opóźnienia: układ sprawdzany raz na sekundę
+        i brak nowej klatki po zmianie układu (renderer Luki rysuje tylko przy zmianie sceny,
+        w bezczynności pętla zwalnia do 3 Hz). Razem od ~0,6 s do ponad 2 s w złym miejscu.
+  - [x] **Etap 7i wdrożony (2026-10-28)**: klawisz VIEW (dowolny słuchacz — `12#` przychodzi
+        ~190 ms przed `1#`) chowa kafelek, raport BAP 54 pokazuje go **od razu w nowym miejscu**;
+        spóźniona kopia klawisza (znacznik trackera ≤ znacznik ostatniego BAP 54) jest pomijana;
+        bezpiecznik 1500 ms. Pierścień sprawdzany co 100 ms (sam `stat`, gdy nic nie przybyło),
+        a przy każdej zmianie platforma sama kładzie ostatnią klatkę (`composite_panel` +
+        `eglSwapBuffers`), bez czekania na `main.c`. **Na prawdziwym śladzie z `run-31`:**
+        10 VIEW → 10 ukryć po 392–593 ms → za każdym razem pokazanie we właściwym układzie
+  - [x] **Wizyta 9 wykonana (2026-10-28) — „Wszystko działa tak jak powinno".** Logi
+        (`run-32`…`run-35`): każde VIEW kończy się `tile shown at (…) after N ms (bap54)`,
+        N = 54–686 ms; **zero** bezpieczników (`timeout`), **zero** blokad kafelka; 1 błąd GL
+        na 150 klatek (renderer, sporadyczny). Archiwum przebiegów `run-23`…`run-35` skopiowane do
+        `work\auto_test_19\karta_mod\…\collected\`. **Etap 7 zamknięty.**
   - [ ] Fizyczna karta ratunkowa ma jeszcze stary `ratunek.sh`; **przed tą wizytą nie trzeba jej
         wgrywać** (Etap 7 nie dotyka Javy ani HMI), a poprzednia podmiana wymagała formatowania karty
   - [ ] **Etap 7d: karta rozmowy** – layout ustalony ze zdjęć (2026-10-26), brakuje renderowania tekstu
@@ -383,6 +551,22 @@
 - [ ] Etap 5: kolejne funkcje (okładki, touchpad, telefon; zoom rolką już działa – Etap 3;
       wsteczny/PDC = fabryczne, nic do zmiany)
 
+- [x] **Wydanie 1.0 dla laików (2026-10-29)** – kandydat 1.0.0-rc1 sprawdzony w aucie (run-36: ROLLBACK karty
+      deweloperskiej + INSTALL_ALL, wszystkie funkcje OK, overlay context=901). 1.0.0 = rc1 bit w bit poza
+      tekstem restartu w `command.sh` (było: gałka głośności – ZŁE dla B9; jest: duże pokrętło + NAV/MAP + RADIO
+      ~10 s, wg tabeli wiki M.I.B.), `RELEASE` i README. Zip collect-logs + szablon zgłoszenia `.github/`.
+      `custom.sh`: znacznik **`INSTALL_ALL`** (v8s → 4 → 5 → 7 jednym uruchomieniem, każdy etap dalej osobną
+      transakcją; `SAFE TO REMOVE SD` tylko raz na końcu; przy błędzie `INSTALL_ALL_RESULT=FAIL` + co dalej;
+      wznowienie ponownym uruchomieniem; pełna instalacja → `ALREADY_INSTALLED`), ponowna instalacja po pełnym
+      `ROLLBACK` (stara kopia v8s odsuwana jak w etapach 4/5/7), `ROLLBACK` na karcie bez kopii →
+      `NOTHING_TO_UNDO` zamiast „do not reboot”, plik `RELEASE` w wyniku i w `metadata.txt`.
+      `tools\make_release.sh <wersja>` → `work\release\<wersja>\` (install.zip, uninstall.zip, SHA256SUMS).
+      `sim_installer.sh` testuje teraz instalator ZE ŹRÓDEŁ (`/src`; wcześniej T1–T15 brały stary `command.sh`
+      z `work\sd_etap5` z 2026-10-21!), nowe T17 (INSTALL_ALL) i T18 (prawdziwe zipy, `RELEASE_DIR`): 302/0.
+      README EN + `README.pl.md` dla laika, `INSTALL.md` → `BUILDING.md` (stary w `work\INSTALL.md.stary`).
+      Kandydat `1.0.0-rc1` zbudowany w całości ze źródeł. Kopia karty sprzed testu: `work\karta_przed_rc1\`.
+      Pasy ruchu: niesprawdzone w aucie (brak jazdy z manewrami wielopasowymi) – opisane w README.
+
 ## Gdzie co jest
 
 | Dokument | Po co |
@@ -401,7 +585,7 @@
 | `17_etap6_ostatnie.md` | Etap 6 (ostatnie połączenia, dzwonienie z listy): dlaczego iAP2 nie oddaje historii |
 | `18_etap7_nakladka.md` | **Etap 7 (własna warstwa na VC: strzałka + pasy)**: dlaczego osobny renderer, port Luki, sonda, instrukcja |
 | `19_displayable_na_mhi2.md` | **Jak powstaje displayable na MHI2**: CAPTION vs ID_STRING, protokół adopcji okna, `createImageDisplayable`, dowody z binarki z auta |
-| `20_sciagawka_etap7b.md` | **Do auta, na telefon (Etap 7c)**: trzy uruchomienia, bez sondy, na co patrzeć w pierwszej sekundzie sesji, co sfotografować, kiedy przerwać |
+| `20_sciagawka_etap7b.md` | **Do auta, na telefon (Etap 7i)**: trzy uruchomienia, bez sondy ekranowej, na co patrzeć po podłączeniu telefonu, które linie logu rozstrzygają, kiedy przerwać |
 | `01`–`06` | Analiza: backup, różnice K2161→K3346, HMI Java, odczyt z auta |
 
 ## Narzędzia zrobione po drodze (`tools\`)
@@ -502,3 +686,22 @@
   auta bez zmian" wychodzi OK, a reszta sypie się 34 razy i wygląda na regresję. Uruchamiać:
   `apt-get install -y mksh && ln -sf /bin/mksh /bin/ksh`. Od 2026-10-27 skrypt sam tego pilnuje
   i kończy się kodem 2, zamiast udawać wynik.
+- **Każdą symulację uruchamiać w OSOBNYM kontenerze – inaczej `sim_gate` wisi w nieskończoność.**
+  `sim_gate.sh` podmienia `/bin/sleep` na atrapę, która po 30 obrotach kończy sesję. Linux odmawia
+  zapisu do pliku, który jest właśnie wykonywany (**ETXTBSY, „Text file busy"**), więc wystarczy,
+  że w tym samym kontenerze działa jeszcze `sleep` zostawiony przez poprzednią symulację –
+  np. 30-sekundowa atrapa sondy z `sim_probe.sh`. Podmiana cicho nie dochodzi do skutku, pętla
+  czekania bramy **śpi naprawdę**, licznik nigdy nie rusza i symulacja wypisuje `dmdt sc 4 77`
+  bez końca. Zdarzyło się 2026-10-27 przy łączeniu `sim_probe; sim_gate` w jednym `docker run`
+  i zjadło 35 minut: komunikat `/bin/sleep: Text file busy` **był** na stderr, ale zginął
+  w `| tail -20`, bo `tail` nie wypisuje nic aż do końca potoku. Dwa wnioski, oba wdrożone:
+  `sim_gate.sh` sprawdza teraz marker `SIM_GATE_SLEEP_STUB` w `/bin/sleep` i kończy się kodem 2
+  z wyjaśnieniem, a wyjścia długich przebiegów idą do pliku, nie przez `tail`.
+- **Dane testowe biorą się z prawdziwego śladu z auta, nie z wyobrażenia o nim.** Parser
+  `V8H_LAYOUT` przechodził testy hosta przez kilka rund, bo testy karmiły go liniami, które sami
+  wymyśliliśmy – a hook tej linii nigdy nie zapisywał (`LOG_INFO` przy loggerze `WARN`). Od Etapu 7h
+  dane do testów czytnika układu to linie skopiowane bajt w bajt z przechwytu DSI z auta, a każdą
+  zmianę czytnika sprawdzamy dodatkowo przepuszczając przez niego cały przechwyt z jazdy.
+- **„Działa" mówi log z auta, nie zdjęcie.** Przełączanie kafelka po VIEW było opisane jako
+  działające na podstawie zdjęć, choć renderer ani razu nie zalogował zmiany układu. Zanim funkcja
+  trafi do dokumentacji jako działająca, w logu z auta musi być linia, która to pokazuje.

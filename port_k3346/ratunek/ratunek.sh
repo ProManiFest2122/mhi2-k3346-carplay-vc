@@ -53,6 +53,15 @@ R_LSD=/mnt/app/eso/hmi/lsd
 R_NET=/net/mmx$R_LSD
 R_JAR1=jars/mib2high-carplay-rgi.jar
 R_JAR2=jars/mib2high-k3346-overrides.jar
+# Etap 7: warstwa graficzna na VC. Leza w innym katalogu niz JAR-y HMI.
+# Usuwamy TYLKO pliki wlasne Etapu 7. Swiadomie NIE ruszamy
+# mib2high-lvds-control.sh ani biblioteki mm-ipod: to pliki v8s / Etapu 4,
+# ich brak zepsulby mape na VC i RGI, a tego ratunek ma nie robic.
+# Sam renderer nie dotyka Javy ani HMI, wiec to sprzatanie dla kompletnosci,
+# nie dlatego, ze moze wywolac bootloop.
+R_ROOT=/mnt/app/root
+R_NETROOT=/net/mmx$R_ROOT
+R_E7='vc_overlay vc_overlay_probe k3346-overlay-probe.sh mib2high-overlay.conf'
 
 # Log w RAM (TMP M.I.B. = /net/rcc/dev/shmem). Gdyby i to zawiodlo - /tmp.
 R_RAM=/net/rcc/dev/shmem/ratunek.log
@@ -91,6 +100,10 @@ r_stan() {
              "$R_NET/traceConfig.properties"; do
         if [ -e "$f" ]; then log "$(ls -l "$f" 2>&1)"; else log "brak: $f"; fi
     done
+    for n in $R_E7; do
+        f="$R_NETROOT/$n"
+        if [ -e "$f" ]; then log "$(ls -l "$f" 2>&1)"; else log "brak: $f"; fi
+    done
 }
 
 # Przywrocenie traceConfig, tylko z niepustej kopii, w dwoch krokach:
@@ -121,6 +134,7 @@ r_raz() {
     rm -f "$R_NET/dsitracer_activated" 2>/dev/null
     rm -f "$R_NET/$R_JAR1" 2>/dev/null
     rm -f "$R_NET/$R_JAR2" 2>/dev/null
+    for n in $R_E7; do rm -f "$R_NETROOT/$n" 2>/dev/null; done
     r_trace
     sync 2>/dev/null
 }
@@ -151,7 +165,9 @@ while [ "$R_I" -lt 6 ]; do
 done
 
 # Jeszcze raz na samym MMX - na wypadek, gdyby dostep przez /net/mmx zawiodl.
-on -f mmx /bin/sh -c "mount -uw /mnt/app; rm -f $R_LSD/dsitracer_activated $R_LSD/$R_JAR1 $R_LSD/$R_JAR2; sync" 2>/dev/null
+R_E7_ABS=''
+for n in $R_E7; do R_E7_ABS="$R_E7_ABS $R_ROOT/$n"; done
+on -f mmx /bin/sh -c "mount -uw /mnt/app; rm -f $R_LSD/dsitracer_activated $R_LSD/$R_JAR1 $R_LSD/$R_JAR2$R_E7_ABS; sync" 2>/dev/null
 
 log "--- PO:"
 r_stan

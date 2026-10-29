@@ -6,6 +6,9 @@
 
 #include "rgd_hook.h"
 #include "diagnostics.h"
+#ifdef K3346_OVERLAY_FEED
+#include "overlay_feed.h"
+#endif
 #include <time.h>
 
 DEFINE_LOG_MODULE(RGD);
@@ -1180,9 +1183,47 @@ static void write_bus_snapshot_from_cache(int extra_slot, const rgd_maneuver_t* 
     }
 
     bus_send_text(EVT_RGD_UPDATE, BUS_FLAG_STICKY, b);
+
+#ifdef K3346_OVERLAY_FEED
+    /* Etap 7: the same snapshot also drives the cluster overlay renderer.
+     * Fed from here, after the bus write, so the arrow we draw ourselves and
+     * the distance/street the VC prints from BAP always describe the SAME
+     * maneuver - they come from one cache read, not two. */
+    {
+        const rgd_maneuver_t* active_man = NULL;
+        const rgd_lane_guidance_t* active_lanes = NULL;
+
+        /* maneuver_list is the sole authority for "current" (see above); its
+         * first listed slot is the maneuver being navigated. */
+        if (listed_count > 0) {
+            int s0 = listed_slots[0];
+            if (s0 >= 0 && s0 < MANEUVER_CACHE_SIZE
+                && g_rgd.slot_cache[s0].present != 0)
+                active_man = &g_rgd.slot_cache[s0];
+        }
+        if ((upd->present & RGD_UPD_LANE_SLOT)
+            && upd->lane_guidance_slot >= 0
+            && upd->lane_guidance_slot < MANEUVER_CACHE_SIZE
+            && rgd_lane_slot_has_data(upd->lane_guidance_slot)
+            && (!(upd->present & RGD_UPD_LANE_SHOWING)
+                || upd->lane_guidance_showing == 1))
+            active_lanes = &g_rgd.lane_cache[upd->lane_guidance_slot];
+
+        /* Lazy start: the sender thread only comes into existence once
+         * there is something to send, so a car without the renderer
+         * installed never grows a thread it does not need. */
+        k3346_overlay_feed_init();
+        k3346_overlay_feed_publish(upd, active_man, active_lanes);
+    }
+#endif
 }
 
 void rgd_clear_state(const char* reason) {
+#ifdef K3346_OVERLAY_FEED
+    /* Blank the overlay before the caches go: a stale arrow outliving the
+     * route is worse than no arrow at all. */
+    k3346_overlay_feed_clear(reason);
+#endif
     g_rgd.active = false;
     g_rgd.sent_5203 = false;
     pthread_mutex_lock(&g_rgd_start_lock);
@@ -1750,4 +1791,7 @@ void rgd_shutdown(void) {
      * stock SendIAP2 here prevented the child from completing destruction and
      * SI eventually killed it as TIMEOUT_WATCHDOG. */
     rgd_clear_state("module_shutdown");
+#ifdef K3346_OVERLAY_FEED
+    k3346_overlay_feed_shutdown();
+#endif
 }

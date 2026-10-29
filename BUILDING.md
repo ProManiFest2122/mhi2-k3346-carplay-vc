@@ -1,4 +1,8 @@
-# Installation guide
+# Building from source and per-stage install
+
+> **Just want to install it?** Use the ready package from Releases and the 5 steps in
+> [README.md](README.md). This file is for developers: building, the release script, installing single
+> stages, the rescue card.
 
 > ## ⚠️ ONE FIRMWARE ONLY: `MHI2_ER_AUG22_K3346`, MU **1438**
 >
@@ -23,6 +27,25 @@
 This modifies the infotainment system of a car. You need to be comfortable with M.I.B., an SD card,
 a Linux shell and Docker. **No warranty. You are responsible for your car.**
 
+## 0. How it works (short)
+
+* **Stage 3 (AltScreen, edzenis):** hooks in `dio_manager` advertise a second CarPlay display; `vc_render`
+  decodes the H.264 stream onto the cluster layer; `mib2high-lvds-control.sh` drives the cluster context.
+* **Stage 4 (RGI):** a separate RGI-only library is preloaded **only into `mm-ipod`** through a small
+  launcher (`usblauncher_otg.lua` one-line change). `iap2.cfg` gets an `[ident]` section for 0x5200–0x5204.
+  Java pushes BAP route guidance (`updateManeuverDescriptor` + `updateExitView`).
+* **Stage 5:** `lsd.sh` puts every `lsd/jars/*.jar` on `-Xbootclasspath` **before** `lsd.jxe`, so J9 loads
+  our classes instead of the stock ones. Replaced classes are rewritten from the decompiled K3346 originals
+  with minimal changes (API verified with `javap`): Siri, touchpad → D-pad, CarPlay calls on the VC
+  (from the stock iAP2 PPS object `/ramdisk/pps/iap2/telephony`), VC answer/hang-up, album art.
+* **Stage 6:** the `mm-ipod` hook extends iAP2 message group 0x41 in memory and sends `StartListUpdates
+  0x4170` / `InitiateCall 0x415A`; `ListUpdate 0x4171` becomes the recents list on the VC.
+* **Stage 7:** `vc_overlay`, a port of LuKa's `maneuver_render` (OpenKODE/GLES2), draws the 3D maneuver
+  arrow, lanes and distance into a KD window whose displayable is declared through
+  `KD_WINDOWPROPERTY_CAPTION`; the DisplayManager composites it over the map. The `mm-ipod` hook feeds
+  it maneuvers over a local socket; the gauge layout (VIEW) is read from the DSITracer capture ring
+  (BAP 50/54). Details: `docs/18`, `docs/19` (Polish).
+
 ---
 
 ## 1. What you get (per stage)
@@ -32,10 +55,11 @@ Each stage is installed and rolled back on its own. Install them in order; test 
 | Stage | Feature | Car-tested |
 |---|---|---|
 | 3 (v8s) | CarPlay map on the Virtual Cockpit, both layouts (VIEW), map zoom with the left roller, map survives reversing | ✅ |
-| 4 | Route guidance (RGI) data → cluster: distance, street, route flag | ✅ (maneuver arrow in the KDK panel is always "straight" – known) |
+| 4 | Route guidance (RGI) data → cluster: distance, street, route flag | ✅ |
 | 5 | Siri on a short press of the voice button, MMI touchpad as a D-pad, CarPlay calls on the VC phone tab, **Answer / Reject / Hang up** from the VC, steering-wheel phone key unchanged | ✅ |
-| 5.3 | Album art (CarPlay now playing) on the VC | ❌ packaged, not yet car-tested |
-| 6 | CarPlay **recent calls** on the VC phone tab, dial from the list | ❌ packaged, not yet car-tested |
+| 5.3 | Album art (CarPlay now playing) on the VC | ✅ |
+| 6 | CarPlay **recent calls** on the VC phone tab, dial from the list | ✅ (iOS 27.2; iOS 26.6–26.7.x sends an empty list – iOS bug) |
+| 7 | 3D maneuver arrow + distance + flag next to the map, follows VIEW | ✅ (lanes: wired up, not yet seen in the car) |
 
 **Not possible over CarPlay:** the full address book. iAP2 only carries recents and favorites; the MMI
 phonebook comes from Bluetooth PBAP, which CarPlay switches off.
@@ -97,7 +121,12 @@ bash tools/qnx_build.sh diagnostics/build_dsitracer_qnx_v8l.sh diagnostics/v8l-d
 bash tools/qnx_build.sh build_rgi_ipod.sh                     output/libmib2high-carplay-rgi-ipod.so
 bash tools/qnx_build.sh diagnostics/build_artwork_probe.sh    diagnostics/k3346-artwork-probe
 bash tools/qnx_build.sh coverart/build_coverart_fetch.sh      coverart/k3346-coverart-fetch
+bash tools/qnx_build.sh overlay/build_overlay.sh              overlay/output/vc_overlay
+bash tools/qnx_build.sh overlay/build_probe.sh                overlay/output/vc_overlay_probe
 ```
+
+Host unit tests of the overlay (geometry, layout parser, FBO choice) run without the car:
+`cp -a port_k3346/altscreen /tmp/a && cd /tmp/a && bash overlay/tests/run_host_tests.sh` (in the container).
 
 ### 3.4 Check the hook offsets against **your** driver
 
@@ -123,18 +152,33 @@ docker run --rm --platform=linux/amd64 \
 `build_overrides.sh` must end with `OVERRIDES_VERIFY=PASS`: every replaced HMI class keeps exactly the
 stock public API and class format (Java 1.4).
 
-### 3.6 Assemble the SD package and run the simulations
+### 3.6 Release package (what the Releases page contains)
 
 ```bash
-bash tools/make_sd_package.sh                       # -> work/sd_etap5/  (+ SHA256SUMS.txt)
-docker run --rm --platform=linux/amd64 -v "$PWD/work:/work" -v "$PWD/tools:/tools:ro" \
-  qnx65-armv7-toolchain:4.9 bash /tools/sim_installer.sh      # must end with "0 FAIL"
+bash tools/make_release.sh 1.0.0            # builds 3.3 + 3.5 itself, then packages
+bash tools/make_release.sh 1.0.0 --no-build # package already built artifacts
 ```
 
-The simulation runs the real installer against a fake unit tree: install, update, every rollback,
-refusals, injected failures. It needs a copy of your stock files in `work/` (see `docs/10`); without
-them, skip it and rely on the installer's own checks.
+Output in `work/release/<version>/`: `mhi2-k3346-carplay-vc-<version>-install.zip` (all stages, the
+`INSTALL_ALL` marker armed, `RELEASE` file with the version), `…-uninstall.zip` (only the `ROLLBACK`
+marker) and `SHA256SUMS.txt`. The script refuses CRLF in files for the car, non-ARM binaries, missing
+payload, and any `lsd.*`, `.properties`, `.lua`, `.json`, `iap2.cfg`, log or backup in the tree: car
+files are changed by `awk` on the unit itself. The one Audi-derived file shipped is
+`mib2high-k3346-overrides.jar` (Stage 5 classes).
 
+Simulations (each in its own container; they need a copy of your stock files in `work/`, see `docs/10`):
+
+```bash
+docker run --rm --platform=linux/amd64 -v "$PWD/port_k3346/altscreen:/src" -v "$PWD/tools:/tools" \
+  -v "$PWD/work:/work" -e RELEASE_DIR=/work/release/1.0.0 qnx65-armv7-toolchain:4.9 \
+  bash /tools/sim_installer.sh          # must end with "0 FAIL"
+```
+
+The installer simulation runs the real installer against a fake unit tree: install, every rollback,
+refusals, injected failures, `INSTALL_ALL` (one run, resume after a failure, update = uninstall +
+install) and, with `RELEASE_DIR`, the release zips exactly as a user unpacks them.
+
+<a id="rescue-card"></a>
 ### 3.7 Rescue card (strongly recommended before Stage 5)
 
 ```bash
@@ -155,10 +199,20 @@ back and reinstall with the install card).
 
 ## 4. Install in the car
 
-### 4.0 Prepare the card
+### 4.0 Release package (recommended)
 
-1. Copy the **contents** of `work/sd_etap5/` (not the folder itself) to the root of your M.I.B. card.
-   It adds `mod/command.sh`, `mod/mib2high-carplay-rgi-v8s-simple/` and `ZNACZNIKI/` (marker files).
+Unzip `…-install.zip` to the root of the M.I.B. card and run **GEM → m.i.b. → advanced settings →
+run individual script** once. The `INSTALL_ALL` marker installs every stage not yet installed, in order
+3 → 4 → 5 (with 6) → 7. Every stage stays a separate transaction with its own backup and automatic
+rollback; the first error stops the run with `INSTALL_ALL_RESULT=FAIL`, the failed stage is undone,
+earlier ones stay, and running again resumes. `SAFE TO REMOVE SD` is printed once, at the very end.
+Uninstall: `…-uninstall.zip` → run → `ROLLBACK_RESULT=PASS`. Update: uninstall, then install (an
+install over a complete installation reports `ALREADY_INSTALLED` and changes nothing).
+
+### 4.0a Per-stage install (developers)
+
+1. Copy the **contents** of a stage package (`work/sd_etap5/`, `work/sd_etap7/`) to the root of your
+   M.I.B. card. It adds `mod/command.sh`, `mod/mib2high-carplay-rgi-v8s-simple/` and `ZNACZNIKI/` (marker files).
 2. Make sure M.I.B. autorun is **disarmed** (`_Swdlautorun.txt`, with the underscore).
 3. Optional check on Windows: `powershell -ExecutionPolicy Bypass -File tools/sprawdz_karte.ps1 -Karta E: -Typ instalacyjna`.
 
@@ -167,7 +221,8 @@ Rollback works only with that card. After every install copy the whole `mod/` fo
 Do not format the card or overwrite `mod/` with a fresh package while the mod is installed.
 
 How the script decides what to do (one action per run):
-`ROLLBACK` → `ROLLBACK_ETAP5` → `ROLLBACK_ETAP4` → `COLLECT_LOGS` → `INSTALL_ETAP4` → `INSTALL_ETAP5`
+`ROLLBACK` → `ROLLBACK_ETAP7` → `ROLLBACK_ETAP5` → `ROLLBACK_ETAP4` → `COLLECT_LOGS` → `INSTALL_ALL`
+→ `INSTALL_ETAP4` → `INSTALL_ETAP5` → `INSTALL_ETAP7` → `PROBE_ETAP7`
 → (installed: collect logs) → (nothing installed: install Stage 3).
 A marker is an empty file, without extension, copied from `ZNACZNIKI/` into
 `mod/mib2high-carplay-rgi-v8s-simple/`. Each marker is consumed when its step succeeds.
@@ -178,7 +233,8 @@ Run the script: **GEM → m.i.b. → advanced settings → run individual script
 
 1. No markers. Run the script once → `INSTALL_RESULT=PASS`. If you see `VERSION_GATE … PRZERWANA`,
    nothing was written: your firmware does not match. Stop.
-2. Restart the MMI (hold the power button until it reboots).
+2. Restart the MMI (A4/A5/Q5 B9: hold the big MMI knob + NAV/MAP + RADIO for ~10 s; other models:
+   [M.I.B. wiki](https://wiki.mibsolution.one/en/MHI2)).
 3. Connect the iPhone with a cable, start CarPlay, open Google/Apple Maps, switch the VC to the
    navigation view. The CarPlay map should appear on the cluster; VIEW switches layouts.
 
@@ -206,6 +262,13 @@ Build and test the rescue card first (3.7).
 3. Test: short press of the voice button → Siri; touchpad → selection moves in CarPlay; incoming call →
    VC shows the caller with Answer/Reject; music → album art on the VC; VC phone tab → recent calls.
 
+### 4.3a Stage 7 – maneuver arrow on the VC
+
+Needs Stage 4. Copy `ZNACZNIKI/INSTALL_ETAP7`, run → `ETAP7_INSTALL_RESULT=PASS`, restart the MMI, start
+a CarPlay route: the arrow tile appears next to the map in both layouts. `ROLLBACK_ETAP7` restores exactly
+the files from before Stage 7 (including the control script and the `mm-ipod` library it updates).
+`PROBE_ETAP7` runs a read-only probe of the DisplayManager (`collected/probe-*`).
+
 ### 4.4 Updating to a newer package version
 
 Put **both** rollback and install markers of the changed stages at once; the script processes them one
@@ -223,9 +286,10 @@ Run the script with nothing pending (or with `COLLECT_LOGS`): it writes
 
 | Marker | Effect |
 |---|---|
+| `ROLLBACK_ETAP7` | removes Stage 7 (overlay, probe, config) and restores the two files it updated |
 | `ROLLBACK_ETAP5` | removes Stage 5 (JAR, cover-art tool) – map and Stage 4 stay |
 | `ROLLBACK_ETAP4` | restores `usblauncher_otg.lua`, `iap2.cfg`, removes the `mm-ipod` hook – map stays |
-| `ROLLBACK` | everything, in order 5 → 4 → 3, back to the stock files (byte for byte) |
+| `ROLLBACK` | everything, in order 7 → 5 → 4 → 3, back to the stock files (byte for byte) |
 
 Restart the MMI after a rollback.
 
@@ -236,6 +300,7 @@ Restart the MMI after a rollback.
 | 3 | new: `/mnt/app/root/hooks/libmib2high-carplay-rgi.so`, `/mnt/app/eso/hmi/lsd/jars/mib2high-carplay-rgi.jar`, `/mnt/app/root/{vc_render, v8l-dsitracer-capture, mib2high-lvds-*}`, two marker files; modified (3 small edits, backed up): `bundles_dsitracer_enabled.properties`, `traceConfig.properties`, `smartphone_integrator.json` |
 | 4 | new: `/mnt/app/root/hooks/libmib2high-carplay-rgi-ipod.so`, `/mnt/app/root/mm-ipod-rgi.sh`; modified: `/mnt/system/etc/usblauncher_otg.lua` (1 line: start `mm-ipod` through the launcher), `/mnt/system/etc/mm/iap2.cfg` (`[ident]` section appended: 0x5200–0x5204, 0x415A, 0x4170, 0x4171; with `BT_MAC` on the card also a `[bluetooth]` section with that address) |
 | 5 | new: `/mnt/app/eso/hmi/lsd/jars/mib2high-k3346-overrides.jar` (replaced HMI classes, loaded before `lsd.jxe` by the stock `lsd.sh`), `/mnt/app/root/k3346-coverart-fetch` |
+| 7 | new: `/mnt/app/root/{vc_overlay, vc_overlay_probe, mib2high-overlay.conf, flag_atlas.rgba, k3346-overlay-probe.sh}`; updated (backed up by Stage 7): `/mnt/app/root/mib2high-lvds-control.sh`, `/mnt/app/root/hooks/libmib2high-carplay-rgi-ipod.so` |
 
 The stock `lsd.jxe`, the iAP2 driver file and all other files are never modified.
 

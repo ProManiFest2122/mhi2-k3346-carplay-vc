@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Sprawdza karte SD przygotowana do Etapu 3. TYLKO ODCZYT - niczego na karcie nie zapisuje.
 
@@ -16,10 +16,11 @@
   powershell -ExecutionPolicy Bypass -File tools\sprawdz_karte.ps1 -Karta E: -Typ ratunkowa
   powershell -ExecutionPolicy Bypass -File tools\sprawdz_karte.ps1 -Karta F: -Typ instalacyjna
   powershell -ExecutionPolicy Bypass -File tools\sprawdz_karte.ps1 -Karta F: -Typ etap4
+  powershell -ExecutionPolicy Bypass -File tools\sprawdz_karte.ps1 -Karta I: -Typ etap7
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Karta,
-    [Parameter(Mandatory = $true)][ValidateSet('instalacyjna', 'ratunkowa', 'etap4', 'etap5', 'etap6')][string]$Typ
+    [Parameter(Mandatory = $true)][ValidateSet('instalacyjna', 'ratunkowa', 'etap4', 'etap5', 'etap6', 'etap7')][string]$Typ
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,6 +37,8 @@ $pkgName = 'sd_ratunek'
 if ($Typ -eq 'instalacyjna') { $pkgName = 'sd_etap3' }
 # sd_etap5 = aktualna paczka (Etapy 4-6 w jednej); sd_etap4 to stara wersja.
 if ($Typ -eq 'etap4' -or $Typ -eq 'etap5' -or $Typ -eq 'etap6') { $pkgName = 'sd_etap5' }
+# Etap 7 = warstwa DOKLADANA na karte z Etapami 4-6, wiec ma wlasna, mala paczke.
+if ($Typ -eq 'etap7') { $pkgName = 'sd_etap7' }
 $pkg = Join-Path $proj (Join-Path 'work' $pkgName)
 
 # "E:" -> "E:\"
@@ -76,7 +79,7 @@ if ($Karta -match '^[A-Za-z]:\\$') {
 }
 
 # --- 2. Folder zamiast zawartosci ---
-foreach ($f in @('sd_etap3', 'sd_etap4', 'sd_etap5', 'sd_ratunek')) {
+foreach ($f in @('sd_etap3', 'sd_etap4', 'sd_etap5', 'sd_etap7', 'sd_ratunek')) {
     if (Test-Path -LiteralPath (Na-Karcie $f)) {
         Pisz-Blad "na karcie jest folder '$f' - skopiowales FOLDER zamiast jego ZAWARTOSCI. Wejdz do work\$f, Ctrl+A, i wklej do katalogu glownego karty"
     }
@@ -115,7 +118,105 @@ $armed    = Test-Path -LiteralPath (Na-Karcie 'Swdlautorun.txt')
 $disarmed = Test-Path -LiteralPath (Na-Karcie '_Swdlautorun.txt')
 $pkgDir   = Na-Karcie 'mod\mib2high-carplay-rgi-v8s-simple'
 
-if ($Typ -eq 'etap6') {
+if ($Typ -eq 'etap7') {
+    # Etap 7 = warstwa graficzna na VC (docs\18). Dokladana na karte, ktora juz
+    # ma Etapy 4-6; dlatego sprawdzamy OBIE paczki, nie tylko swoja.
+    if ((Test-Path -LiteralPath (Na-Karcie 'esd\scripts\individual.sh')) -and
+        (Test-Path -LiteralPath (Na-Karcie 'esd\Launcher-sda0.esd'))) {
+        Pisz-OK "jest M.I.B. - 'run individual script' bedzie dzialac"
+    } else { Pisz-Blad "na karcie NIE MA M.I.B." }
+    if ($armed) { Pisz-Blad "jest Swdlautorun.txt (bez podkreslenia) - zmien nazwe na _Swdlautorun.txt" }
+    if ((Test-Path -LiteralPath (Join-Path $pkgDir 'installed.ok')) -and
+        (Test-Path -LiteralPath (Join-Path $pkgDir 'backup\pre-v8s\complete'))) {
+        Pisz-OK "v8s zainstalowany, kopia oryginalow backup\pre-v8s kompletna (NIE KASOWAC)"
+    } else { Pisz-Blad "brak installed.ok albo backup\pre-v8s\complete" }
+    if (-not (Test-Path -LiteralPath (Join-Path $pkgDir 'etap4.installed.ok'))) {
+        Pisz-Blad "brak etap4.installed.ok - Etap 7 wymaga Etapu 4 (dane manewru z mm-ipod) i odmowi instalacji"
+    }
+
+    # Kolizja nazw w payloadzie potrafi cicho popsuc sprzatanie po Etapie 6:
+    # Etap 4 i Etap 7 instaluja ten sam plik docelowy, ale MUSZA miec w payloadzie
+    # rozne nazwy zrodlowe, inaczej INSTALL_ETAP4 wgra biblioteke Etapu 7.
+    $libE4 = Join-Path $pkgDir 'payload\libmib2high-carplay-rgi-ipod.so'
+    $libE7 = Join-Path $pkgDir 'payload\libmib2high-carplay-rgi-ipod.etap7.so'
+    if (Test-Path -LiteralPath $libE7) {
+        if (Test-Path -LiteralPath $libE4) {
+            $h4 = (Get-FileHash -LiteralPath $libE4 -Algorithm SHA256).Hash.ToLower()
+            $h7 = (Get-FileHash -LiteralPath $libE7 -Algorithm SHA256).Hash.ToLower()
+            if ($h4 -eq $h7) {
+                Pisz-Blad "payload Etapu 4 i Etapu 7 to ten sam plik - INSTALL_ETAP4 wgralby wersje Etapu 7, a ROLLBACK_ETAP7 nie mialby czego cofac"
+            } else { Pisz-OK "biblioteki Etapu 4 i Etapu 7 w payloadzie sa rozne - transakcje rozdzielone" }
+        } else { Pisz-Blad "brak payload\libmib2high-carplay-rgi-ipod.so (biblioteka Etapu 4)" }
+    } else { Pisz-Blad "brak payload\libmib2high-carplay-rgi-ipod.etap7.so - skopiuj work\sd_etap7 jeszcze raz" }
+
+    foreach ($f in @('vc_overlay', 'vc_overlay_probe', 'mib2high-overlay.conf', 'k3346-overlay-probe.sh')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $pkgDir "payload\$f"))) { Pisz-Blad "brak payload\$f" }
+    }
+
+    # Sprzatanie po Etapie 6 musi pojsc PRZED Etapem 7, bo INSTALL_ETAP4
+    # nadpisuje ten sam plik docelowy.
+    $czysc = @('ROLLBACK_ETAP4', 'INSTALL_ETAP4') | Where-Object { Test-Path -LiteralPath (Join-Path $pkgDir $_) }
+    if ($czysc.Count -eq 2) {
+        Pisz-OK "sprzatanie po Etapie 6 uzbrojone (ROLLBACK_ETAP4 + INSTALL_ETAP4) - to sa uruchomienia 1 i 2, PRZED Etapem 7"
+    } elseif ($czysc.Count -eq 1) {
+        Pisz-Uwaga "jest tylko $($czysc -join ', ') - sprzatanie po Etapie 6 potrzebuje OBU znacznikow"
+    }
+
+    $i7 = Test-Path -LiteralPath (Join-Path $pkgDir 'INSTALL_ETAP7')
+    $p7 = Test-Path -LiteralPath (Join-Path $pkgDir 'PROBE_ETAP7')
+    $r7 = Test-Path -LiteralPath (Join-Path $pkgDir 'ROLLBACK_ETAP7')
+    if ($r7 -and $i7 -and $p7) {
+        # Odswiezenie: pliki Etapu 7 sa juz w aucie, ale zmienily sie na karcie.
+        # Dyspozytor bierze ROLLBACK_ETAP7 przed INSTALL_ETAP7 przed PROBE_ETAP7,
+        # wiec komplet mozna wlozyc raz i w aucie tylko uruchamiac skrypt.
+        Pisz-OK "ODSWIEZENIE Etapu 7 uzbrojone - 4 uruchomienia, bez wracania po karte:"
+        Pisz-Info "   1. ROLLBACK_ETAP7 -> ETAP7_ROLLBACK_RESULT=PASS"
+        Pisz-Info "   2. INSTALL_ETAP7  -> ETAP7_INSTALL_RESULT=PASS, potem RESTART MMI"
+        Pisz-Info "   3. PROBE_ETAP7    -> sonda; iPhone ODLACZONY (renderer bierze ten sam displayable)"
+        Pisz-Info "   -- potem podlacz iPhone i ustaw trase: nakladka wstaje sama"
+        Pisz-Info "   4. bez znacznika  -> MODE=COLLECT"
+    } elseif ($r7 -and $i7) {
+        # Od wizyty 2 (2026-10-27) sonda nie jest juz czescia procedury: odpowiedziala
+        # na swoje pytania, a jedynego otwartego - czy przezroczystosc przepuszcza mape
+        # - zrzut nie pokaze, bo mapy nie ma w kompozycie. Stad odswiezenie BEZ sondy.
+        Pisz-OK "ODSWIEZENIE Etapu 7 uzbrojone (bez sondy) - 3 uruchomienia, bez wracania po karte:"
+        Pisz-Info "   1. ROLLBACK_ETAP7 -> ETAP7_ROLLBACK_RESULT=PASS"
+        Pisz-Info "   2. INSTALL_ETAP7  -> ETAP7_INSTALL_RESULT=PASS, potem RESTART MMI"
+        Pisz-Info "   -- potem podlacz iPhone i ustaw trase: nakladka wstaje sama"
+        Pisz-Info "   -- patrz na VC OD RAZU: ma byc mapa. Czarne kombi = odlacz telefon"
+        Pisz-Info "   3. bez znacznika  -> MODE=COLLECT"
+    } elseif ($r7) {
+        Pisz-OK "ROLLBACK_ETAP7 na miejscu - to uruchomienie cofnie Etap 7 (mapa, RGI, telefon i okladka zostaja)"
+    } elseif ($czysc.Count -eq 2 -and $i7 -and $p7) {
+        # Dyspozytor ma ustalona kolejnosc i zuzywa po jednym znaczniku na
+        # uruchomienie, wiec komplet mozna wlozyc w domu - przy aucie nie jest
+        # potrzebny czytnik kart. Sprawdzone w symulacji (T16l).
+        Pisz-OK "PELNA SEKWENCJA uzbrojona - 5 uruchomien, bez wracania po karte:"
+        Pisz-Info "   1. ROLLBACK_ETAP4   -> ETAP4_ROLLBACK_RESULT=PASS"
+        Pisz-Info "   2. INSTALL_ETAP4    -> ETAP4_INSTALL_RESULT=PASS, ETAP4_BT=OFF"
+        Pisz-Info "   3. INSTALL_ETAP7    -> ETAP7_INSTALL_RESULT=PASS, potem RESTART MMI"
+        Pisz-Info "   4. PROBE_ETAP7      -> sonda ok. 1,5 min; iPhone ODLACZONY"
+        Pisz-Info "   5. bez znacznika    -> MODE=COLLECT"
+    } elseif ($i7 -and $p7) {
+        Pisz-OK "INSTALL_ETAP7 + PROBE_ETAP7 - najpierw instalacja, sonda przy nastepnym uruchomieniu"
+    } elseif ($i7) {
+        if ($czysc.Count -eq 2) {
+            Pisz-OK "sprzatanie Etapu 6 + INSTALL_ETAP7 - trzy uruchomienia pod rzad, kolejnosc poprawna (Etap 4 przed 7)"
+        } else { Pisz-OK "INSTALL_ETAP7 na miejscu - to uruchomienie zainstaluje warstwe, potem restart MMI" }
+    } elseif ($p7) {
+        Pisz-OK "PROBE_ETAP7 na miejscu - sonda ok. 1,5 min, dwa razy poprosi: nacisnij VIEW, potem ocen schodek alfy. iPhone ma byc ODLACZONY: od Etapu 7b renderer i sonda biora ten sam displayable 98, a sonda sama odmowi, jesli renderer zyje"
+    } else {
+        if ($czysc.Count -eq 0) {
+            Pisz-Uwaga "brak jakiegokolwiek znacznika Etapu 7 - to uruchomienie zrobi zwykly COLLECT. Wloz INSTALL_ETAP7 albo PROBE_ETAP7 z ZNACZNIKI\"
+        }
+    }
+
+    foreach ($m in @('ROLLBACK', 'COLLECT_LOGS')) {
+        if (Test-Path -LiteralPath (Join-Path $pkgDir $m)) { Pisz-Blad "jest znacznik $m - ma pierwszenstwo nad Etapem 7, usun go" }
+    }
+    Sprawdz-BtMac $pkgDir
+    if (Test-Path -LiteralPath (Na-Karcie 'ratunek\ratunek.sh')) { Pisz-Blad "pliki karty ratunkowej na karcie instalacyjnej" }
+} elseif ($Typ -eq 'etap6') {
     # Etap 6 = aktualizacja Etapu 4 (biblioteka mm-ipod + iap2.cfg) i 5 (JAR) naraz (docs\17).
     if ((Test-Path -LiteralPath (Na-Karcie 'esd\scripts\individual.sh')) -and
         (Test-Path -LiteralPath (Na-Karcie 'esd\Launcher-sda0.esd'))) {

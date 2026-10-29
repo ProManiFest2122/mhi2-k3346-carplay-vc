@@ -25,6 +25,14 @@ PKG=/work/sd_etap5
 SIM=/work/sim_app
 PKGNAME=mib2high-carplay-rgi-v8s-simple
 LOG=/work/sim_app/sim_result.txt
+# Testujemy instalator ZE ZRODEL, nie ten zapieczony w paczce: work/sd_etap5
+# powstala 2026-10-21 i jej command.sh jest o kilka etapow starszy. Bez tego
+# T1-T15 sprawdzalyby stary kod. Kontener montuje port_k3346/altscreen jako /src.
+INSTALLER="${INSTALLER:-/src/deployment/custom.sh}"
+use_current_installer(){
+    if [ -f "$INSTALLER" ]; then cp "$INSTALLER" "$SIM/sd/mod/command.sh"
+    else echo "  UWAGA: brak $INSTALLER - testuje command.sh z paczki (zamontuj /src)"; fi
+}
 
 PASS=0; FAILED=0
 ok(){   PASS=$((PASS+1));   echo "  OK   $*"; }
@@ -75,8 +83,11 @@ setup(){
     chmod 644 "$SIM/system/etc/usblauncher_otg.lua"; chmod 664 "$SIM/system/etc/mm/iap2.cfg"
     # lsd.jxe: tylko rozmiar ma znaczenie dla bramy, wiec atrapa 58131096 B
     truncate -s 58131096 "$SIM/ifs/lsd.jxe"
-    # paczka na "karcie SD"
-    cp -a "$PKG/." "$SIM/sd/"
+    # paczka na "karcie SD" ("setup nocard" = pusta karta, dla T18)
+    if [ "${1:-}" != nocard ]; then
+        cp -a "$PKG/." "$SIM/sd/"
+        use_current_installer
+    fi
 }
 
 run(){ # run [dodatkowe env...]
@@ -689,6 +700,365 @@ cmp -s "$LIBP" "$E4M/payload/libmib2high-carplay-rgi-ipod.so" && tail -n 1 "$CFG
   && cmp -s "$OVR" "$E4M/payload/mib2high-k3346-overrides.jar" && [ -f "$CAF" ] && ok "w aucie: nowa biblioteka, iap2.cfg z Etapem 6, nowy JAR, narzedzie okladki" || bad "stan po aktualizacji niezgodny"
 ls "$E4M" | grep -q -E '^(INSTALL|ROLLBACK)_' && bad "zostaly znaczniki" || ok "wszystkie znaczniki zuzyte"
 OUT=$(run); case "$OUT" in *"MODE=COLLECT"*) ok "5.: zwykly COLLECT";; *) bad "5. nie COLLECT";; esac
+
+# ----------------------------------------------------------------------- T16
+# Etap 7: warstwa graficzna na VC. Osobna transakcja, ale dotyka DWOCH plikow
+# nalezacych do wczesniejszych etapow (mib2high-lvds-control.sh z v8s i
+# biblioteki mm-ipod z Etapu 4), wiec sedno tych testow to: czy cofa sie
+# niezaleznie i czy nie rozwala tamtych transakcji.
+PKG7=/work/sd_etap7
+OVL="$SIM/app/root/vc_overlay"
+OVLP="$SIM/app/root/vc_overlay_probe"
+OVLC="$SIM/app/root/mib2high-overlay.conf"
+OVLS="$SIM/app/root/k3346-overlay-probe.sh"
+LCTL="$SIM/app/root/mib2high-lvds-control.sh"
+E7LIB="$SIM/app/root/hooks/libmib2high-carplay-rgi-ipod.so"
+
+# Tak, jak robi to uzytkownik: paczka Etapu 7 dokladana NA karte z Etapem 5/6.
+setup7(){ setup; cp -a "$PKG7/." "$SIM/sd/"; use_current_installer; }
+
+echo
+echo "--- T16a: INSTALL_ETAP7 bez Etapu 4 -> ODMOWA, zero zapisow"
+if [ ! -d "$PKG7" ]; then
+    bad "brak $PKG7 - najpierw tools/make_sd_etap7.sh"
+else
+setup7; run >/dev/null
+B=$(snapshot_files "$SIM/app" "$SIM/system")
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7: wymaga Etapu 4"*) ok "odmowa bez Etapu 4";; *) bad "brak odmowy bez Etapu 4"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap7" ] && ok "zero zapisow, bez kopii" || bad "zmiany mimo odmowy"
+
+echo
+echo "--- T16b: v8s + Etap 4 -> INSTALL_ETAP7 -> PASS, 6 plikow, wlasciwa biblioteka"
+setup7; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+E4STATE=$(snapshot_files "$SIM/app" "$SIM/system")
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7_INSTALL_RESULT=PASS"*) ok "instalacja PASS";; *) bad "instalacja nie przeszla"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+MISS=''; for f in "$OVL" "$OVLP" "$OVLC" "$OVLS"; do [ -f "$f" ] || MISS="$MISS $(basename "$f")"; done
+[ -z "$MISS" ] && ok "cztery nowe pliki na miejscu" || bad "brakuje:$MISS"
+[ "$(stat -c %a "$OVL")" = 755 ] && [ "$(stat -c %a "$OVLS")" = 755 ] && [ "$(stat -c %a "$OVLC")" = 644 ] \
+  && ok "tryby 755/755/644" || bad "zle tryby nowych plikow"
+# Sedno poprawki kolizji nazw: w aucie ma wyladowac biblioteka Z PAYLOADU ETAPU 7.
+cmp -s "$E7LIB" "$E4M/payload/libmib2high-carplay-rgi-ipod.etap7.so" \
+  && ok "w aucie biblioteka Etapu 7" || bad "w aucie nie ta biblioteka"
+cmp -s "$LCTL" "$E4M/payload/mib2high-lvds-control.sh" \
+  && ok "skrypt sterujacy podmieniony" || bad "skrypt sterujacy nie podmieniony"
+ls "$E4M" | grep -q '^INSTALL_ETAP7$' && bad "znacznik nie zuzyty" || ok "znacznik zuzyty"
+
+echo
+echo "--- T16c: ponowny INSTALL_ETAP7 -> ODMOWA; ROLLBACK_ETAP7 -> stan po Etapie 4 bit w bit"
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7: juz zainstalowany"*) ok "odmowa ponownej instalacji";; *) bad "brak odmowy ponownej";; esac
+rm -f "$E4M/INSTALL_ETAP7"
+cp "$SIM/sd/ZNACZNIKI/ROLLBACK_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7_ROLLBACK_RESULT=PASS"*) ok "rollback PASS";; *) bad "rollback nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$E4STATE" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] \
+  && ok "drzewo = stan po Etapie 4, bit w bit" || bad "drzewo rozne od stanu po Etapie 4"
+[ ! -e "$OVL" ] && [ ! -e "$OVLP" ] && [ ! -e "$OVLC" ] && [ ! -e "$OVLS" ] \
+  && ok "pliki Etapu 7 usuniete" || bad "zostaly pliki Etapu 7"
+
+echo
+echo "--- T16d: brak pliku wspoldzielonego w aucie -> ODMOWA, zero zapisow"
+# Gdyby kopia zapisala znacznik .absent, rollback by tego pliku NIE przywrocil.
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+rm -f "$LCTL"; B=$(snapshot_files "$SIM/app" "$SIM/system")
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"brak mib2high-lvds-control.sh w aucie"*) ok "odmowa przy braku skryptu";; *) bad "brak odmowy przy braku skryptu";; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap7" ] && ok "zero zapisow" || bad "zmiany mimo odmowy"
+
+echo
+echo "--- T16e: awaria w trakcie Etapu 7 -> auto-rollback, v8s i Etap 4 nietkniete"
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+E4STATE=$(snapshot_files "$SIM/app" "$SIM/system")
+# Zaczep musi byc LITERALNY w zrodle: pliki z petli id? przez say "INSTALLING=$n",
+# wiec ich nazwy w tekscie skryptu nie wystepuja.
+awk '{print} /INSTALLING=libmib2high-carplay-rgi-ipod.so/{print "fail \047TEST_INJECTED_E7\047"}' "$SIM/sd/mod/command.sh" > "$SIM/sd/mod/command.inject7.sh"
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" sh "$SIM/sd/mod/command.inject7.sh" 2>&1)
+case "$OUT" in *"TEST_INJECTED_E7"*) ok "wstrzykniety blad wystapil";; *) bad "blad nie wystapil";; esac
+case "$OUT" in *"ETAP7_AUTO_ROLLBACK_RESULT=PASS"*) ok "auto-rollback Etapu 7 PASS";; *) bad "auto-rollback Etapu 7 nie zadzialal";; esac
+printf '%s\n' "$OUT" | grep -qE '^\[V8S\] (INSTALL_FAILED|ETAP4_INSTALL_FAILED|ETAP5_INSTALL_FAILED)' && bad "ruszyl inne warstwy" || ok "v8s/Etap 4/5 nieruszone"
+[ "$E4STATE" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = stan po Etapie 4" || bad "drzewo rozne"
+rm -f "$E4M/INSTALL_ETAP7"; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7_INSTALL_RESULT=PASS"*) ok "po awarii mozna zainstalowac ponownie";; *) bad "po awarii zablokowane";; esac
+
+echo
+echo "--- T16f: pierwszenstwo znacznikow - ratunek zawsze wygrywa"
+cp "$SIM/sd/ZNACZNIKI/PROBE_ETAP7" "$E4M/"; cp "$SIM/sd/ZNACZNIKI/ROLLBACK" "$E4M/"
+OUT=$(run); case "$OUT" in *"MODE=ROLLBACK"*) ok "ROLLBACK bije PROBE_ETAP7";; *) bad "PROBE_ETAP7 zablokowal ratunek";; esac
+rm -f "$E4M/PROBE_ETAP7" "$E4M/ROLLBACK"
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/PROBE_ETAP7" "$E4M/"; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"ETAP7_INSTALL_RESULT=PASS"*) ok "INSTALL_ETAP7 idzie przed sonda";; *) bad "sonda wyprzedzila instalacje";; esac
+
+echo
+echo "--- T16g: PROBE_ETAP7 - odmowa bez instalacji, uruchomienie po instalacji"
+# Wlasny stan wyjsciowy, nie resztki po poprzednim tescie.
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/PROBE_ETAP7" "$E4M/"
+OUT=$(env OVL_WAIT_USER=0 OVL_PROBE_BIN=/nie/ma OVL_DMDT=/nie/ma MIB_SD="$SIM/sd" MIB_APP="$SIM/app" \
+          MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" sh "$SIM/sd/mod/command.sh" 2>&1)
+case "$OUT" in *"PROBE_ETAP7_RESULT=DONE"*) ok "sonda uruchomiona po instalacji";; *) bad "sonda nie ruszyla"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+ls -d "$E4M"/collected/probe-* >/dev/null 2>&1 && ok "katalog wynikow sondy powstal" || bad "brak katalogu wynikow sondy"
+ls "$E4M" | grep -q '^PROBE_ETAP7$' && bad "znacznik sondy nie zuzyty" || ok "znacznik sondy zuzyty"
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/PROBE_ETAP7" "$E4M/"
+OUT=$(run); case "$OUT" in *"brak k3346-overlay-probe.sh w aucie"*) ok "odmowa sondy bez instalacji";; *) bad "sonda bez instalacji nie odmowila";; esac
+
+echo
+echo "--- T16h: pelny ROLLBACK po Etapie 7 -> fabryka bit w bit"
+setup7; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/ROLLBACK" "$E4M/"; OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "pelny ROLLBACK PASS";; *) bad "pelny ROLLBACK nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
+
+echo
+echo "--- T16i: INSTALL_ETAP4 po dolozeniu paczki Etapu 7 bierze SWOJA biblioteke"
+# To jest regresja na kolizje nazw w payloadzie: gdyby Etap 7 wlozyl swoja
+# biblioteke pod nazwa Etapu 4, to sprzatanie po Etapie 6 (ROLLBACK_ETAP4 +
+# INSTALL_ETAP4, uzbrojone na karcie uzytkownika) zainstalowaloby wersje
+# Etapu 7, a ROLLBACK_ETAP7 nie mialby czego cofac.
+setup7; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cmp -s "$E7LIB" "$E4M/payload/libmib2high-carplay-rgi-ipod.so" \
+  && ok "Etap 4 zainstalowal swoja biblioteke" || bad "Etap 4 wzial biblioteke Etapu 7"
+cmp -s "$E7LIB" "$E4M/payload/libmib2high-carplay-rgi-ipod.etap7.so" \
+  && bad "w aucie biblioteka Etapu 7 po samym Etapie 4" || ok "biblioteki sa rozne, transakcje rozdzielone"
+
+echo
+echo "--- T16j: COLLECT zbiera dmdt gd i gs"
+mkfakedmdt
+OUT=$(run MIB_DMDT="$SIM/fake-dmdt"); R=$(ls -d "$E4M"/collected/run-* | tail -1)
+grep -q 'args=gd' "$R/dmdt-gd.txt" 2>/dev/null && ok "dmdt-gd.txt z wywolaniem 'gd'" || bad "brak dmdt-gd.txt"
+grep -q 'args=gs' "$R/dmdt-gs.txt" 2>/dev/null && ok "dmdt-gs.txt z wywolaniem 'gs'" || bad "brak dmdt-gs.txt"
+grep -q 'ETAP7=' "$R/trace/metadata.txt" 2>/dev/null && ok "metadata ma stan Etapu 7" || bad "metadata bez stanu Etapu 7"
+
+echo
+echo "--- T16k: pelna procedura z karty, w kolejnosci (sprzatanie 6 -> Etap 7)"
+setup7; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"; run >/dev/null
+# stan jak na karcie uzytkownika: oba znaczniki Etapu 4 czekaja uzbrojone
+for m in ROLLBACK_ETAP4 INSTALL_ETAP4; do cp "$SIM/sd/ZNACZNIKI/$m" "$E4M/"; done
+R1=$(run); R2=$(run)
+case "$R1" in *"ETAP4_ROLLBACK_RESULT=PASS"*) ok "1.: rollback Etapu 4";; *) bad "1. nie rollback Etapu 4";; esac
+case "$R2" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "2.: instalacja Etapu 4";; *) bad "2. nie instalacja Etapu 4";; esac
+case "$R2" in *"ETAP4_BT=OFF"*) ok "2.: iap2.cfg bez sekcji [bluetooth]";; *) bad "2. BT nie wylaczone";; esac
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP7" "$E4M/"; R3=$(run)
+case "$R3" in *"ETAP7_INSTALL_RESULT=PASS"*) ok "3.: instalacja Etapu 7";; *) bad "3. nie instalacja Etapu 7";; esac
+ls "$E4M" | grep -q -E '^(INSTALL|ROLLBACK|PROBE)_' && bad "zostaly znaczniki" || ok "wszystkie znaczniki zuzyte"
+R4=$(run); case "$R4" in *"MODE=COLLECT"*) ok "4.: zwykly COLLECT";; *) bad "4. nie COLLECT";; esac
+
+echo
+echo "--- T16l: WSZYSTKIE cztery znaczniki naraz -> wlasciwa kolejnosc bez wracania po karte"
+# Praktyczne sedno: uzytkownik nie ma przy aucie czytnika kart, wiec musi moc
+# wlozyc komplet znacznikow w domu i w aucie tylko uruchamiac skrypt.
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"
+cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null; run >/dev/null
+for m in ROLLBACK_ETAP4 INSTALL_ETAP4 INSTALL_ETAP7 PROBE_ETAP7; do cp "$SIM/sd/ZNACZNIKI/$m" "$E4M/"; done
+S1=$(run); S2=$(run)
+S3=$(run)
+S4=$(env OVL_WAIT_USER=0 OVL_PROBE_BIN=/nie/ma OVL_DMDT=/nie/ma MIB_SD="$SIM/sd" MIB_APP="$SIM/app" \
+         MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" sh "$SIM/sd/mod/command.sh" 2>&1)
+S5=$(run)
+case "$S1" in *"ETAP4_ROLLBACK_RESULT=PASS"*) ok "1.: ROLLBACK_ETAP4";; *) bad "1. nie rollback Etapu 4"; echo "$S1" | tail -2 | sed 's/^/      | /';; esac
+case "$S2" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "2.: INSTALL_ETAP4";; *) bad "2. nie instalacja Etapu 4"; echo "$S2" | tail -2 | sed 's/^/      | /';; esac
+case "$S3" in *"ETAP7_INSTALL_RESULT=PASS"*) ok "3.: INSTALL_ETAP7";; *) bad "3. nie instalacja Etapu 7"; echo "$S3" | tail -2 | sed 's/^/      | /';; esac
+case "$S4" in *"PROBE_ETAP7_RESULT=DONE"*) ok "4.: PROBE_ETAP7";; *) bad "4. nie sonda"; echo "$S4" | tail -2 | sed 's/^/      | /';; esac
+case "$S5" in *"MODE=COLLECT"*) ok "5.: COLLECT";; *) bad "5. nie COLLECT";; esac
+ls "$E4M" | grep -q -E '^(INSTALL|ROLLBACK|PROBE)_' && bad "zostaly znaczniki" || ok "wszystkie zuzyte, po jednym na uruchomienie"
+# Samoblokada: gdyby krok 2 padl, Etap 7 NIE moze wejsc na polamany stan.
+setup7; run >/dev/null
+for m in INSTALL_ETAP7 PROBE_ETAP7; do cp "$SIM/sd/ZNACZNIKI/$m" "$E4M/"; done
+OUT=$(run); case "$OUT" in *"ETAP7: wymaga Etapu 4"*) ok "bez Etapu 4 caly lancuch sie zatrzymuje";; *) bad "Etap 7 wszedl bez Etapu 4";; esac
+fi
+
+# ----------------------------------------------------------------------- T17
+# Wydanie 1.0: karta z WSZYSTKIMI etapami i uzbrojonym INSTALL_ALL - tak, jak
+# laik dostaje ja z install.zip. Jedno uruchomienie ma zrobic cala robote,
+# a kazdy blad ma zostawic auto w spojnym stanie, z ktorego da sie wznowic.
+setupall(){ setup7; : > "$E4M/INSTALL_ALL"; }
+lines_safe(){ printf '%s\n' "$1" | grep -c 'SAFE TO REMOVE SD'; }
+
+echo
+echo "--- T17a: czyste auto + INSTALL_ALL -> cztery etapy w jednym uruchomieniu"
+if [ ! -d "$PKG7" ]; then
+    bad "brak $PKG7 - najpierw tools/make_sd_etap7.sh"
+else
+setupall; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+OUT=$(run)
+for m in 'INSTALL_RESULT=PASS' 'ETAP4_INSTALL_RESULT=PASS' 'ETAP5_INSTALL_RESULT=PASS' 'ETAP7_INSTALL_RESULT=PASS' 'INSTALL_ALL_RESULT=PASS'; do
+    case "$OUT" in *"$m"*) ok "$m";; *) bad "brak $m"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+done
+[ "$(lines_safe "$OUT")" = 1 ] && ok "SAFE TO REMOVE SD dokladnie raz" || bad "SAFE TO REMOVE SD $(lines_safe "$OUT") razy"
+[ "$(printf '%s\n' "$OUT" | tail -1)" = '[V8S] SAFE TO REMOVE SD' ] && ok "...i to na samym koncu" || bad "ostatnia linia: $(printf '%s\n' "$OUT" | tail -1)"
+case "$OUT" in *"Restart MMI (usblauncher"*|*"Reboot MMI manually"*) bad "posrednie polecenia restartu";; *) ok "bez posrednich polecen restartu";; esac
+[ -f "$E4M/installed.ok" ] && [ -f "$E4M/etap4.installed.ok" ] && [ -f "$E4M/etap5.installed.ok" ] && [ -f "$E4M/etap7.installed.ok" ] \
+  && ok "cztery znaczniki instalacji" || bad "brakuje znacznikow instalacji"
+[ ! -e "$E4M/INSTALL_ALL" ] && ok "INSTALL_ALL zuzyty" || bad "INSTALL_ALL zostal"
+cmp -s "$E7LIB" "$E4M/payload/libmib2high-carplay-rgi-ipod.etap7.so" && ok "w aucie biblioteka Etapu 7" || bad "w aucie nie ta biblioteka"
+[ -f "$SIM/app/eso/hmi/lsd/jars/mib2high-k3346-overrides.jar" ] && [ -f "$OVL" ] && ok "JAR Etapu 5 i nakladka na miejscu" || bad "brak plikow Etapu 5/7"
+OUT=$(run); case "$OUT" in *"MODE=COLLECT"*) ok "kolejne uruchomienie = zbieranie logow";; *) bad "kolejne uruchomienie nie zbiera logow";; esac
+ALLSTATE=$(snapshot_files "$SIM/app" "$SIM/system")
+
+echo
+echo "--- T17b: INSTALL_ALL drugi raz -> nic nie zmienia, mowi jak aktualizowac"
+: > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"INSTALL_ALL_RESULT=ALREADY_INSTALLED"*) ok "rozpoznal pelna instalacje";; *) bad "nie rozpoznal"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+case "$OUT" in *"uninstall first"*) ok "podpowiedz aktualizacji";; *) bad "brak podpowiedzi aktualizacji";; esac
+[ "$ALLSTATE" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "drzewo zmienione"
+[ ! -e "$E4M/INSTALL_ALL" ] && ok "znacznik zuzyty" || bad "znacznik zostal"
+
+echo
+echo "--- T17c: pelny ROLLBACK po INSTALL_ALL -> fabryka bit w bit"
+: > "$E4M/ROLLBACK"; OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK PASS";; *) bad "ROLLBACK nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+for m in ETAP7_ROLLBACK=PASS ETAP5_ROLLBACK=PASS ETAP4_ROLLBACK=PASS; do
+    case "$OUT" in *"$m"*) ok "$m";; *) bad "brak $m";; esac
+done
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
+[ ! -e "$E4M/ROLLBACK" ] && ok "znacznik ROLLBACK zuzyty" || bad "ROLLBACK zostal"
+
+echo
+echo "--- T17d: aktualizacja = ponowna instalacja po odinstalowaniu"
+: > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "ponowna instalacja PASS";; *) bad "ponowna instalacja zablokowana"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+case "$OUT" in *"OLD_BACKUP_KEPT"*) ok "stara kopia v8s odsunieta, nie skasowana";; *) bad "brak OLD_BACKUP_KEPT";; esac
+ls -d "$E4M"/backup/pre-v8s.old.* >/dev/null 2>&1 && ok "pre-v8s.old.* jest na karcie" || bad "stara kopia zniknela"
+[ "$ALLSTATE" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "stan = jak po pierwszej instalacji" || bad "stan inny niz po pierwszej instalacji"
+# Najwazniejsze: NOWA kopia musi byc fabryczna, czyli ROLLBACK po aktualizacji
+# dalej prowadzi do fabryki, a nie do poprzedniej wersji moda.
+: > "$E4M/ROLLBACK"; OUT=$(run)
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "ROLLBACK po aktualizacji -> fabryka" || bad "po aktualizacji ROLLBACK nie daje fabryki"
+
+echo
+echo "--- T17e: awaria w Etapie 5 -> 5 cofniety, v8s+4 zostaja, bez SAFE TO REMOVE SD"
+# Stan wzorcowy najpierw: v8s + Etap 4 z pojedynczych znacznikow.
+setup7; run >/dev/null; cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP4" "$E4M/"; run >/dev/null
+REF4=$(snapshot_files "$SIM/app" "$SIM/system")
+setupall
+awk '{print} /INSTALLING=k3346-coverart-fetch/{print "fail \047TEST_INJECTED_E5\047"}' "$SIM/sd/mod/command.sh" > "$SIM/sd/mod/command.inject5.sh"
+OUT=$(env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" sh "$SIM/sd/mod/command.inject5.sh" 2>&1)
+case "$OUT" in *"TEST_INJECTED_E5"*) ok "wstrzykniety blad wystapil";; *) bad "blad nie wystapil - test nic nie sprawdzil";; esac
+case "$OUT" in *"ETAP5_AUTO_ROLLBACK_RESULT=PASS"*) ok "auto-cofniecie Etapu 5";; *) bad "Etap 5 nie cofniety";; esac
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) bad "zglosil sukces mimo bledu";; *) ok "brak falszywego sukcesu";; esac
+case "$OUT" in *"MODE=INSTALL_ETAP7"*) bad "Etap 7 ruszyl po bledzie Etapu 5";; *) ok "Etap 7 nie ruszyl";; esac
+[ "$(lines_safe "$OUT")" = 0 ] && ok "ani razu SAFE TO REMOVE SD" || bad "SAFE TO REMOVE SD mimo bledu"
+case "$OUT" in *"INSTALL_ALL_RESULT=FAIL"*) ok "wynik FAIL wprost";; *) bad "brak INSTALL_ALL_RESULT=FAIL";; esac
+[ "$(printf '%s\n' "$OUT" | tail -1)" = '[V8S] Run the script again to retry, or uninstall.' ] && ok "ostatnia linia mowi, co dalej" || bad "ostatnia linia: $(printf '%s\n' "$OUT" | tail -1)"
+[ -f "$E4M/installed.ok" ] && [ -f "$E4M/etap4.installed.ok" ] && [ ! -e "$E4M/etap5.installed.ok" ] && [ ! -e "$E4M/etap5.installing.flag" ] \
+  && ok "v8s i Etap 4 zainstalowane, Etap 5 czysty" || bad "zle znaczniki po bledzie"
+[ -e "$E4M/INSTALL_ALL" ] && ok "INSTALL_ALL zostal (do wznowienia)" || bad "INSTALL_ALL zuzyty mimo bledu"
+[ "$REF4" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = stan po v8s + Etap 4, bit w bit" || bad "drzewo rozne od stanu po Etapie 4"
+
+echo
+echo "--- T17f: wznowienie - ten sam znacznik, zwykly instalator"
+OUT=$(run)
+case "$OUT" in *"STAGE_MAP=already installed"*"STAGE_ROUTE=already installed"*) ok "v8s i Etap 4 pominiete";; *) bad "nie pominal zainstalowanych"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+case "$OUT" in *"ETAP5_INSTALL_RESULT=PASS"*"ETAP7_INSTALL_RESULT=PASS"*"INSTALL_ALL_RESULT=PASS"*) ok "dokonczyl 5 i 7";; *) bad "nie dokonczyl"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ "$ALLSTATE" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "stan = jak po instalacji bez bledu" || bad "stan inny niz po czystej instalacji"
+: > "$E4M/ROLLBACK"; run >/dev/null
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "ROLLBACK po wznowieniu -> fabryka" || bad "ROLLBACK po wznowieniu nie daje fabryki"
+
+echo
+echo "--- T17g: zly firmware + INSTALL_ALL -> ODMOWA, zero zapisow, bez 'wyjmij karte'"
+setupall
+sed -i 's/^HMI_Version:.*/HMI_Version:HMI_AU_MIB2_H_EU_G22_C6_999999/' "$SIM/app/eso/hmi/version.properties"
+B=$(snapshot_files "$SIM/app" "$SIM/system"); OUT=$(run)
+case "$OUT" in *"instalacja PRZERWANA"*) ok "odmowa bramy wersji";; *) bad "brak odmowy";; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-v8s" ] && ok "zero zapisow, bez kopii" || bad "zapisy mimo odmowy"
+[ "$(lines_safe "$OUT")" = 0 ] && ok "bez SAFE TO REMOVE SD" || bad "SAFE TO REMOVE SD przy odmowie"
+case "$OUT" in *"INSTALL_ALL_RESULT=FAIL"*"safe state"*) ok "FAIL + auto bezpieczne";; *) bad "brak czytelnego wyniku odmowy";; esac
+
+echo
+echo "--- T17h: ROLLBACK z karty, ktora niczego nie instalowala -> nic do cofniecia"
+setup7; : > "$E4M/ROLLBACK"
+B=$(snapshot_files "$SIM/app" "$SIM/system"); OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=NOTHING_TO_UNDO"*) ok "NOTHING_TO_UNDO";; *) bad "brak NOTHING_TO_UNDO"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+case "$OUT" in *"do not reboot"*) bad "straszy 'do not reboot' bez powodu";; *) ok "nie straszy";; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "zapisy przy pustym rollbacku"
+[ ! -e "$E4M/ROLLBACK" ] && ok "znacznik zuzyty" || bad "znacznik zostal"
+
+echo
+echo "--- T17i: ROLLBACK i INSTALL_ALL naraz -> najpierw ROLLBACK"
+setupall; run >/dev/null; : > "$E4M/INSTALL_ALL"; : > "$E4M/ROLLBACK"
+OUT=$(run); case "$OUT" in *"MODE=ROLLBACK"*) ok "ROLLBACK wygrywa";; *) bad "INSTALL_ALL zablokowal ratunek";; esac
+fi
+
+# ----------------------------------------------------------------------- T18
+# Zipy wydania dokladnie tak, jak dostaje je uzytkownik: rozpakowane na karte,
+# bez naszych paczek etapowych i bez ZNACZNIKI/. Wlaczane zmienna RELEASE_DIR
+# (katalog z work/release/<wersja>, tools/make_release.sh).
+if [ -n "${RELEASE_DIR:-}" ]; then
+unz(){ python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$1" "$2"; }
+ZIP_I=$(ls "$RELEASE_DIR"/*-install.zip 2>/dev/null | head -1)
+ZIP_U=$(ls "$RELEASE_DIR"/*-uninstall.zip 2>/dev/null | head -1)
+echo
+echo "--- T18a: install.zip na karte -> jedno uruchomienie"
+if [ -z "$ZIP_I" ] || [ -z "$ZIP_U" ]; then
+    bad "brak zipow w $RELEASE_DIR"
+else
+RM=/sd/mod/$PKGNAME
+setup nocard; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_I" "$SIM/sd"
+TOP=$(cd "$SIM/sd" && ls -A | LC_ALL=C sort | tr '\n' ' ')
+[ "$TOP" = "README_CarPlay_VC.txt mod " ] && ok "w katalogu glownym karty tylko mod/ i README" || bad "katalog glowny: $TOP"
+[ -e "$SIM$RM/INSTALL_ALL" ] && ok "INSTALL_ALL uzbrojony w zipie" || bad "zip bez INSTALL_ALL"
+if [ -f "$INSTALLER" ]; then cmp -s "$SIM/sd/mod/command.sh" "$INSTALLER" && ok "w zipie instalator ze zrodel" || bad "w zipie inny instalator niz w zrodlach"; fi
+VER=$(cat "$SIM$RM/RELEASE" 2>/dev/null)
+OUT=$(run)
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "INSTALL_ALL_RESULT=PASS";; *) bad "instalacja z zipa nie przeszla"; echo "$OUT" | tail -6 | sed 's/^/      | /';; esac
+case "$OUT" in *"RELEASE=$VER"*) ok "wersja $VER w wyniku";; *) bad "brak RELEASE w wyniku";; esac
+[ "$(lines_safe "$OUT")" = 1 ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = '[V8S] SAFE TO REMOVE SD' ] \
+  && ok "SAFE TO REMOVE SD raz, na koncu" || bad "SAFE TO REMOVE SD nie raz albo nie na koncu"
+[ -f "$SIM$RM/installed.ok" ] && [ -f "$SIM$RM/etap4.installed.ok" ] && [ -f "$SIM$RM/etap5.installed.ok" ] && [ -f "$SIM$RM/etap7.installed.ok" ] \
+  && ok "cztery etapy zainstalowane" || bad "nie wszystkie etapy"
+INST=$(snapshot_files "$SIM/app" "$SIM/system")
+OUT=$(run); R=$(ls -d "$SIM$RM"/collected/run-* 2>/dev/null | tail -1)
+grep -q "RELEASE=$VER" "$R/trace/metadata.txt" 2>/dev/null && ok "zebrane logi znaja wersje" || bad "metadata bez wersji"
+
+echo
+echo "--- T18b: uninstall.zip na te sama karte -> fabryka bit w bit"
+unz "$ZIP_U" "$SIM/sd"
+OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK_RESULT=PASS";; *) bad "odinstalowanie nie przeszlo"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
+
+echo
+echo "--- T18c: aktualizacja - install.zip jeszcze raz na te sama karte"
+unz "$ZIP_I" "$SIM/sd"
+OUT=$(run)
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "ponowna instalacja z zipa";; *) bad "ponowna instalacja z zipa nie przeszla"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+[ "$INST" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "stan = jak po pierwszej instalacji" || bad "stan inny niz po pierwszej instalacji"
+unz "$ZIP_U" "$SIM/sd"; OUT=$(run)
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "i znowu fabryka po odinstalowaniu" || bad "po aktualizacji odinstalowanie nie daje fabryki"
+
+echo
+echo "--- T18d: oba zipy na karcie, ktora niczego nie instalowala"
+# Np. rozpakowane, ale instalacja nigdy nie uruchomiona, albo inna karta.
+setup nocard; B=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_I" "$SIM/sd"; unz "$ZIP_U" "$SIM/sd"
+OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=NOTHING_TO_UNDO"*) ok "nic do cofniecia, bez strachu";; *) bad "zly wynik"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "zapisy"
+
+echo
+echo "--- T18e: collect-logs.zip po nieudanej instalacji -> zbiera logi, nie ponawia"
+ZIP_L=$(ls "$RELEASE_DIR"/*-collect-logs.zip 2>/dev/null | head -1)
+if [ -z "$ZIP_L" ]; then bad "brak collect-logs.zip"; else
+setup nocard; B=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_I" "$SIM/sd"; sed -i 's/^HMI_Version:.*/HMI_Version:HMI_AU_MIB2_H_EU_G22_C6_999999/' "$SIM/app/eso/hmi/version.properties"
+OUT=$(run); case "$OUT" in *"INSTALL_ALL_RESULT=FAIL"*) ok "instalacja odmowila (stan wyjsciowy)";; *) bad "brak odmowy";; esac
+unz "$ZIP_L" "$SIM/sd"; OUT=$(run)
+case "$OUT" in *"FORCED_COLLECT=1"*"COLLECT_RESULT="*) ok "zebral logi";; *) bad "nie zebral logow"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+case "$OUT" in *"MODE=INSTALL_ALL"*) bad "ponowil instalacje";; *) ok "nie ponowil instalacji";; esac
+ls -d "$SIM$RM"/collected/run-* >/dev/null 2>&1 && ok "katalog run-NN powstal" || bad "brak run-NN"
+fi
+fi
+fi
 
 echo
 echo "=========================================================="

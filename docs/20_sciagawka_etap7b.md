@@ -1,16 +1,20 @@
-# 20 – Ściągawka do auta (Etap 7c: strzałka manewru na VC)
+# 20 – Ściągawka do auta (Etap 7i: strzałka manewru na VC)
+
+> **Etap 7 zakończony (2026-10-28, wizyta 9).** Ta ściągawka zostaje na wypadek ponownej
+> instalacji Etapu 7 z osobnej paczki; zwykła instalacja całości to od wersji 1.0 jedno
+> uruchomienie z paczki wydania (README).
 
 Jedna strona do czytania na telefonie przy aucie. Dlaczego tak: `docs\19`. Pełny opis Etapu 7:
 `docs\18`. Ściągawka Etapu 3 (instalacja mapy) to `docs\09` — ta jest osobna.
 
-> **Co się zmieniło po wizycie 3.** Nakładka jest już na kombi i mapa jest widoczna dookoła niej —
-> to działa. Nie było strzałki, bo **nikt nie nasłuchiwał na porcie, którym płyną dane o manewrze**:
-> renderer i nasz hook oba się łączyły, zamiast jeden nasłuchiwać. Naprawione.
+> **Co się zmieniło po wizycie 8.** Strzałka działa w obu układach i idzie za VIEW. Zostało
+> krótkie „mignięcie" w miejscu poprzedniego układu: VC przełącza się od razu przy klawiszu VIEW,
+> a raport o nowym układzie przychodzi ~0,6 s później — a do tego my sprawdzaliśmy go raz na
+> sekundę i czekaliśmy na następną klatkę.
 >
-> Przy okazji: panel nie będzie już malowany, gdy nie ma czego pokazać, i doszła brakująca
-> tekstura flagi celu. Procedura bez zmian: trzy uruchomienia, telefon może być podłączony
-> od początku, sondy nie ma.
-
+> Teraz: przy naciśnięciu VIEW strzałka **znika**, a gdy VC zgłosi nowy układ, **pojawia się od
+> razu we właściwym miejscu**. Nigdy w miejscu poprzedniego układu. Sprawdzone na zapisie z Twojej
+> sesji: 10 naciśnięć, za każdym razem przerwa ~0,4–0,6 s i właściwe miejsce.
 ---
 
 ## 0. Przed wyjazdem
@@ -19,7 +23,7 @@ Jedna strona do czytania na telefonie przy aucie. Dlaczego tak: `docs\19`. Pełn
 - ☐ **Prostownik / zasilacz podłączony.** Bez tego nie zaczynaj.
 - ☐ **Karta ratunkowa, uzbrojona** (`Swdlautorun.txt` **bez** podkreślenia) — na wypadek bootloopu.
 - ☐ **Laptop albo czytnik kart.** Po zużyciu znaczników cofnięcie wymaga skopiowania pliku na kartę.
-- ☐ iPhone + kabel. Tym razem może być podłączony od początku.
+- ☐ iPhone + kabel. Telefon może być podłączony od początku.
 
 ---
 
@@ -48,24 +52,17 @@ podłączeniem telefonu to jedyna czynność, której skrypt nie zrobi za Ciebie
 Uruchom nawigację (Apple Maps / Google Maps) do dowolnego celu i daj jej chwilę — mapa na VC
 pojawia się dopiero, gdy nawigacja dwa razy zgłosi gotowość.
 
-**Zanim włączysz nawigację** — popatrz na VC z samą mapą CarPlay:
-
-- ☐ **Czy czarny prostokąt zniknął?** To jedyne pytanie, na które nie znam jeszcze odpowiedzi.
-  Od tej wersji renderer nie maluje panelu, gdy nie ma manewru. Jeśli prostokąt **zniknął**, był
-  nasz i sprawa zamknięta. Jeśli **został**, to fabryczne podkładki kombi — lekarstwo znane,
-  jedna linijka w pliku na karcie, bez przebudowy.
-
-Potem uruchom nawigację i daj jej chwilę — mapa na VC pojawia się dopiero, gdy nawigacja dwa razy
-zgłosi gotowość:
-
-- ☐ **Prawy panel**: czy jest strzałka i czy odpowiada karcie instrukcji na mapie
-  (lewo / prawo / rondo / zjazd)?
-- ☐ Czy strzałka jest **w miejscu fabrycznego panelu**, a nie w rogu?
+- ☐ **Naciśnij VIEW kilka razy** przy aktywnej trasie: strzałka ma na chwilę **zniknąć** i
+  pojawić się **od razu we właściwym miejscu** — nigdy w miejscu poprzedniego układu. To jest
+  główne pytanie tej wizyty.
+- ☐ Czy przerwa jest krótka (ok. pół sekundy) i wygląda jak przejście, a nie jak błąd?
+- ☐ Duże i małe zegary: czy strzałka dalej siedzi tak dobrze jak na wizycie 8?
+- ☐ Czy strzałka odpowiada karcie instrukcji na mapie (lewo / prawo / rondo / zjazd)?
+- ☐ Czy jest **w miejscu fabrycznego panelu**, a nie w rogu i nie uciętą połową?
 - ☐ Czy pojawiają się **pasy ruchu**?
 - ☐ Czy **odległość, ulica i ETA** są bez zmian? (Te rysuje VC z BAP, ich nie ruszamy — gdyby
   zniknęły, to regres.)
-- ☐ Naciśnij **VIEW**: czy strzałka **przesuwa się razem z zegarami**?
-- ☐ Mapa cały czas widoczna dookoła? (Na wizycie 3 była — gdyby kombi zrobiło się czarne,
+- ☐ Mapa cały czas widoczna dookoła? (Na wizytach 3 i 4 była — gdyby kombi zrobiło się czarne,
   odłącz telefon, wszystko wraca od razu.)
 
 ---
@@ -74,9 +71,8 @@ zgłosi gotowość:
 
 | ☐ | Co | Dlaczego |
 |---|---|---|
-| ☐ | VC z mapą, **bez** włączonej nawigacji | czy czarny prostokąt zniknął — jedyne otwarte pytanie |
-| ☐ | VC ze strzałką w prawym panelu | właściwy wynik całego Etapu 7 |
-| ☐ | VC po naciśnięciu VIEW, drugi układ | czy strzałka podąża za układem |
+| ☐ | VC tuż po VIEW (jeśli zdążysz) | czy w momencie przełączania nie ma strzałki w złym miejscu |
+| ☐ | VC z nawigacją, gdyby strzałki **nie** było | porównanie z mapką z sondy |
 | ☐ | Każdy ekran MMI z `ERROR`, `FAIL` albo `AUTO_ROLLBACK` | diagnoza |
 
 ---
@@ -104,19 +100,16 @@ Skopiuj z karty **cały** katalog `mod\` do `work\auto_test_19\karta_mod\`. Są 
 (`collected\run-*`) **i kopia oryginalnych plików auta** (`backup\pre-v8s\`). Nie kasuj niczego
 z karty, dopóki mod jest zainstalowany.
 
-Rozstrzygające tym razem:
+Rozstrzygające tym razem, wszystko w `logs\vc_overlay-launch.log`:
 
-- `netstat-an.txt` — ma być wpis **LISTEN na 19800** (na wizycie 3 nie było tam nic)
-- `logs\vc_overlay-launch.log` — `server: connected to 127.0.0.1:19800` zamiast `not yet listening`
-- tamże — `scene: ... commands=N` z **N większym od zera**
-- tamże — **nie ma** `flag atlas open failed`
-
+- przy każdym VIEW para linii: `VIEW pressed - tile hidden until the cluster reports the new
+  layout` i `tile shown at (…) after N ms (bap54)` — N powinno wyjść ok. 400–600
+- `(timeout - no layout report)` zamiast `(bap54)` znaczyłoby, że VC po VIEW nie zgłosił nowego
+  układu — wtedy strzałka wróciła po 1,5 s w poprzednie miejsce
+- `layout slot=… (… clocks, bap54) panel at (…)` dalej przy każdej zmianie
 ---
 
 ## Jedno zdanie na koniec
 
-Droga danych o manewrze była przerwana w jednym miejscu: **oba jej końce próbowały się połączyć
-i żaden nie nasłuchiwał**. Widać to w `netstat` z Twojego auta — portu 19800 nie było tam w ogóle.
-Reszta łańcucha działa i jest to już sprawdzone na aucie: okno przyjęte, kontekst przełączony,
-mapa widoczna dookoła nakładki. Ta wizyta sprawdza, czy po połączeniu tej jednej rzeczy pojawia
-się strzałka.
+Strzałka już działa w obu układach; teraz na czas przełączania VIEW znika i wraca od razu we
+właściwym miejscu, zamiast przez chwilę stać tam, gdzie była.

@@ -219,7 +219,12 @@ auta. Luka niezależnie notuje, że `komoviewstyle.conf` MU1439 jest identyczny 
 
 Pozycje (zmierzone, wizyta 1): **(1091,110)** duże zegary, **(1055,207)** po VIEW.
 
-## Alfa — jest już napisana poprawnie, nic nie zmieniamy
+## Alfa — to, co piszemy do DisplayManagera, jest poprawne
+
+> **Uzupełnienie po wizytach 5 i 6 (2026-10-28).** Ta sekcja dotyczy alfy **okna**, które
+> oddajemy DisplayManagerowi, i nadal jest prawdziwa. Czarna płyta powstawała wcześniej, w
+> rendererze: dwa bufory Luki (SSAA, FXAA) są NPOT bez `CLAMP_TO_EDGE`, więc na Tegrze 3 są
+> niekompletne i próbkują się jako `(0,0,0,1)`. Patrz „Odpowiedziane na wizytach 5 i 6" na końcu.
 
 DisplayManager **sam nie włącza `GL_BLEND`** i nie importuje `glBlendFunc`; składa materiałami
 `premultiplied_alpha` / `blend_premult_alpha` z uniformem `uOpacity`. Czyli oczekuje od nas `rgb*a`.
@@ -305,12 +310,42 @@ jest związany w chwili jego startu (`render.c`: `glGetIntegerv(GL_FRAMEBUFFER_B
 &g_default_fbo)`), więc `platform_init()` podstawia mu własne FBO w rozmiarze panelu, a
 `platform_swap()` przenosi je na płótno (`composite_panel()` w `platform_harman.c`).
 
+## Odpowiedziane na wizytach 3 i 4
+
+**Czy nasza przezroczystość przepuszcza mapę CarPlay — TAK.** Schodek alfy mierzyliśmy nad
+**czarnym** tłem, bo telefon był odłączony, a mapa jedzie warstwą sprzętową i **nie ma jej
+w kompozycie** (wizyta 1), więc żaden zrzut `dmdt ts` nie mógł tego pokazać. Odpowiedziało oko:
+na zdjęciach z wizyt 3 i 4 mapa CarPlay jest widoczna dookoła naszego okna, a kafelek manewru
+siedzi dokładnie tam, gdzie konfiguracja każe dla bieżącego układu zegarów — w obu układach,
+czyli przełączanie po VIEW też działa.
+
+Furtka w `mib2high-overlay.conf` (`canvas_width 210` / `canvas_height 153` → małe okno w rogu)
+zostaje jako awaryjna, ale nie była potrzebna.
+
+## Odpowiedziane na wizytach 5 i 6: czyj jest ciemny prostokąt — NASZ, i dlaczego
+
+**Wizyta 5.** Sonda odczytała panel jako `a=[255..255]` przy zerowym RGB na całym płótnie
+328×181. To rozstrzygnęło **właściciela**: prostokąt jest nasz, nie podkładek 101/102.
+Wniosek o **przyczynie** — „tekstura FBO nie trzyma kanału alfa" — był jednak błędny.
+
+**Wizyta 6.** Test alfy przez RGB (`GL_DST_ALPHA`) pokazał `RGBA8: alpha OK`. Bufor alfę trzyma,
+a panel w stanie ustalonym i tak wychodzi `(0,0,0,255)` wszędzie. To dokładnie wartość, którą
+GLES2 zwraca przy próbkowaniu **niekompletnej tekstury** (§3.8.2). Niekompletne są dwa bufory
+Luki — `g_ss_tex` i `g_fxaa_tex`, 525×290, NPOT, z domyślnym `GL_REPEAT`; każda inna jego tekstura
+ma `CLAMP_TO_EDGE`. Na Adreno w MHI2Q (`GL_OES_texture_npot`) to legalne, na Tegrze 3 nie —
+co log z wizyty 7 potwierdził wprost: `GL_OES_texture_npot: no`.
+
+Ani DisplayManager, ani okno, ani kontekst nie miały z tym nic wspólnego — wszystko, co ustala
+ten dokument, było i jest prawdziwe. Podkładki 101/102 są niewinne i `context_recipe 102 101 58`
+zostaje: na zdjęciu bez nawigacji widać na nich fabryczną chrome mapy („85m", „<ulica>",
+„200m"). Zielona karta instrukcji („towards <ulica>") jest po angielsku przy polskim UI auta
+— rysuje ją iPhone w strumieniu CarPlay (58).
+
 ## Czego nadal nie wiem
 
-**Czy nasza przezroczystość przepuszcza mapę CarPlay.** Schodek alfy zmierzyliśmy nad **czarnym**
-tłem, bo telefon był odłączony. Mapa jedzie warstwą sprzętową i **nie ma jej w kompozycie**
-(ustalone na wizycie 1), więc żaden zrzut `dmdt ts` tego nie pokaże — ani teraz, ani później.
-Odpowie wyłącznie oko przy działającym rendererze.
-
-Dlatego `mib2high-overlay.conf` ma opisaną furtkę: wpisanie `canvas_width 210` / `canvas_height 153`
-wraca do małego okna w rogu (brzydko, ale mapa wraca), bez przebudowy binarki.
+**Czy po `CLAMP_TO_EDGE` scena Luki rysuje się na tym GPU w całości.** Do tej pory nikt jej nie
+widział — żaden przebieg nie dał się przeczytać. Mogą wyjść kolejne różnice Adreno/Tegra
+(precyzja shaderów, rozmiar masek 1838×1016, `GL error 0x502` w trakcie klatek). Od Etapu 7g
+renderer loguje `GL_OES_texture_npot: yes/no`, rozszerzenia, pochodzenie błędów GL w pierwszych
+150 klatkach i pokrycie RGB na całym płótnie — następna wizyta odpowie z logu. A gdyby kafelek
+znowu wyszedł czarny, druga siatka (`overlay_tile_is_degenerate`) nie wpuści go na kombi.

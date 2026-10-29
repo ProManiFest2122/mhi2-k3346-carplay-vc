@@ -1,4 +1,6 @@
 port_k3346/altscreen/output/
+port_k3346/altscreen/overlay/output/
+.hostbuild/
 port_k3346/altscreen/generated*/
 port_k3346/altscreen/java/build/*_classes/
 port_k3346/altscreen/renderer/build/

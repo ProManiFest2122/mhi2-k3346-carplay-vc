@@ -20,10 +20,13 @@ source "$QNX_RUNTIME/activate.sh"
 G="$D/generated-rgi-ipod"
 rm -rf "$G"
 mkdir -p "$G" "$D/output"
-SRC=(observer.c ident_hook.c message_table.c send_hook.c receive_probe.c status.c rgi_bridge.c diagnostics.c framework/logging.c framework/bus.c framework/iap2_protocol.c routeguidance/rgd_tlv.c routeguidance/rgd_hook.c telephony/k3346_tel.c)
+SRC=(observer.c ident_hook.c message_table.c send_hook.c receive_probe.c status.c rgi_bridge.c diagnostics.c framework/logging.c framework/bus.c framework/iap2_protocol.c routeguidance/rgd_tlv.c routeguidance/rgd_hook.c routeguidance/maneuver_map.c routeguidance/overlay_feed.c telephony/k3346_tel.c)
 # K3346_TEL_LISTS (Etap 6): ostatnie polaczenia 0x4170/0x4171 i dzwonienie 0x415A -
 # tylko w tej bibliotece; biblioteka v8s (dio_manager) budowana bez tego makra.
-FLAGS=(-fPIC -mfloat-abi=softfp -O2 -std=gnu99 -include stddef.h -DK3346_TEL_LISTS -I"$D/native" -I"$D/native/framework" -I"$D/native/routeguidance")
+# K3346_OVERLAY_FEED (Etap 7): pakiety 48 B do renderera nakladki vc_overlay.
+# -I overlay/upstream daje protocol.h i arrow_progress.h Luki - jedno zrodlo
+# prawdy dla formatu transmisji, zeby hook i renderer nie mogly sie rozjechac.
+FLAGS=(-fPIC -mfloat-abi=softfp -O2 -std=gnu99 -include stddef.h -DK3346_TEL_LISTS -DK3346_OVERLAY_FEED -I"$D/native" -I"$D/native/framework" -I"$D/native/routeguidance" -I"$D/overlay/upstream")
 PATHS=(
   '-DK2161_RX_BIN_PATH="/dev/shmem/k3346-rgi-ipod-rx.bin"'
   '-DK2161_RX_LOG_PATH="/dev/shmem/k3346-rgi-ipod-rx.log"'

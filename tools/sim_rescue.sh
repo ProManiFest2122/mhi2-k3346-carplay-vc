@@ -144,6 +144,19 @@ rollback_mod(){
 STOCK_TRACE=$(sha256sum < "$CARF/mnt/app/eso/hmi/lsd/traceConfig.properties" | cut -d' ' -f1)
 hash_of(){ sha256sum < "$1" | cut -d' ' -f1; }
 
+# Bez /bin/ksh ta symulacja nie odmawia - ona CICHO ZDAJE czesc testow.
+# Kazdy przypadek postaci "drzewo auta bez zmian" wychodzi OK wlasnie dlatego,
+# ze ratunek.sh w ogole sie nie uruchomil. Zdarzylo sie to 2026-10-27 i przez
+# chwile wygladalo na regresje w kodzie, ktorego ta symulacja nawet nie czyta.
+# Obraz bazowy ma tylko dash, wiec:
+#   apt-get install -y mksh && ln -sf /bin/mksh /bin/ksh
+if [ ! -x /bin/ksh ]; then
+    echo "FAIL: brak /bin/ksh - bez niego ratunek.sh sie nie uruchomi," >&2
+    echo "      a symulacja CICHO zdalaby testy 'drzewo bez zmian'." >&2
+    echo "      W kontenerze: apt-get install -y mksh && ln -sf /bin/mksh /bin/ksh" >&2
+    exit 2
+fi
+
 echo "=========================================================="
 echo " SYMULACJA KARTY RATUNKOWEJ   powloka: $(readlink -f /bin/ksh)"
 echo " paczka: $RESCUE"
@@ -192,6 +205,31 @@ case "$OUT" in *ROLLBACK_RESULT=PASS*) ok "pelny rollback instalatorem po ratunk
 POSTF=$(snap_files "$APP"; snap_files "$SYS"); PREF=$(echo "$PRE" | grep -E '^[0-9a-f]{64} ')
 [ "$PREF" = "$POSTF" ] && ok "po ratunku + rollbacku pliki = przed instalacja (bit w bit, tryby)" \
   || { bad "pliki po ratunku+rollbacku rozne od przed-instalacyjnych:"; diff <(echo "$PREF") <(echo "$POSTF") | head -10 | sed 's/^/        /'; }
+
+echo; echo "--- R2b: ratunek usuwa pliki Etapu 7, ale nie rusza mapy ani RGI"
+# Etap 7 lezy w /mnt/app/root, nie w lsd/. Ratunek ma skasowac TYLKO jego wlasne
+# pliki: skrypt sterujacy i biblioteka mm-ipod naleza do v8s / Etapu 4 i ich brak
+# zepsulby mape na VC oraz wskazowki nawigacji.
+setup_car
+install_mod >/dev/null
+mkdir -p "$APP/root/hooks"
+for f in vc_overlay vc_overlay_probe k3346-overlay-probe.sh mib2high-overlay.conf; do
+    printf 'etap7' > "$APP/root/$f"
+done
+printf 'v8s-control' > "$APP/root/mib2high-lvds-control.sh"
+printf 'etap4-lib'   > "$APP/root/hooks/libmib2high-carplay-rgi-ipod.so"
+run_rescue
+E7_LEFT=''
+for f in vc_overlay vc_overlay_probe k3346-overlay-probe.sh mib2high-overlay.conf; do
+    [ -e "$APP/root/$f" ] && E7_LEFT="$E7_LEFT $f"
+done
+[ -z "$E7_LEFT" ] && ok "usuniete wszystkie cztery pliki Etapu 7" || bad "zostaly pliki Etapu 7:$E7_LEFT"
+[ -e "$APP/root/mib2high-lvds-control.sh" ] \
+  && ok "mib2high-lvds-control.sh zostaje (inaczej mapa na VC by nie wstala)" \
+  || bad "ratunek skasowal skrypt sterujacy v8s"
+[ -e "$APP/root/hooks/libmib2high-carplay-rgi-ipod.so" ] \
+  && ok "biblioteka Etapu 4 zostaje (inaczej RGI by padlo)" \
+  || bad "ratunek skasowal biblioteke Etapu 4"
 
 echo; echo "--- R3: pusta kopia traceConfig na karcie -> traceConfig w aucie nietkniety"
 setup_car

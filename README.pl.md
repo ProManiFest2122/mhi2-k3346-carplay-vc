@@ -27,6 +27,15 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 | 🎙️ | **Siri** krótkim wciśnięciem przycisku głosowego |
 | 👆 | **Touchpad MMI jako strzałki** w CarPlay |
 
+## Co dalej?
+
+| | Funkcje |
+|---|---|
+| 🔧 | BugFixs |
+| 🎧 | CarPlay 5-głośnikowy MixUp (Dzięki yety-ua za prace) |
+| ➡️ | Strzałki skrętów na HUD'ie  |
+| 📞 | Własna karta połączenia na mapie VC (fabryczna znika po odebraniu połączenia na mapie VC) |
+
 ## Czy zadziała w moim aucie?
 
 Potrzebne jest **wszystko** z listy:

@@ -169,8 +169,7 @@ Eject the card (right-click the drive → "Eject"; Mac: eject symbol).
 
 1. Car parked, engine off, **charger / power supply connected**, **ignition on**.
 2. Wait until the MMI has started and go to the **home screen**.
-3. Put the card into slot **SD1** (on A4 / A5 / Q5 B9 usually in the glovebox; the M.I.B. wiki says SD1
-   is the left slot — check the label next to the slot).
+3. Put the card into the **left** slot — that is **SD1** (on A4 / A5 / Q5 B9 the slots are in the glovebox).
 4. Within **about 60 seconds** a **software update** starts on the MMI screen. That is the M.I.B.
    installation.
 5. For the next **5–10 minutes**:
@@ -298,9 +297,9 @@ folder, select its contents (`mod` and `README_CarPlay_VC.txt`), drag them into 
 
 ### 4.2 Insert the card
 
-1. Open the glovebox. On A4 / A5 / Q5 B9 there are usually **two SD card slots** there.
-2. Insert the card into slot **SD1** (check the label next to the slot). It is the same slot you normally
-   start M.I.B. from.
+1. Open the glovebox. On A4 / A5 / Q5 B9 there are **two SD card slots** there.
+2. Insert the card into the **left** slot — that is **SD1**, the one M.I.B. runs from.
+   **Not** the right one (SD2): M.I.B. does not run from it.
 3. Push the card all the way in until it clicks.
 
 ### 4.3 Start the installation
@@ -397,7 +396,7 @@ installed from, because it holds the copy of the original files.
    only the file **`ROLLBACK`** (from `mod/mib2high-carplay-rgi-v8s-simple/`) into the folder
    `mod/mib2high-carplay-rgi-v8s-simple/` **on the card**.
 3. Check: the folder `mod\mib2high-carplay-rgi-v8s-simple` now contains a file **`ROLLBACK`**.
-4. Eject the card (step 3.4) and put it into the car, slot **SD1**.
+4. Eject the card (step 3.4) and put it into the car, left slot (**SD1**).
 5. Charger, ignition, MMI started (step 4.1).
 6. Green menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (step 4.3).
 7. Wait without touching anything until you see **`ROLLBACK_RESULT=PASS`** and **`SAFE TO REMOVE SD`**.

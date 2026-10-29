@@ -167,8 +167,7 @@ Wysuń kartę (prawy przycisk na dysku → „Wysuń”; Mac: symbol wysuwania).
 
 1. Auto stoi, silnik wyłączony, **prostownik / zasilacz podłączony**, **zapłon włączony**.
 2. Poczekaj, aż MMI się uruchomi, i przejdź na **ekran główny** (Home).
-3. Włóż kartę do slotu **SD1** (w A4 / A5 / Q5 B9 zwykle w schowku przed pasażerem; wiki M.I.B.: SD1
-   to lewy slot — sprawdź oznaczenie przy slocie).
+3. Włóż kartę do **lewego** slotu — to jest **SD1** (w A4 / A5 / Q5 B9 sloty są w schowku przed pasażerem).
 4. W ciągu **ok. 60 sekund** na ekranie MMI zacznie się **aktualizacja oprogramowania**. To jest
    instalacja M.I.B.
 5. Teraz przez **5–10 minut**:
@@ -294,9 +293,9 @@ zaznacz jego zawartość (`mod` i `README_CarPlay_VC.txt`), przeciągnij do gł�
 
 ### 4.2 Włóż kartę
 
-1. Otwórz schowek przed pasażerem. W A4 / A5 / Q5 B9 są tam zwykle **dwa sloty na karty SD**.
-2. Włóż kartę do slotu **SD1** (sprawdź oznaczenie przy slocie). To ten sam slot, z którego zwykle
-   uruchamiasz M.I.B.
+1. Otwórz schowek przed pasażerem. W A4 / A5 / Q5 B9 są tam **dwa sloty na karty SD**.
+2. Włóż kartę do **lewego** slotu — to jest **SD1**, ten sam, z którego działa M.I.B.
+   **Nie** do prawego (SD2): z niego M.I.B. nie działa.
 3. Wsuń kartę do końca, aż kliknie.
 
 ### 4.3 Uruchom instalację
@@ -395,7 +394,7 @@ którą instalowałeś, bo na niej jest kopia oryginalnych plików.
    sam plik **`ROLLBACK`** (z `mod/mib2high-carplay-rgi-v8s-simple/`) do folderu
    `mod/mib2high-carplay-rgi-v8s-simple/` **na karcie**.
 3. Sprawdź: w folderze `mod\mib2high-carplay-rgi-v8s-simple` jest teraz plik **`ROLLBACK`**.
-4. Wysuń kartę (krok 3.4) i włóż ją do auta, do slotu **SD1**.
+4. Wysuń kartę (krok 3.4) i włóż ją do auta, do lewego slotu (**SD1**).
 5. Prostownik, zapłon, MMI uruchomione (krok 4.1).
 6. Zielone menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (krok 4.3).
 7. Czekaj, nic nie dotykając, aż zobaczysz **`ROLLBACK_RESULT=PASS`** i **`SAFE TO REMOVE SD`**.

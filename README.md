@@ -163,7 +163,7 @@ How it works, building from source, per-stage install markers and the rescue car
   through `KD_WINDOWPROPERTY_CAPTION`, the DisplayManager composites premultiplied alpha, and the panel
   styles are 210×153 / 328×181 — all confirmed in the car. See [`docs/19`](docs/19_displayable_na_mhi2.md).
 * **Eugene Chefranov (@chefranov)** – [mhi2-au37x-carplay](https://github.com/chefranov/mhi2-au37x-carplay),
-  the sibling project for MHI2 AU37x, used with the author's permission. His public installer description
+  the sibling project for MHI2 AU37x. His public installer description
   (on MHI2 the cluster overlay displayable is created by the HMI from a bitmap) is what made us stop
   guessing and read the `displaymanager` binary, where `KD_WINDOWPROPERTY_CAPTION` was found. His project
   is also the existence proof that this feature set is reachable on MHI2 Harman, not only MHI2Q. No file,

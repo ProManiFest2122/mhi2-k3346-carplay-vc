@@ -180,8 +180,8 @@
         walidacji**; `"0"`/nie-liczba daje id 0, `"-1"` jest ignorowane, >64 znaki odrzucane.
         Stąd zakres 1..109 w `overlay_cfg_sanitize()`. Dwie metody (napisy vs dekompilacja),
         jedna odpowiedź – ale jego sekcja ma `[decompile]` i **nie była testowana na aucie**
-  - [x] Trop pochodzi z projektu **chefranov/mhi2-au37x-carplay** (MHI2 AU37x) — użyty **za zgodą autora**,
-        adnotacja wpisana w `publish_src\README.md` i `LICENSING.md`. Żaden jego plik nie trafia do repo
+  - [x] Trop pochodzi z projektu **chefranov/mhi2-au37x-carplay** (MHI2 AU37x) — jako wskazówka;
+        opis w `publish_src\README.md` i `LICENSING.md`. Żaden jego plik nie trafia do repo
   - [x] `dmdt gd`/`gs` zwracają **zero bajtów** na tej jednostce (`gc` działa) – przestaje mieć
         znaczenie, bo dowodem przyjęcia okna jest log renderera, a nie lista z `dmdt`
   - [ ] **Nadal nieustalone:** czemu główny blok starej sondy w ogóle się nie wykonał.

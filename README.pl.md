@@ -160,7 +160,7 @@ Jak to działa, budowanie ze źródeł, znaczniki pojedynczych etapów i karta r
   z alfą premultiplikowaną, a style panelu to 210×153 / 328×181 — wszystko potwierdzone w aucie.
   Zob. [`docs/19`](docs/19_displayable_na_mhi2.md).
 * **Eugene Chefranov (@chefranov)** – [mhi2-au37x-carplay](https://github.com/chefranov/mhi2-au37x-carplay),
-  bliźniaczy projekt dla MHI2 AU37x, użyty za zgodą autora. Jego publiczny opis instalatora (na MHI2
+  bliźniaczy projekt dla MHI2 AU37x. Jego publiczny opis instalatora (na MHI2
   displayable nakładki w zegarach tworzy HMI z bitmapy) sprawił, że przestaliśmy zgadywać i otworzyliśmy
   plik `displaymanager`, w którym znalazł się `KD_WINDOWPROPERTY_CAPTION`. Jego projekt jest też dowodem,
   że ten zestaw funkcji jest osiągalny na MHI2 Harman, nie tylko na MHI2Q. Żaden jego plik, binarka, jar,

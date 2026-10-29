@@ -3,15 +3,15 @@
 from pathlib import Path
 import os, subprocess, sys
 A = Path(__file__).resolve().parents[1]; W = A.parent.parent
-R = A / 'reference-audio-a63d547'; H = Path('/private/tmp/mhi2-openqnx-headers/trunk')
-TC = str(W / 'runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi')
+R = A / 'reference-audio-a63d547'; H = Path(os.environ.get('MHI2_QNX_HEADERS', str(A/'deps/openqnx/trunk')))
+TC = str(Path(os.environ.get('MHI2_TOOLCHAIN', str(A/'deps/xpack-arm-none-eabi-gcc-13.3.1-1.1')))/'bin/arm-none-eabi')
 V = A / 'artifacts/native-nv-hook'   # link-only views made by build_native_buffered_pipeline.py (PIPELINE_VARIANT=nv_hook)
 Q = os.environ.get('HOOK_SO_QUALIFIED', '1')   # 1 = emulator experiment; 0 = inert/fail-closed package variant
 LOCAL = os.environ.get('HOOK_SO_LOCAL') == '1'   # separate Bluetooth/USB/SD build for mm-renderer (MPL1, 44.1k claim, own media route)
 DEV = os.environ.get('HOOK_SO_DEVICE', 'MPL1' if Q == '1' or LOCAL else 'MPL5')
 O = A / (('artifacts/native-hook-so-bt' if Q == '1' else 'artifacts/native-hook-so-bt-inert') if LOCAL else
          ('artifacts/native-hook-so' if Q == '1' else 'artifacts/native-hook-so-inert')); O.mkdir(exist_ok=True)
-FDK = Path('/private/tmp/mhi2-fdk-aac-20261015')
+FDK = Path(os.environ.get('MHI2_FDK_SRC', str(A/'deps/fdk-aac')))
 def run(args):
     return subprocess.check_output(list(map(str, args)), stderr=subprocess.STDOUT, text=True)
 def main():

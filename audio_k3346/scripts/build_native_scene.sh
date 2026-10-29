@@ -2,8 +2,9 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 workspace=$(cd "$here/../.." && pwd)
-cc="$workspace/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi-gcc"
+cc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi-gcc"
 out="$here/artifacts/native-probe"
+mkdir -p "$out"
 source_dir="$here/upstream/hook/audio"
 flags=(-mfloat-abi=softfp -mfpu=neon -mcpu=cortex-a9 -marm -mno-unaligned-access -ffreestanding -fno-builtin -nostdlib -O2 -ffp-contract=off -I"$source_dir")
 cat > "$out/libm-link-stub.c" <<'STUB'

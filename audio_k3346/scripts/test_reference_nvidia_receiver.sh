@@ -3,6 +3,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 ref="$here/reference-audio-a63d547"
 out="$here/artifacts/native-nvidia-sink"
+mkdir -p "$out"
 cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function \
  -I"$ref/tests/mocks" -I"$ref/hook" -I"$here/prototype" \
  "$here/prototype/test_reference_nvidia_receiver.c" "$here/prototype/nvidia_receiver_pump.c" "$here/prototype/nvidia_pcm_sink.c" \

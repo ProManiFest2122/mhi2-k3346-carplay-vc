@@ -2,7 +2,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 workspace=$(cd "$here/../.." && pwd)
-tc="$workspace/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi"
+tc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi"
 source_dir="$here/upstream/apac_decoder"
 out="$here/artifacts/native-apac"
 mkdir -p "$out"

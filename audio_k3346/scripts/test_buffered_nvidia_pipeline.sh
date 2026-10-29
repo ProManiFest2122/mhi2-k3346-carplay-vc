@@ -3,6 +3,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 ref="$here/reference-audio-a63d547"
 out="$here/artifacts/native-nvidia-sink"
+mkdir -p "$out"
 # Only the TEST codec-loader boundary changes. Production reference files stay intact.
 python3 - "$ref" "$out" <<'PY'
 from pathlib import Path
@@ -16,7 +17,7 @@ c++ -std=c++11 -O2 -ffp-contract=off -fno-exceptions -fno-rtti -fPIC -shared \
  -I"$ref/apac_decoder/include" -I"$ref/hook/audio" \
  "$ref"/apac_decoder/src/*.cpp "$ref/hook/audio/apac_bridge.cpp" -o "$out/libpipeline_apac.dylib"
 fdk_includes=()
-for dir in /private/tmp/mhi2-fdk-aac-20261015/cpp/*/include;do fdk_includes+=(-isystem "$dir");done
+for dir in ${MHI2_FDK_SRC:-$here/deps/fdk-aac}/cpp/*/include;do fdk_includes+=(-isystem "$dir");done
 cc -std=gnu99 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function \
  -I"$ref/tests/mocks" -I"$ref/hook" -I"$ref/hook/audio" -I"$here/prototype" "${fdk_includes[@]}" \
  "$here/prototype/test_buffered_nvidia_pipeline.c" "$here/prototype/nvidia_receiver_pump.c" "$here/prototype/nvidia_pcm_sink.c" "$here/prototype/fdk_aac_bridge.c" \

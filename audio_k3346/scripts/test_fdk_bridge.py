@@ -6,6 +6,7 @@ import random
 import struct
 import subprocess
 from pathlib import Path
+import os
 import numpy as np
 
 A=Path(__file__).resolve().parents[1]
@@ -14,7 +15,7 @@ A=Path(__file__).resolve().parents[1]
 def main():
     out=A/'artifacts/fdk-decoder-host'
     cmd=['cc','-std=c99','-O2','-Wall','-Wextra','-Werror','-fPIC','-shared',str(A/'prototype/fdk_aac_bridge.c'),'-I'+str(A/'reference-audio-a63d547/hook/audio')]
-    for p in sorted(Path('/private/tmp/mhi2-fdk-aac-20261015/cpp').glob('*/include')):
+    for p in sorted((Path(os.environ.get('MHI2_FDK_SRC', str(A/'deps/fdk-aac')))/'cpp').glob('*/include')):
         cmd+=['-isystem',str(p)]
     cmd += [str(out/'libmhi2_fdk.dylib'),'-o',str(out/'libmhi2_aac_bridge.dylib')]
     subprocess.run(cmd,check=True)

@@ -3,10 +3,11 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 workspace=$(cd "$here/../.." && pwd)
-tc="$workspace/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi"
+tc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi"
 ref="$here/reference-audio-a63d547"
 out="$here/artifacts/full-audio"
-headers=/private/tmp/mhi2-openqnx-headers/trunk
+mkdir -p "$out"
+headers="${MHI2_QNX_HEADERS:-$here/deps/openqnx/trunk}"
 mkdir -p "$out"
 cat > "$out/mask.S" <<ASM
 .section .rodata

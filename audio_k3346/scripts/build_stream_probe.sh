@@ -2,8 +2,9 @@
 # Emulator-only: stream-bracketed driver probe + RTLD_NEXT stub for AudioStreamPrepare/Stop.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-cc="$here/../../runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi-gcc"
+cc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi-gcc"
 out="$here/artifacts/native-probe"
+mkdir -p "$out"
 flags=(-mfloat-abi=softfp -mfpu=neon -mcpu=cortex-a9 -marm -mno-unaligned-access -ffreestanding -fno-builtin -nostdlib -O2)
 cat > "$out/airplay-stream-link-stub.c" <<'STUB'
 void ctor(void) __asm__("_ZN14CAudioDriverIFC1EPKc");void ctor(void){}

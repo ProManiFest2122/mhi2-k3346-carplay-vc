@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-cc="$(cd "$here/../.." && pwd)/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi-gcc"
+cc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi-gcc"
 out="$here/artifacts/native-probe"; mkdir -p "$out"
 cat > "$out/libc-spawn-stub.c" <<'STUB'
 char **environ;int spawn(void){return 0;}int waitpid(void){return 0;}int getpid(void){return 0;}long write(void){return 0;}void exit(void){}

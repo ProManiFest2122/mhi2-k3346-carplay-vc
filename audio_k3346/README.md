@@ -17,7 +17,9 @@ mod on a car.** The hook stays inert (`MHI2_NV_SIX_CHANNEL_QUALIFIED=0`).
 | Host / ARM-QNX emulator | NVIDIA PCM sink, FDK-AAC bridge, realtime upmix, live level control, `LD_PRELOAD` claim of the real libairplay `CAudioDriverIF`, installer simulations |
 | Not tested | Hook inside the real `dio_manager` in a live CarPlay session; Bluetooth shim via `medialauncher`; the MMI "CarPlay UpMix" row with the OEM 3D row hidden; independent sub/LFE; on-unit CHECK, backup, restore |
 
-Full gate list: `docs/STATUS.md`, `docs/INSTALL_READINESS_20261028.md`.
+Full gate list: `docs/STATUS.md`, `docs/INSTALL_READINESS_20261028.md`. Chronological evidence log: `docs/HANDOFF_CLAUDE_20261015.md` (Updates 1-51).
+
+**To rebuild and re-run the host tests, read [`REPRODUCE.md`](REPRODUCE.md)** (pins, one-command dependency fetch, the two stock libraries you supply, and what is not yet reproducible).
 
 ## Layout
 

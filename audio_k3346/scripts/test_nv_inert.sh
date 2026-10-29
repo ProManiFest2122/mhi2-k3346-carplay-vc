@@ -4,9 +4,10 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 ref="$here/reference-audio-a63d547"
 out="$here/artifacts/native-nvidia-sink"
+mkdir -p "$out"
 python3 "$here/scripts/prepare_full_audio_port.py" >/dev/null
 fdk_includes=()
-for dir in /private/tmp/mhi2-fdk-aac-20261015/cpp/*/include;do fdk_includes+=(-isystem "$dir");done
+for dir in ${MHI2_FDK_SRC:-$here/deps/fdk-aac}/cpp/*/include;do fdk_includes+=(-isystem "$dir");done
 for q in 0 1; do
 cc -std=gnu99 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function -DMHI2_NV_SIX_CHANNEL_QUALIFIED=$q -DMHI2_NV_STOCK_BRIDGE \
  -I"$ref/tests/mocks" -I"$ref/hook" -I"$ref/hook/audio" -I"$ref/hook/framework" -I"$here/prototype" "${fdk_includes[@]}" \

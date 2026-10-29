@@ -11,8 +11,8 @@ DUMP=os.environ.get('PIPELINE_VARIANT')=='aac_dump'
 REPLAY=os.environ.get('PIPELINE_VARIANT')=='nv_replay'
 NV=os.environ.get('PIPELINE_VARIANT') in ('nv_hook','nv_stock')
 O=A/('artifacts/native-nv-stock' if STOCK else 'artifacts/native-aac-dump' if DUMP else 'artifacts/native-nv-replay' if REPLAY else 'artifacts/native-nv-hook' if NV else 'artifacts/native-buffered-pipeline');O.mkdir(exist_ok=True)
-R=A/'reference-audio-a63d547';H=Path('/private/tmp/mhi2-openqnx-headers/trunk')
-TC=W/'runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi'
+R=A/'reference-audio-a63d547';H=Path(os.environ.get('MHI2_QNX_HEADERS', str(A/'deps/openqnx/trunk')))
+TC=Path(os.environ.get('MHI2_TOOLCHAIN', str(A/'deps/xpack-arm-none-eabi-gcc-13.3.1-1.1')))/'bin/arm-none-eabi'
 def run(args):return subprocess.check_output(list(map(str,args)),stderr=subprocess.STDOUT,text=True)
 def main():
     manifest=json.loads((W/'runtime/k3346-build/media/base/manifest.json').read_text())

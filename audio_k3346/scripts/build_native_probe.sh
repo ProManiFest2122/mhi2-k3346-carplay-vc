@@ -2,7 +2,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 workspace=$(cd "$here/../.." && pwd)
-cc="$workspace/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi-gcc"
+cc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi-gcc"
 out="$here/artifacts/native-probe"
 mkdir -p "$out"
 cat > "$out/libc-link-stub.c" <<'STUB'

@@ -3,6 +3,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 source_dir="$here/upstream/hook/audio"
 out="$here/artifacts/native-probe"
+mkdir -p "$out"
 units=("$source_dir/scene_engine.c" "$source_dir/scene_engine_math.c" "$source_dir/scene_clusters.c")
 cc -O2 -ffp-contract=off -I"$source_dir" "$here/prototype/mhi2_scene_adapter.c" "$here/prototype/test_scene_adapter.c" "${units[@]}" -lm -o "$out/test-scene-adapter"
 "$out/test-scene-adapter"

@@ -2,7 +2,7 @@
 # Emulator-only: two constructor libs to test multi-library LD_PRELOAD on the QNX loader.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-cc="$(cd "$here/../.." && pwd)/runtime/toolchain/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin/arm-none-eabi-gcc"
+cc="${MHI2_TOOLCHAIN:-$here/deps/xpack-arm-none-eabi-gcc-13.3.1-1.1}/bin/arm-none-eabi-gcc"
 out="$here/artifacts/native-probe"; mkdir -p "$out"
 flags=(-mfloat-abi=soft -mcpu=cortex-a9 -marm -mno-unaligned-access -fno-builtin -nostdlib -O2 -fPIC -shared)
 for n in a b; do

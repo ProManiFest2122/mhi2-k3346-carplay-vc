@@ -2,6 +2,9 @@
 
 [English](README.md) | **Polski**
 
+> ## 📖 [Instrukcja instalacji krok po kroku → INSTRUKCJA.md](INSTRUKCJA.md)
+> Pierwszy raz? Czytaj tę. Każde kliknięcie opisane, z tym, co powinieneś zobaczyć po każdym kroku.
+
 Wyświetla Apple CarPlay na **Virtual Cockpit** (cyfrowych zegarach) w Audi z systemem **MHI2 (Harman),
 oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPlay po kablu.
 
@@ -43,6 +46,8 @@ Potrzebne jest **wszystko** z listy:
 
 ## Instalacja (5 kroków)
 
+*Skrót dla tych, którzy już to robili. **Pierwszy raz? Użyj [instrukcji krok po kroku](INSTRUKCJA.md).***
+
 1. **Rozpakuj** `…-install.zip` do **katalogu głównego karty z M.I.B.**; zgódź się na zastąpienie plików.
    Dodaje własny folder i podmienia tylko `mod/command.sh`.
 2. Karta do slotu, z którego działa M.I.B. (**SD1**), **zapłon włączony**, **prostownik podłączony**.
@@ -63,6 +68,8 @@ przez ok. 10 sekund, aż ekran zgaśnie i MMI uruchomi się od nowa. Inne modele
 w [wiki M.I.B.](https://wiki.mibsolution.one/en/MHI2).
 
 ## Odinstalowanie (i przed każdą aktualizacją)
+
+*Krok po kroku: [INSTRUKCJA.md, rozdział 5](INSTRUKCJA.md#5-odinstalowanie-i-przed-każdą-aktualizacją).*
 
 1. Rozpakuj `…-uninstall.zip` do katalogu głównego **tej samej** karty (dodaje jeden pusty plik `ROLLBACK`).
 2. Uruchom skrypt jak w kroku 3. Czekaj na **`ROLLBACK_RESULT=PASS`** i **`SAFE TO REMOVE SD`**,

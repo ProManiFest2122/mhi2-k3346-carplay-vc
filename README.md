@@ -2,6 +2,9 @@
 
 **English** | [Polski](README.pl.md)
 
+> ## 📖 [Step-by-step installation guide → GUIDE.md](GUIDE.md)
+> First time? Read this one. Every click explained, with what you should see after each step.
+
 Puts Apple CarPlay on the **Virtual Cockpit** (the digital instrument cluster) of Audi cars with the
 **MHI2 (Harman) infotainment, firmware `MHI2_ER_AUG22_K3346`, MU 1438**. Tested on an Audi A4 B9 with
 wired CarPlay.
@@ -44,6 +47,8 @@ You need **all** of these:
 
 ## Install (5 steps)
 
+*Short version for people who have done this before. **First time? Use the [step-by-step guide](GUIDE.md).***
+
 1. **Unzip** `…-install.zip` into the **root of your M.I.B. SD card**; allow overwriting.
    It adds its own folder and replaces only `mod/command.sh`.
 2. Card into the slot M.I.B. runs from (**SD1**), **ignition on**, **charger on**.
@@ -64,6 +69,8 @@ You need **all** of these:
 the [M.I.B. wiki](https://wiki.mibsolution.one/en/MHI2).
 
 ## Uninstall (and before every update)
+
+*Step by step: [GUIDE.md, chapter 5](GUIDE.md#5-uninstall-and-before-every-update).*
 
 1. Unzip `…-uninstall.zip` into the root of the **same** card (it adds one empty file, `ROLLBACK`).
 2. Run the script as in step 3. Wait for **`ROLLBACK_RESULT=PASS`** and **`SAFE TO REMOVE SD`**,

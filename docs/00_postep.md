@@ -569,7 +569,14 @@
 
 - [x] **1.0.0 z GitHuba sprawdzone w aucie (2026-10-30, run-37)**: uninstall.zip + install.zip pobrane z wydania,
       według INSTRUKCJA.md — wszystko działa, instrukcja bez uwag.
-- [ ] **Błąd #5 (VC H11/0379, quepasafran): czarna mapa na VC przy prowadzeniu** — u nas VC H15/0299 działa.
+- [x] **Błąd #5 — PRZYCZYNA: brak łatki NavIgnore (2026-10-30).** Zgłaszający zainstalował w M.I.B.
+      „dual navigation” (m.i.b. → navigation → NavActiveIgnore) i mapa zostaje. `NavActiveIgnore.jar`
+      podmienia `org/dsi/ifc/carplay/AppState` (`getAppStateID()`/`getOwner()` → 0), więc HMI nie wie, że
+      nawigację przejął iPhone. **Nasze auto ma go od 2023** (docs/01, docs/06), auto edzenisa też — dlatego
+      nikt tego nie widział. SPROSTOWANIE: hipoteza „to wersja zegarów H11/0379” była błędna. Skutki:
+      NavIgnore = wymaganie (README/INSTRUKCJA 4.3), instalator raportuje `NAVIGNORE=PRESENT/MISSING`
+      (bez blokowania), `vc_policy` zostaje w kodzie (domyślnie rgi), niepotrzebny.
+- [ ] ~~Błąd #5 (VC H11/0379, quepasafran): czarna mapa na VC przy prowadzeniu~~ (opis historyczny niżej) — u nas VC H15/0299 działa.
       Strona HU identyczna (vc_render bez błędów, BAP te same, `factoryRgType=4`); różnica: VC. Java przy starcie
       trasy robi `updateRgActive(true)` + `setFavoredViewMode(1)` (kod edzenisa; Luka favored nie rusza).
       1.0.1-rc1: polityka `/mnt/app/root/mib2high-vc.conf` `vc_policy=rgi|map|off` (domyślnie rgi = 1.0.0),

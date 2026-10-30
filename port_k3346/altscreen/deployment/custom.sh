@@ -62,6 +62,14 @@ ALL_INSTALL_MARK="$MOD/INSTALL_ALL"
 # mape przy favoredViewMode=RGI. Plik jest nasz, nie fabryczny: nie ma kopii,
 # pelny ROLLBACK go usuwa. Jeden znacznik = jedno uruchomienie (kolejka MAP, OFF, RGI).
 VCPOL_FILE="$APP/root/mib2high-vc.conf"
+# --- 1.0.1: NavIgnore (M.I.B. "dual navigation"). Bez niego HMI, widzac, ze
+# nawigacje przejal iPhone, przelacza zegary z naszej mapy na czarny ekran
+# (issue #5). Auto testowe mialo go od 2023, wiec nikt tego nie widzial.
+# Tylko SPRAWDZAMY: to cudzy plik, nigdy go nie kopiujemy, nie kasujemy, nie cofamy.
+NAVIGNORE_JAR="$APP/eso/hmi/lsd/jars/NavActiveIgnore.jar"
+navignore_report(){ if [ -f "$NAVIGNORE_JAR" ]; then say 'NAVIGNORE=PRESENT'; return 0; fi
+say 'NAVIGNORE=MISSING - the CarPlay map on the cluster will go black during route guidance.'
+say 'Install it in M.I.B.: m.i.b. -> navigation -> NavActiveIgnore -> Enable dual navigation'; }
 VCPOL_MARKS='VC_POLICY_MAP VC_POLICY_OFF VC_POLICY_RGI'
 say(){ echo "[V8S] $*"; }
 fail(){ say "ERROR $*"; exit 1; }
@@ -722,6 +730,7 @@ collect(){
         echo "FACTORY_LOG_FILES_COPIED=$FACTORY_FILES"
         echo 'DSIBAP=full DSICarKombi=full expected after install'
         echo 'dmdt-gc.txt: oczekiwany kontekst 900 z displayable 58 oraz 77={20,102,101,58}; etap 1 (przed instalacja) mial 87 kontekstow i brak 900'
+        if [ -f "$NAVIGNORE_JAR" ]; then echo 'NAVIGNORE=PRESENT'; else echo 'NAVIGNORE=MISSING'; fi
         if [ -f "$VCPOL_FILE" ]; then echo "VC_POLICY_FILE=`cat "$VCPOL_FILE"`"; else echo 'VC_POLICY_FILE=none (rgi)'; fi
         if [ -f "$E7_INSTALLED" ]; then echo 'ETAP7=INSTALLED'; elif [ -f "$E7_PENDING" ]; then echo 'ETAP7=PENDING'; elif [ -f "$E7_ROLLEDBACK" ]; then echo 'ETAP7=ROLLED_BACK'; else echo 'ETAP7=NOT_INSTALLED'; fi
         if [ -f "$MOD/RELEASE" ]; then echo "RELEASE=`cat "$MOD/RELEASE"`"; else echo 'RELEASE=dev (paczka etapowa)'; fi
@@ -752,6 +761,7 @@ if [ -f "$E5_INSTALLED" ]; then say 'STAGE_PHONE=already installed'; else instal
 if [ -f "$E7_INSTALLED" ]; then say 'STAGE_ARROW=already installed'; else install_etap7; fi
 rm -f "$ALL_INSTALL_MARK" || fail 'cannot clear INSTALL_ALL'; sync || fail 'final sync failed'
 say 'INSTALL_ALL_RESULT=PASS'
+navignore_report
 say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
 say 'Then connect the iPhone and start CarPlay navigation.'

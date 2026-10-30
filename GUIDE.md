@@ -306,14 +306,24 @@ folder, select its contents (`mod` and `README_CarPlay_VC.txt`), drag them into 
    **Not** the right one (SD2): M.I.B. does not run from it.
 3. Push the card all the way in until it clicks.
 
-### 4.3 Start the installation
+### 4.3 Enable "dual navigation" (NavIgnore) — required
+
+Without this M.I.B. patch the CarPlay map on the cluster **goes black when you start a route** (the MMI
+sees that the iPhone has taken over navigation and switches the cluster). The patch is part of M.I.B. on
+your card. If you already have it, doing this again does no harm.
+
+1. Green menu → **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`**.
+2. Choose **`Enable dual navigation`** and press the knob.
+3. The MMI **restarts by itself** (1–2 minutes). Wait until the screen works normally again.
+
+### 4.4 Start the installation
 
 1. Open the **green menu**: hold **NAV/MAP + RADIO** together until the green screen appears (as in step 0.3).
 2. Turn the MMI knob to **`m.i.b.`** and **press the knob**.
 3. Go to **`advanced settings`** and **press the knob**.
 4. Go to **`run individual script`** and **press the knob**.
 
-### 4.4 Wait — do not touch anything
+### 4.5 Wait — do not touch anything
 
 Lines of text starting with **`[V8S]`** start to appear on the screen. That is normal. In order:
 
@@ -324,6 +334,9 @@ Lines of text starting with **`[V8S]`** start to appear on the screen. That is n
    **`INSTALL_ALL_RESULT=PASS`**
 
    **`SAFE TO REMOVE SD`**
+
+   Between them there is a line **`NAVIGNORE=PRESENT`**. If you see **`NAVIGNORE=MISSING`** instead,
+   do step 4.3 — the rest of the installation is fine.
 
 This takes **a few minutes**. During that time:
 
@@ -406,11 +419,12 @@ installed from, because it holds the copy of the original files.
 3. Check: the folder `mod\mib2high-carplay-rgi-v8s-simple` now contains a file **`ROLLBACK`**.
 4. Eject the card (step 3.4) and put it into the car, left slot (**SD1**).
 5. Charger, ignition, MMI started (step 4.1).
-6. Green menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (step 4.3).
+6. Green menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (step 4.4).
 7. Wait without touching anything until you see **`ROLLBACK_RESULT=PASS`** and **`SAFE TO REMOVE SD`**.
 8. Restart the MMI (step 5.1).
 
-The car is factory again.
+The car is factory again. The NavIgnore patch from step 4.3 stays — it is an M.I.B. patch, not ours. To
+remove it in M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Remove dual navigation`**.
 
 **Updating to a new version:** first uninstall the old version (this chapter), then install the new one
 (chapters 2–5). If you run the new version's installation over the old one, nothing changes, and the
@@ -425,8 +439,9 @@ screen shows `ALREADY_INSTALLED` with a hint to uninstall first.
 | No `m.i.b.` in the green menu | M.I.B. is not installed, or the green menu is not available yet (up to 5 min after start-up). | Wait 5 minutes and try again. Still nothing → install M.I.B. (chapter [1](#1-sd-card-and-mib-only-if-you-do-not-have-mib-yet)). |
 | No `[V8S]` lines after `run individual script` | The card has no `mod/command.sh`, or it is not in the slot M.I.B. runs from. | Check the card as in step 3.3 (most often: unzipped one folder too deep) and the slot SD1. |
 | `ERROR VERSION_GATE …` | This is not firmware K3346 / MU 1438. | **Nothing was changed.** This mod is not for your car. |
-| `INSTALL_ALL_RESULT=FAIL` | Something interrupted the installation. The car is in a **safe state**: parts installed earlier stay, the part that failed was undone automatically. | The reason is on the line with `ERROR`. Take a photo of it. Run the script again (step 4.3) — it finishes the missing parts. If it says `FAIL` again, uninstall (chapter 6) and report the problem. |
+| `INSTALL_ALL_RESULT=FAIL` | Something interrupted the installation. The car is in a **safe state**: parts installed earlier stay, the part that failed was undone automatically. | The reason is on the line with `ERROR`. Take a photo of it. Run the script again (step 4.4) — it finishes the missing parts. If it says `FAIL` again, uninstall (chapter 6) and report the problem. |
 | A line with `do not reboot` | The automatic undo did not work. | **Do not restart the MMI.** Uninstall straight away (chapter 6, steps 1–7). |
+| The cluster map goes black when you start a route (without a route it is there) | The NavIgnore patch is missing. | Do step 4.3. |
 | No map on the cluster after the restart | Most often: the cluster is not on the navigation view, or no route is running in CarPlay. | Start a route in CarPlay, switch the cluster to navigation. If still nothing — collect logs and report (below). |
 | The MMI does not start after the restart (black screen or keeps restarting) | Very unlikely, but possible. | Wait 5 minutes, restart once more (step 5.1). If it still does not work — see "If the MMI does not start" in the [README](README.md#if-the-mmi-does-not-start). |
 

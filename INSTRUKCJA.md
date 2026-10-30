@@ -302,7 +302,17 @@ zaznacz jego zawartość (`mod` i `README_CarPlay_VC.txt`), przeciągnij do gł�
    **Nie** do prawego (SD2): z niego M.I.B. nie działa.
 3. Wsuń kartę do końca, aż kliknie.
 
-### 4.3 Uruchom instalację
+### 4.3 Włącz „podwójną nawigację” (NavIgnore) — wymagane
+
+Bez tej łatki M.I.B. mapa CarPlay na zegarach **robi się czarna, gdy włączysz trasę** (MMI widzi, że
+nawigację przejął iPhone, i przełącza zegary). Łatka jest w M.I.B. na Twojej karcie. Jeśli już ją masz,
+zrobienie tego jeszcze raz niczego nie psuje.
+
+1. Zielone menu → **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`**.
+2. Wybierz **`Enable dual navigation`** i wciśnij pokrętło.
+3. MMI **samo się zrestartuje** (to trwa 1–2 minuty). Poczekaj, aż ekran znów działa normalnie.
+
+### 4.4 Uruchom instalację
 
 1. Otwórz **zielone menu**: przytrzymaj jednocześnie **NAV/MAP + RADIO**, aż pojawi się zielony ekran
    (jak w kroku 0.3).
@@ -310,7 +320,7 @@ zaznacz jego zawartość (`mod` i `README_CarPlay_VC.txt`), przeciągnij do gł�
 3. Przejdź na **`advanced settings`** i **wciśnij pokrętło**.
 4. Przejdź na **`run individual script`** i **wciśnij pokrętło**.
 
-### 4.4 Poczekaj — nic nie dotykaj
+### 4.5 Poczekaj — nic nie dotykaj
 
 Na ekranie zaczną się pojawiać linie tekstu zaczynające się od **`[V8S]`**. To normalne. Kolejno:
 
@@ -321,6 +331,9 @@ Na ekranie zaczną się pojawiać linie tekstu zaczynające się od **`[V8S]`**.
    **`INSTALL_ALL_RESULT=PASS`**
 
    **`SAFE TO REMOVE SD`**
+
+   Między nimi jest linia **`NAVIGNORE=PRESENT`**. Jeśli zamiast niej widzisz **`NAVIGNORE=MISSING`**,
+   zrób krok 4.3 — reszta instalacji jest w porządku.
 
 To trwa **kilka minut**. Przez ten czas:
 
@@ -404,11 +417,12 @@ którą instalowałeś, bo na niej jest kopia oryginalnych plików.
 3. Sprawdź: w folderze `mod\mib2high-carplay-rgi-v8s-simple` jest teraz plik **`ROLLBACK`**.
 4. Wysuń kartę (krok 3.4) i włóż ją do auta, do lewego slotu (**SD1**).
 5. Prostownik, zapłon, MMI uruchomione (krok 4.1).
-6. Zielone menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (krok 4.3).
+6. Zielone menu → **`m.i.b.`** → **`advanced settings`** → **`run individual script`** (krok 4.4).
 7. Czekaj, nic nie dotykając, aż zobaczysz **`ROLLBACK_RESULT=PASS`** i **`SAFE TO REMOVE SD`**.
 8. Zrestartuj MMI (krok 5.1).
 
-Auto jest fabryczne.
+Auto jest fabryczne. Łatka NavIgnore z kroku 4.3 zostaje — to łatka M.I.B., nie nasza. Usuniesz ją
+w M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Remove dual navigation`**.
 
 **Aktualizacja do nowej wersji:** najpierw odinstaluj starą wersję (ten rozdział), potem zainstaluj nową
 (rozdziały 2–5). Jeśli uruchomisz instalację nowej wersji na zainstalowanej starej, nic się nie zmieni,
@@ -423,8 +437,9 @@ a na ekranie zobaczysz `ALREADY_INSTALLED` z podpowiedzią, żeby najpierw odins
 | W zielonym menu nie ma `m.i.b.` | Nie masz zainstalowanego M.I.B. albo zielone menu jeszcze się nie włączyło (do 5 min po starcie). | Poczekaj 5 minut i spróbuj jeszcze raz. Dalej nic → zainstaluj M.I.B. (rozdział [1](#1-karta-sd-i-mib-tylko-jeśli-jeszcze-nie-masz-mib)). |
 | Po `run individual script` nie pojawiają się linie `[V8S]` | Na karcie nie ma pliku `mod/command.sh` albo karta nie jest w slocie, z którego działa M.I.B. | Sprawdź kartę jak w kroku 3.3 (najczęściej: rozpakowane o jeden folder za głęboko) i slot SD1. |
 | `ERROR VERSION_GATE …` | To nie jest oprogramowanie K3346 / MU 1438. | **Nic nie zostało zmienione.** Ta modyfikacja nie jest dla Twojego auta. |
-| `INSTALL_ALL_RESULT=FAIL` | Coś przerwało instalację. Auto jest w **bezpiecznym stanie**: części zainstalowane wcześniej zostają, a ta, która się nie udała, została automatycznie cofnięta. | Powód jest w linii z `ERROR`. Zrób jej zdjęcie. Uruchom skrypt jeszcze raz (krok 4.3) — instalacja dokończy brakujące części. Jeśli znów jest `FAIL`, odinstaluj (rozdział 6) i zgłoś problem. |
+| `INSTALL_ALL_RESULT=FAIL` | Coś przerwało instalację. Auto jest w **bezpiecznym stanie**: części zainstalowane wcześniej zostają, a ta, która się nie udała, została automatycznie cofnięta. | Powód jest w linii z `ERROR`. Zrób jej zdjęcie. Uruchom skrypt jeszcze raz (krok 4.4) — instalacja dokończy brakujące części. Jeśli znów jest `FAIL`, odinstaluj (rozdział 6) i zgłoś problem. |
 | Linia z `do not reboot` | Automatyczne cofanie się nie udało. | **Nie restartuj MMI.** Od razu odinstaluj (rozdział 6, kroki 1–7). |
+| Mapa na zegarach robi się czarna, gdy włączysz trasę (bez trasy jest) | Brak łatki NavIgnore. | Zrób krok 4.3. |
 | Po restarcie nie ma mapy na zegarach | Najczęściej: zegary nie są na widoku nawigacji albo w CarPlay nie ma włączonej trasy. | Włącz trasę w CarPlay, przełącz zegary na nawigację. Jeśli dalej nic — zbierz logi i zgłoś (niżej). |
 | MMI nie uruchamia się po restarcie (czarny ekran albo ciągłe restarty) | Bardzo mało prawdopodobne, ale możliwe. | Odczekaj 5 minut, zrestartuj jeszcze raz (krok 5.1). Jeśli dalej nie działa — zobacz „MMI nie uruchamia się” w [README](README.pl.md#mmi-nie-uruchamia-się). |
 

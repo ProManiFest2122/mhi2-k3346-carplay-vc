@@ -1080,6 +1080,33 @@ grep -q 'VC_POLICY_FILE=vc_policy=off' "$R5/trace/metadata.txt" 2>/dev/null && o
 O6=$(run); case "$O6" in *"MODE=COLLECT"*) ok "6.: zwykle zbieranie logow";; *) bad "6. nie COLLECT";; esac
 [ "$(cat "$VCPOL" 2>/dev/null)" = "vc_policy=rgi" ] && ok "na koniec polityka rgi" || bad "na koniec: $(cat "$VCPOL" 2>/dev/null)"
 
+# ----------------------------------------------------------------------- T20
+# NavIgnore (issue #5): instalator tylko sprawdza i ostrzega, nigdy go nie rusza.
+NAVJ="$SIM/app/eso/hmi/lsd/jars/NavActiveIgnore.jar"
+echo
+echo "--- T20a: z NavIgnore -> NAVIGNORE=PRESENT, plik nietkniety przez instalacje i ROLLBACK"
+setup7
+if [ ! -f "$NAVJ" ]; then : > "$NAVJ"; fi
+NSUM=$(sha256sum < "$NAVJ")
+: > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"NAVIGNORE=PRESENT"*) ok "zgloszone PRESENT";; *) bad "brak NAVIGNORE=PRESENT";; esac
+case "$OUT" in *"NAVIGNORE=MISSING"*) bad "falszywe MISSING";; *) ok "bez ostrzezenia";; esac
+OUT=$(run); R=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q '^NAVIGNORE=PRESENT' "$R/trace/metadata.txt" 2>/dev/null && ok "metadata: PRESENT" || bad "metadata bez NAVIGNORE"
+: > "$E4M/ROLLBACK"; run >/dev/null
+[ -f "$NAVJ" ] && [ "$NSUM" = "$(sha256sum < "$NAVJ")" ] && ok "ROLLBACK zostawia NavIgnore bit w bit" || bad "ROLLBACK ruszyl NavIgnore"
+
+echo
+echo "--- T20b: bez NavIgnore -> instalacja PASS + ostrzezenie ze sciezka menu, przed SAFE TO REMOVE SD"
+setup7; rm -f "$NAVJ"
+: > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "instalacja nie zablokowana";; *) bad "instalacja zablokowana";; esac
+case "$OUT" in *"NAVIGNORE=MISSING"*"NavActiveIgnore -> Enable dual navigation"*) ok "ostrzezenie ze sciezka menu";; *) bad "brak ostrzezenia";; esac
+[ "$(printf '%s\n' "$OUT" | tail -1)" = '[V8S] SAFE TO REMOVE SD' ] && ok "SAFE TO REMOVE SD nadal na koncu" || bad "zla ostatnia linia"
+[ ! -e "$NAVJ" ] && ok "instalator NavIgnore nie dodaje" || bad "instalator utworzyl NavIgnore"
+OUT=$(run); R=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q '^NAVIGNORE=MISSING' "$R/trace/metadata.txt" 2>/dev/null && ok "metadata: MISSING" || bad "metadata bez MISSING"
+
 # ----------------------------------------------------------------------- T18
 # Zipy wydania dokladnie tak, jak dostaje je uzytkownik: rozpakowane na karte,
 # bez naszych paczek etapowych i bez ZNACZNIKI/. Wlaczane zmienna RELEASE_DIR

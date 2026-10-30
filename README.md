@@ -46,7 +46,9 @@ You need **all** of these:
   M.I.B. version screen,
 - an **iPhone with CarPlay** (wired),
 - [**M.I.B. – More Incredible Bash**](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) on an SD
-  card, already working in your car (green menu → *m.i.b.* opens). Tested with **M.I.B. 3.6.0**.
+  card, already working in your car (green menu → *m.i.b.* opens).
+- the M.I.B. **NavIgnore** patch ("dual navigation": *m.i.b. → navigation → NavActiveIgnore → Enable dual
+  navigation*). Without it the cluster map goes black during route guidance. See [GUIDE.md, step 4.3](GUIDE.md#43-enable-dual-navigation-navignore--required). Tested with **M.I.B. 3.6.0**.
   No M.I.B. yet? How to prepare the SD card (FAT32) and install M.I.B.: [GUIDE.md, chapter 1](GUIDE.md#1-sd-card-and-mib-only-if-you-do-not-have-mib-yet).
 
 ## Before you start

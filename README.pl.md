@@ -45,7 +45,9 @@ Potrzebne jest **wszystko** z listy:
   wersji w M.I.B.,
 - **iPhone z CarPlay** (po kablu),
 - [**M.I.B. – More Incredible Bash**](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) na karcie
-  SD, już działające w Twoim aucie (zielone menu → *m.i.b.* się otwiera). Sprawdzone z **M.I.B. 3.6.0**.
+  SD, już działające w Twoim aucie (zielone menu → *m.i.b.* się otwiera).
+- łatka M.I.B. **NavIgnore** („podwójna nawigacja”: *m.i.b. → navigation → NavActiveIgnore → Enable dual
+  navigation*). Bez niej mapa na zegarach robi się czarna przy prowadzeniu. Zob. [INSTRUKCJA.md, krok 4.3](INSTRUKCJA.md#43-włącz-podwójną-nawigację-navignore--wymagane). Sprawdzone z **M.I.B. 3.6.0**.
   Nie masz M.I.B.? Jak przygotować kartę SD (FAT32) i zainstalować M.I.B.: [INSTRUKCJA.md, rozdział 1](INSTRUKCJA.md#1-karta-sd-i-mib-tylko-jeśli-jeszcze-nie-masz-mib).
 
 ## Zanim zaczniesz

@@ -567,6 +567,23 @@
       Kandydat `1.0.0-rc1` zbudowany w całości ze źródeł. Kopia karty sprzed testu: `work\karta_przed_rc1\`.
       Pasy ruchu: niesprawdzone w aucie (brak jazdy z manewrami wielopasowymi) – opisane w README.
 
+- [x] **1.0.0 z GitHuba sprawdzone w aucie (2026-10-30, run-37)**: uninstall.zip + install.zip pobrane z wydania,
+      według INSTRUKCJA.md — wszystko działa, instrukcja bez uwag.
+- [ ] **Błąd #5 (VC H11/0379, quepasafran): czarna mapa na VC przy prowadzeniu** — u nas VC H15/0299 działa.
+      Strona HU identyczna (vc_render bez błędów, BAP te same, `factoryRgType=4`); różnica: VC. Java przy starcie
+      trasy robi `updateRgActive(true)` + `setFavoredViewMode(1)` (kod edzenisa; Luka favored nie rusza).
+      1.0.1-rc1: polityka `/mnt/app/root/mib2high-vc.conf` `vc_policy=rgi|map|off` (domyślnie rgi = 1.0.0),
+      znaczniki `VC_POLICY_RGI/MAP/OFF`, zipy `…-vc-policy-*.zip`, ROLLBACK usuwa plik. Natywne binarki = 1.0.0.
+      **Test u nas (2026-10-30, VC H15/0299, run-39…42):** `rgi` = 1.0.0; `map` (`SET_FAVORED_SKIPPED`) —
+      bez żadnej różnicy (mapa, strzałka, fabryczne tło kafelka); `off` (`vcEnabled=false`) — małe zegary:
+      strzałka bez fabrycznego tła, duże zegary: brak strzałki → `off` odpada. Kolejka znaczników
+      (ROLLBACK+INSTALL_ALL+MAP+OFF+RGI na jednej karcie) działa w aucie. rc1 padło na `printf` (patrz Pułapki),
+      rc2 = poprawka. Czeka: test `map` u zgłaszającego (H11/0379).
+- [ ] **Błąd #5b: brak strzałki u zgłaszającego** — przyczyna: jego iPhone nie powtarza listy manewrów (TLV 0x0D)
+      po chwilowym `route_state=0` na starcie trasy, a `rgd_hook.c` (ramka resetu, kod Luki) ją kasuje →
+      `active_man` pusty → nakładka dostaje tylko „clear”. Potwierdzone surowym `rx.bin` obu aut. Do zrobienia
+      po czarnej mapie (plan: zapamiętać listę przez ramkę resetu i przywrócić, gdy 5202 wrócą).
+
 ## Gdzie co jest
 
 | Dokument | Po co |
@@ -606,6 +623,9 @@
 | `sim_probe.sh` | symulacja sondy Etapu 7 (43 testy, dash + mksh): wymusza, by **każdy blok zostawił ślad** w logu i plikach — po tym, jak w aucie cały blok wykonał się „po cichu" i skrypt i tak zwrócił 0. Od Etapu 7b sprawdza też **odmowę przy żywym rendererze** (duplikat captionu 98) |
 
 ## Pułapki, o których trzeba pamiętać
+- **Na MMI nie ma `printf`** (ani `sha256sum`, `cksum`, `md5sum`, `cmp`). 1.0.1-rc1 padło na tym w aucie
+  (`printf: cannot execute`), choć symulacja dała 348/0 — w kontenerze `printf` jest. Od rc2 test T0
+  w `sim_installer.sh` przeszukuje skrypty dla auta pod kątem tych poleceń.
 
 - **Heredoc w tej powłoce zjada jeden backslash z `\\`.** Pisanie skryptu Pythona przez
   `cat > plik <<'EOF'` **nie jest przezroczyste**: `\\n` dochodzi jako `\n`, a Python zamienia to na

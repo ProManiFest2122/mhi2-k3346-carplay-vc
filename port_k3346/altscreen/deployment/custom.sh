@@ -57,6 +57,12 @@ E7_NAMES='vc_overlay vc_overlay_probe mib2high-overlay.conf flag_atlas.rgba k334
 # auto-cofnieciem - INSTALL_ALL tylko wola je po kolei. Pierwszy blad konczy
 # przebieg; ponowne uruchomienie wznawia od pierwszego brakujacego etapu.
 ALL_INSTALL_MARK="$MOD/INSTALL_ALL"
+# --- Wydanie 1.0.1: polityka VC (issue #5). Bundle Java czyta ten plik przy
+# starcie HMI: rgi (domyslnie, jak 1.0.0) / map / off. VC H11/0379 robi czarna
+# mape przy favoredViewMode=RGI. Plik jest nasz, nie fabryczny: nie ma kopii,
+# pelny ROLLBACK go usuwa. Jeden znacznik = jedno uruchomienie (kolejka MAP, OFF, RGI).
+VCPOL_FILE="$APP/root/mib2high-vc.conf"
+VCPOL_MARKS='VC_POLICY_MAP VC_POLICY_OFF VC_POLICY_RGI'
 say(){ echo "[V8S] $*"; }
 fail(){ say "ERROR $*"; exit 1; }
 # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
@@ -163,7 +169,7 @@ TX=0; TX4=0; TX5=0; TX7=0
 # W trybie INSTALL_ALL etapy NIE moga mowic "SAFE TO REMOVE SD" po drodze: kto
 # wyjmie karte po pierwszym etapie, wyjmie ja w trakcie zapisu nastepnego, a jego
 # auto-cofniecie potrzebuje kopii z tej karty. Ten komunikat pada raz, na koncu.
-ALL=0; RBFAIL=0
+ALL=0; RBFAIL=0; QUIET_SAFE=0
 stage_done(){ [ "$ALL" -eq 1 ] || say "$@"; }
 # Ostatnie slowo przebiegu INSTALL_ALL, ktory sie nie udal. Laik czyta tylko
 # koniec ekranu, wiec tam musi stac wynik i jedno polecenie, co dalej.
@@ -258,6 +264,7 @@ checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not
 if [ -f "$E7_INSTALLED" ] || [ -f "$E7_PENDING" ]; then tx_restore "$E7_BACKUP" "$E7_NAMES" || fail 'etap7 restore failed: do not reboot'; rm -f "$E7_INSTALLED" "$E7_PENDING" || fail 'cannot clear etap7 flags'; : > "$E7_ROLLEDBACK" || fail 'cannot mark etap7 rollback'; say 'ETAP7_ROLLBACK=PASS'; fi
 if [ -f "$E5_INSTALLED" ] || [ -f "$E5_PENDING" ]; then tx_restore "$E5_BACKUP" "$E5_NAMES" || fail 'etap5 restore failed: do not reboot'; rm -f "$E5_INSTALLED" "$E5_PENDING" || fail 'cannot clear etap5 flags'; : > "$E5_ROLLEDBACK" || fail 'cannot mark etap5 rollback'; say 'ETAP5_ROLLBACK=PASS'; fi
 if [ -f "$E4_INSTALLED" ] || [ -f "$E4_PENDING" ]; then e4_restore || fail 'etap4 restore failed: do not reboot'; rm -f "$E4_INSTALLED" "$E4_PENDING" || fail 'cannot clear etap4 flags'; : > "$E4_ROLLEDBACK" || fail 'cannot mark etap4 rollback'; say 'ETAP4_ROLLBACK=PASS'; fi
+rm -f "$VCPOL_FILE" "$VCPOL_FILE".new.* || fail 'cannot remove VC policy file'
 restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'SAFE TO REMOVE SD'; }
 # ------------------------------------------------------------------------------
 # K3346 Etap 4: RGI w stock mm-ipod.
@@ -715,6 +722,7 @@ collect(){
         echo "FACTORY_LOG_FILES_COPIED=$FACTORY_FILES"
         echo 'DSIBAP=full DSICarKombi=full expected after install'
         echo 'dmdt-gc.txt: oczekiwany kontekst 900 z displayable 58 oraz 77={20,102,101,58}; etap 1 (przed instalacja) mial 87 kontekstow i brak 900'
+        if [ -f "$VCPOL_FILE" ]; then echo "VC_POLICY_FILE=`cat "$VCPOL_FILE"`"; else echo 'VC_POLICY_FILE=none (rgi)'; fi
         if [ -f "$E7_INSTALLED" ]; then echo 'ETAP7=INSTALLED'; elif [ -f "$E7_PENDING" ]; then echo 'ETAP7=PENDING'; elif [ -f "$E7_ROLLEDBACK" ]; then echo 'ETAP7=ROLLED_BACK'; else echo 'ETAP7=NOT_INSTALLED'; fi
         if [ -f "$MOD/RELEASE" ]; then echo "RELEASE=`cat "$MOD/RELEASE"`"; else echo 'RELEASE=dev (paczka etapowa)'; fi
         echo 'ETAP7 logi: /tmp/vc_overlay.log (EVT_READY, pierwsza klatka, fps, brak progress watchdog TIMEOUT), vc_overlay-launch.log'
@@ -724,7 +732,7 @@ collect(){
     } > "$d/trace/metadata.txt" || RESULT=PARTIAL
     sync || fail 'collection sync failed'
     say "COLLECT_RESULT=$RESULT saved=$d"
-    say 'SAFE TO REMOVE SD'
+    [ "$QUIET_SAFE" -eq 1 ] || say 'SAFE TO REMOVE SD'
 }
 # Wszystkie etapy, po kolei, kazdy tylko jesli go jeszcze nie ma. Funkcje etapow
 # sa te same co przy znacznikach pojedynczych - ich odmowy, kopie i auto-cofniecia
@@ -748,6 +756,30 @@ say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
 say 'Then connect the iPhone and start CarPlay navigation.'
 say 'SAFE TO REMOVE SD'; }
+# Zapis polityki VC. Atomowo (plik tymczasowy + mv), zeby HMI nigdy nie
+# przeczytalo polowy pliku. Nie wymaga kopii: przed nami pliku nie bylo.
+# Najpierw COLLECT: kto zmienia polityke, robi to w trakcie trasy, a logi tej
+# trasy (pod poprzednia polityka) sa wlasnie tym, czego potrzebujemy. Kilka
+# znacznikow naraz = kolejka: kazde uruchomienie zuzywa jeden (MAP, OFF, RGI),
+# wiec caly test da sie przygotowac na karcie za jednym razem.
+set_vc_policy(){ pol="$1"; mark="$2"; say "MODE=VC_POLICY policy=$pol"; checkrw "$SD" || fail 'SD not writable'
+[ -f "$INSTALLED" ] || fail 'VC_POLICY: the mod is not installed (no installed.ok) - nothing changed'
+[ ! -e "$PENDING" ] || fail 'VC_POLICY: unfinished install - use ROLLBACK'
+[ -d "$APP/root" ] || fail 'VC_POLICY: missing app root directory'
+checkrw "$APP" || fail 'app filesystem not writable'
+# resztki po przerwanym zapisie (tez po bledzie printf w 1.0.1-rc1) - nic nie znacza, ale nie zostawiamy smieci
+rm -f "$VCPOL_FILE".new.* 2>/dev/null
+QUIET_SAFE=1; collect; QUIET_SAFE=0
+# echo, nie printf: na MMI nie ma printf (test 2026-10-30: "printf: cannot execute").
+echo "vc_policy=$pol" > "$VCPOL_FILE.new.$$" || fail 'cannot write VC policy'
+chmod 644 "$VCPOL_FILE.new.$$" || { rm -f "$VCPOL_FILE.new.$$"; fail 'cannot chmod VC policy'; }
+mv -f "$VCPOL_FILE.new.$$" "$VCPOL_FILE" || { rm -f "$VCPOL_FILE.new.$$"; fail 'cannot install VC policy'; }
+rm -f "$MOD/$mark" || fail 'cannot clear VC policy marker'; sync || fail 'sync failed'
+say "VC_POLICY_RESULT=PASS policy=$pol (logs of the previous route saved above)"
+for m in $VCPOL_MARKS; do [ ! -f "$MOD/$m" ] || say "NEXT_QUEUED=$m (run the script again during the next route)"; done
+say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
+say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'SAFE TO REMOVE SD'; }
 [ -d "$SD" ] || fail 'SD not mounted'; [ -d "$MOD" ] || fail 'package missing'
 # ROLLBACK ma pierwszenstwo NAD wymuszonym zbieraniem: zapomniany na karcie plik
 # COLLECT_LOGS nie moze nigdy zablokowac sciezki ratunku. Bezpieczenstwo przed wygoda.
@@ -761,6 +793,9 @@ elif [ -f "$E4_INSTALL_MARK" ]; then install_etap4
 elif [ -f "$E5_INSTALL_MARK" ]; then install_etap5
 elif [ -f "$E7_INSTALL_MARK" ]; then install_etap7
 elif [ -f "$E7_PROBE_MARK" ]; then probe_etap7
+elif [ -f "$MOD/VC_POLICY_MAP" ]; then set_vc_policy map VC_POLICY_MAP
+elif [ -f "$MOD/VC_POLICY_OFF" ]; then set_vc_policy off VC_POLICY_OFF
+elif [ -f "$MOD/VC_POLICY_RGI" ]; then set_vc_policy rgi VC_POLICY_RGI
 elif [ -f "$INSTALLED" ]; then collect
 elif [ -f "$MOD/rolledback.ok" ]; then say 'ALREADY_ROLLED_BACK; no automatic reinstallation'
 else install; fi

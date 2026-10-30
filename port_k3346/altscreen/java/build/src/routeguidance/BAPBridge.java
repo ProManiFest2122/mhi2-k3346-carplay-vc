@@ -42,13 +42,31 @@ public class BAPBridge {
      * descriptor/distance writes because the HUD requires those same writes.
      */
     /*
-     * Virtual Cockpit policy:
+     * Virtual Cockpit policy, read once from VC_POLICY_FILE (K3346 1.0.1):
      *
+     * rgi (default) = factory Audi RGI presentation in the VC: rgActive plus
+     *                 favoredViewMode=RGI, reasserted while CarPlay guides.
+     * map           = rgActive as in rgi, but favoredViewMode is left alone.
+     *                 Issue #5: on VC H11/0379 favored=RGI turns the CarPlay
+     *                 map black for the whole route; VC H15/0299 ignores it.
+     * off           = HUD-only CarPlay guidance (VC_RGI_ENABLED=false below).
+     *
+     * A missing file or an unknown value means rgi, so units without the file
+     * behave exactly as 1.0.0.
+     */
+    private static final String VC_POLICY_FILE = "/mnt/app/root/mib2high-vc.conf";
+    private static String VC_POLICY_SOURCE = "default";
+    private static final String VC_POLICY = loadVcPolicy();
+
+    /*
      * true  = factory Audi RGI presentation in the VC.
      * false = HUD-only CarPlay guidance; VC is held in the factory
      *         non-navigation/COMPASS presentation.
      */
-    private static boolean VC_RGI_ENABLED = true;
+    private static boolean VC_RGI_ENABLED = !"off".equals(VC_POLICY);
+
+    /* Only the rgi policy selects and holds favoredViewMode=RGI. */
+    private static final boolean VC_SET_FAVORED = "rgi".equals(VC_POLICY);
 
     private static final int VC_VIEW_RGI = 1;
 
@@ -231,6 +249,50 @@ public class BAPBridge {
         Log.d(TAG, "[BAP] " + call + "(" + args + ")");
     }
 
+    /* Reads "vc_policy=<rgi|map|off>" from VC_POLICY_FILE; '#' starts a comment.
+     * Never throws: any problem falls back to rgi, the 1.0.0 behaviour. */
+    private static String loadVcPolicy() {
+        /* FileInputStream, not FileReader: it is the file API already proven
+         * on this J9 (K3346GatedPhoneService, K3346CoverArt). */
+        java.io.FileInputStream in = null;
+        try {
+            in = new java.io.FileInputStream(VC_POLICY_FILE);
+            byte[] buf = new byte[512];
+            int n = 0;
+            int r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) {
+                n += r;
+            }
+            String text = new String(buf, 0, n);
+            int start = 0;
+            while (start <= text.length()) {
+                int end = text.indexOf('\n', start);
+                if (end < 0) end = text.length();
+                String line = text.substring(start, end).trim();
+                start = end + 1;
+                if (line.length() == 0 || line.charAt(0) == '#') continue;
+                int eq = line.indexOf('=');
+                if (eq < 0) continue;
+                if (!"vc_policy".equals(line.substring(0, eq).trim())) continue;
+                String v = line.substring(eq + 1).trim().toLowerCase();
+                if ("rgi".equals(v) || "map".equals(v) || "off".equals(v)) {
+                    VC_POLICY_SOURCE = "file";
+                    return v;
+                }
+                VC_POLICY_SOURCE = "file-invalid";
+                return "rgi";
+            }
+            VC_POLICY_SOURCE = "file-no-key";
+        } catch (Throwable t) {
+            VC_POLICY_SOURCE = "default";
+        } finally {
+            if (in != null) {
+                try { in.close(); } catch (Throwable ignored) { }
+            }
+        }
+        return "rgi";
+    }
+
     /** Capture the factory VC preference before CarPlay changes it. */
     private void captureVcPresentationState() throws Exception {
         if (vcPresentationOverrideActive) return;
@@ -341,6 +403,7 @@ public class BAPBridge {
 
 
     private void prepareVcPresentation() throws Exception {
+        V8KVcTrace.record("VC_POLICY=" + VC_POLICY + " source=" + VC_POLICY_SOURCE);
         V8KVcTrace.record("PREPARE vcEnabled=" + VC_RGI_ENABLED);
         if (VC_RGI_ENABLED) {
             captureVcPresentationState();
@@ -378,11 +441,15 @@ public class BAPBridge {
             V8KVcTrace.record("UPDATE_RG_ACTIVE_RETURNED_OK");
             vcFactoryRgStatePropagated = true;
 
-            setVcFavoredViewMode(
-                VC_VIEW_RGI,
-                "CarPlay factory RGI"
-            );
-            V8KVcTrace.record("SET_FAVORED_RGI_RETURNED_OK");
+            if (VC_SET_FAVORED) {
+                setVcFavoredViewMode(
+                    VC_VIEW_RGI,
+                    "CarPlay factory RGI"
+                );
+                V8KVcTrace.record("SET_FAVORED_RGI_RETURNED_OK");
+            } else {
+                V8KVcTrace.record("SET_FAVORED_SKIPPED policy=" + VC_POLICY);
+            }
 
             Log.i(TAG,
                 "VC policy active: FACTORY_RGI");
@@ -414,7 +481,7 @@ public class BAPBridge {
     private void maintainVcPresentation() {
         V8KVcTrace.record("MAINTAIN vcEnabled=" + VC_RGI_ENABLED
             + " override=" + vcPresentationOverrideActive);
-        if (!VC_RGI_ENABLED) {
+        if (!VC_RGI_ENABLED || !VC_SET_FAVORED) {
             return;
         }
 

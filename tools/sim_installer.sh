@@ -96,9 +96,26 @@ run(){ # run [dodatkowe env...]
         sh "$SIM/sd/mod/command.sh" 2>&1
 }
 
+# --------------------------------------------------------------- T0 (statyczny)
+# Polecenia, ktorych NIE MA na MMI (sprawdzone w aucie): sha256sum, cksum,
+# md5sum, cmp (collector v1.2) i printf (1.0.1-rc1, 2026-10-30: "printf: cannot
+# execute"). W kontenerze sa, wiec symulacja wykonania ich nie zlapie - stad
+# osobne sprawdzenie tekstu skryptow, z pominieciem komentarzy.
+car_missing(){
+    for f in "$@"; do
+        [ -f "$f" ] || continue
+        grep -nE '(^|[^a-zA-Z_.-])(printf|sha256sum|cksum|md5sum|cmp)([^a-zA-Z_.-]|$)' "$f"             | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$(basename "$f"):|"
+    done
+}
 echo "=========================================================="
 echo " SYMULACJA INSTALATORA K3346 (bez auta)   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "=========================================================="
+
+echo
+echo "--- T0: skrypty dla auta nie uzywaja polecen, ktorych na MMI nie ma"
+MISSING=$(car_missing "$INSTALLER" /src/deployment/mib2high-lvds-control.sh /src/deployment/k3346-overlay-probe.sh /src/deployment/etap4/mm-ipod-rgi.sh)
+if [ -z "$MISSING" ]; then ok "brak printf/sha256sum/cksum/md5sum/cmp poza komentarzami"
+else bad "polecenia nieobecne na MMI:"; printf '%s\n' "$MISSING" | sed 's/^/        /'; fi
 
 # ---------------------------------------------------------------- T1 + T2 + T3
 echo
@@ -988,6 +1005,81 @@ setupall; run >/dev/null; : > "$E4M/INSTALL_ALL"; : > "$E4M/ROLLBACK"
 OUT=$(run); case "$OUT" in *"MODE=ROLLBACK"*) ok "ROLLBACK wygrywa";; *) bad "INSTALL_ALL zablokowal ratunek";; esac
 fi
 
+# ----------------------------------------------------------------------- T19
+# Polityka VC (1.0.1, issue #5): znaczniki VC_POLICY_* zapisuja nasz plik
+# konfiguracyjny, pelny ROLLBACK go usuwa, bez v8s nic sie nie dzieje.
+VCPOL="$SIM/app/root/mib2high-vc.conf"
+echo
+echo "--- T19a: VC_POLICY_MAP bez zainstalowanego moda -> ODMOWA, zero zapisow"
+setup; B=$(snapshot_files "$SIM/app" "$SIM/system")
+: > "$SIM/sd/mod/$PKGNAME/VC_POLICY_MAP"
+# bez installed.ok dyspozytor najpierw zainstalowalby v8s - znacznik polityki ma pierwszenstwo
+OUT=$(run)
+case "$OUT" in *"VC_POLICY: the mod is not installed"*) ok "odmowa bez instalacji";; *) bad "brak odmowy"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "zapisy mimo odmowy"
+[ -e "$SIM/sd/mod/$PKGNAME/VC_POLICY_MAP" ] && ok "znacznik zostal (nic nie zrobiono)" || bad "znacznik zuzyty mimo odmowy"
+
+echo
+echo "--- T19b: po instalacji: MAP -> plik, OFF -> nadpisany, RGI -> nadpisany; ROLLBACK -> fabryka"
+setup7; FAB=$(snapshot_files "$SIM/app" "$SIM/system"); : > "$E4M/INSTALL_ALL"; run >/dev/null
+for pol in map off rgi; do
+    m=$(echo "VC_POLICY_$pol" | tr 'a-z' 'A-Z')
+    : > "$E4M/$m"; OUT=$(run)
+    case "$OUT" in *"VC_POLICY_RESULT=PASS policy=$pol"*) ok "$m: PASS";; *) bad "$m: brak PASS"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+    [ "$(cat "$VCPOL" 2>/dev/null)" = "vc_policy=$pol" ] && ok "$m: plik = vc_policy=$pol" || bad "$m: zla tresc pliku: $(cat "$VCPOL" 2>/dev/null)"
+    [ "$(stat -c %a "$VCPOL")" = 644 ] && ok "$m: tryb 644" || bad "$m: tryb $(stat -c %a "$VCPOL")"
+    [ ! -e "$E4M/$m" ] && ok "$m: znacznik zuzyty" || bad "$m: znacznik zostal"
+    ls "$SIM/app/root" | grep -q 'mib2high-vc.conf.new' && bad "$m: zostal plik tymczasowy" || ok "$m: bez pliku tymczasowego"
+done
+OUT=$(run); R=$(ls -d "$E4M"/collected/run-* | tail -1)
+grep -q 'VC_POLICY_FILE=vc_policy=rgi' "$R/trace/metadata.txt" 2>/dev/null && ok "COLLECT zapisuje polityke" || bad "metadata bez polityki"
+: > "$E4M/ROLLBACK"; OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK PASS";; *) bad "ROLLBACK nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ ! -e "$VCPOL" ] && ok "plik polityki usuniety" || bad "plik polityki zostal"
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
+
+echo
+echo "--- T19e: resztka pliku tymczasowego (blad printf z rc1) -> sprzatnieta"
+setup7; : > "$E4M/INSTALL_ALL"; run >/dev/null
+: > "$VCPOL.new.4242"; : > "$E4M/VC_POLICY_MAP"; run >/dev/null
+ls "$SIM/app/root" | grep -q 'mib2high-vc.conf.new' && bad "resztka zostala po zmianie polityki" || ok "zmiana polityki sprzata resztke"
+: > "$VCPOL.new.4343"; : > "$E4M/ROLLBACK"; run >/dev/null
+ls "$SIM/app/root" 2>/dev/null | grep -q 'mib2high-vc.conf' && bad "ROLLBACK zostawil plik polityki/resztke" || ok "ROLLBACK usuwa plik i resztki"
+
+echo
+echo "--- T19c: ROLLBACK ma pierwszenstwo przed znacznikiem polityki"
+setup7; : > "$E4M/INSTALL_ALL"; run >/dev/null
+: > "$E4M/VC_POLICY_MAP"; : > "$E4M/ROLLBACK"; OUT=$(run)
+case "$OUT" in *"MODE=ROLLBACK"*) ok "ROLLBACK pierwszy";; *) bad "polityka wyprzedzila ROLLBACK";; esac
+
+echo
+echo "--- T19d: jedna karta na caly test: ROLLBACK + INSTALL_ALL + MAP + OFF + RGI naraz"
+# Tak jak u uzytkownika: auto z zainstalowana poprzednia wersja, na karte trafia
+# wszystko za jednym razem, w aucie tylko kolejne uruchomienia skryptu.
+setup7; FAB=$(snapshot_files "$SIM/app" "$SIM/system"); : > "$E4M/INSTALL_ALL"; run >/dev/null
+for m in ROLLBACK INSTALL_ALL VC_POLICY_MAP VC_POLICY_OFF VC_POLICY_RGI; do : > "$E4M/$m"; done
+nruns(){ ls -d "$E4M"/collected/run-* 2>/dev/null | wc -l; }
+O1=$(run); case "$O1" in *"ROLLBACK_RESULT=PASS"*) ok "1.: odinstalowanie";; *) bad "1. nie ROLLBACK"; echo "$O1" | tail -3 | sed 's/^/      | /';; esac
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "1.: fabryka bit w bit" || bad "1.: nie fabryka"
+O2=$(run); case "$O2" in *"INSTALL_ALL_RESULT=PASS"*) ok "2.: instalacja";; *) bad "2. nie instalacja"; echo "$O2" | tail -3 | sed 's/^/      | /';; esac
+[ ! -e "$VCPOL" ] && ok "2.: polityka domyslna (brak pliku)" || bad "2.: plik polityki juz jest"
+N0=$(nruns)
+O3=$(run); case "$O3" in *"COLLECT_RESULT="*"VC_POLICY_RESULT=PASS policy=map"*) ok "3.: logi + map";; *) bad "3. nie logi+map"; echo "$O3" | tail -4 | sed 's/^/      | /';; esac
+case "$O3" in *"NEXT_QUEUED=VC_POLICY_OFF"*"NEXT_QUEUED=VC_POLICY_RGI"*) ok "3.: zapowiada OFF i RGI";; *) bad "3.: brak zapowiedzi kolejki";; esac
+[ "$(lines_safe "$O3")" = 1 ] && [ "$(printf '%s\n' "$O3" | tail -1)" = '[V8S] SAFE TO REMOVE SD' ] && ok "3.: SAFE TO REMOVE SD raz, na koncu" || bad "3.: SAFE TO REMOVE SD nie raz/nie na koncu"
+R3=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q 'VC_POLICY_FILE=none (rgi)' "$R3/trace/metadata.txt" 2>/dev/null && ok "3.: logi z trasy pod rgi" || bad "3.: metadata nie pokazuje poprzedniej polityki"
+O4=$(run); case "$O4" in *"VC_POLICY_RESULT=PASS policy=off"*) ok "4.: logi + off";; *) bad "4. nie off";; esac
+R4=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q 'VC_POLICY_FILE=vc_policy=map' "$R4/trace/metadata.txt" 2>/dev/null && ok "4.: logi z trasy pod map" || bad "4.: zla polityka w logach"
+O5=$(run); case "$O5" in *"VC_POLICY_RESULT=PASS policy=rgi"*) ok "5.: logi + rgi";; *) bad "5. nie rgi";; esac
+case "$O5" in *"NEXT_QUEUED"*) bad "5.: kolejka nie pusta";; *) ok "5.: kolejka pusta";; esac
+R5=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q 'VC_POLICY_FILE=vc_policy=off' "$R5/trace/metadata.txt" 2>/dev/null && ok "5.: logi z trasy pod off" || bad "5.: zla polityka w logach"
+[ "$(( $(nruns) - N0 ))" = 3 ] && ok "trzy nowe katalogi logow" || bad "katalogow logow: $(( $(nruns) - N0 ))"
+O6=$(run); case "$O6" in *"MODE=COLLECT"*) ok "6.: zwykle zbieranie logow";; *) bad "6. nie COLLECT";; esac
+[ "$(cat "$VCPOL" 2>/dev/null)" = "vc_policy=rgi" ] && ok "na koniec polityka rgi" || bad "na koniec: $(cat "$VCPOL" 2>/dev/null)"
+
 # ----------------------------------------------------------------------- T18
 # Zipy wydania dokladnie tak, jak dostaje je uzytkownik: rozpakowane na karte,
 # bez naszych paczek etapowych i bez ZNACZNIKI/. Wlaczane zmienna RELEASE_DIR
@@ -1044,6 +1136,19 @@ unz "$ZIP_I" "$SIM/sd"; unz "$ZIP_U" "$SIM/sd"
 OUT=$(run)
 case "$OUT" in *"ROLLBACK_RESULT=NOTHING_TO_UNDO"*) ok "nic do cofniecia, bez strachu";; *) bad "zly wynik"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "zapisy"
+
+echo
+echo "--- T18f: vc-policy-map.zip na zainstalowanej karcie -> polityka map, uninstall -> fabryka"
+ZIP_M=$(ls "$RELEASE_DIR"/*-vc-policy-map.zip 2>/dev/null | head -1)
+if [ -z "$ZIP_M" ]; then bad "brak vc-policy-map.zip"; else
+setup nocard; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_I" "$SIM/sd"; run >/dev/null
+unz "$ZIP_M" "$SIM/sd"; OUT=$(run)
+case "$OUT" in *"VC_POLICY_RESULT=PASS policy=map"*) ok "polityka map z zipa";; *) bad "polityka z zipa nie przeszla"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$(cat "$SIM/app/root/mib2high-vc.conf" 2>/dev/null)" = "vc_policy=map" ] && ok "plik w aucie" || bad "brak pliku w aucie"
+unz "$ZIP_U" "$SIM/sd"; run >/dev/null
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "uninstall -> fabryka" || bad "uninstall nie daje fabryki"
+fi
 
 echo
 echo "--- T18e: collect-logs.zip po nieudanej instalacji -> zbiera logi, nie ponawia"

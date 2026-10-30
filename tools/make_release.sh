@@ -8,6 +8,7 @@
 #   mhi2-k3346-carplay-vc-<wersja>-install.zip    karta: wszystkie etapy + INSTALL_ALL
 #   mhi2-k3346-carplay-vc-<wersja>-uninstall.zip  sam znacznik ROLLBACK
 #   mhi2-k3346-carplay-vc-<wersja>-collect-logs.zip  sam znacznik COLLECT_LOGS (logi po nieudanej instalacji)
+#   mhi2-k3346-carplay-vc-<wersja>-vc-policy-{rgi,map,off}.zip  znacznik polityki VC (issue #5)
 #   SHA256SUMS.txt
 #   card/, uninstall-card/   drzewa, z ktorych powstaly zipy (dla symulacji)
 #   build-logs/              logi budowania i pakowania
@@ -123,6 +124,15 @@ LOGCARD="$REL/collect-logs-card"
 mkdir -p "$LOGCARD/mod/$PKG"
 : > "$LOGCARD/mod/$PKG/COLLECT_LOGS"
 
+# Polityka VC (issue #5): po jednym zipie na znacznik, kazdy z jednym pustym plikiem.
+POLCARDS=""
+for pol in rgi map off; do
+    PC="$REL/vc-policy-$pol-card"; POLCARDS="$POLCARDS $PC"
+    m=`echo "VC_POLICY_$pol" | tr 'a-z' 'A-Z'`
+    mkdir -p "$PC/mod/$PKG"
+    : > "$PC/mod/$PKG/$m"
+done
+
 mkdir -p "$UNCARD/mod/$PKG"
 : > "$UNCARD/mod/$PKG/ROLLBACK"
 cp "$A/deployment/README_CarPlay_VC.txt" "$UNCARD/README_CarPlay_VC.txt"
@@ -150,7 +160,7 @@ while IFS= read -r f; do
     case "$(file -b "$f")" in *ELF*|*Zip*|*Java*|data) continue;; esac
     case "$f" in */README_CarPlay_VC.txt) continue;; esac
     if LC_ALL=C grep -q $'\r' "$f"; then bad="$bad $f"; fi
-done < <(find "$CARD" "$UNCARD" "$LOGCARD" -type f)
+done < <(find "$CARD" "$UNCARD" "$LOGCARD" $POLCARDS -type f)
 [ -z "$bad" ] || fail "CRLF w plikach dla auta:$bad"
 # 3d. binarki ARM
 for b in libmib2high-carplay-rgi.so libmib2high-carplay-rgi-ipod.so libmib2high-carplay-rgi-ipod.etap7.so \
@@ -176,7 +186,7 @@ echo "kontrole: OK"
 # Python, bo w Git Bash nie ma zip. Stala data wpisow i sortowanie: ten sam
 # stan zrodel daje ten sam zip.
 step "zipy"
-python3 - "$CARD" "$REL/$NAME-install.zip" "$UNCARD" "$REL/$NAME-uninstall.zip" "$LOGCARD" "$REL/$NAME-collect-logs.zip" <<'PY'
+python3 - "$CARD" "$REL/$NAME-install.zip" "$UNCARD" "$REL/$NAME-uninstall.zip" "$LOGCARD" "$REL/$NAME-collect-logs.zip"     "$REL/vc-policy-rgi-card" "$REL/$NAME-vc-policy-rgi.zip" "$REL/vc-policy-map-card" "$REL/$NAME-vc-policy-map.zip"     "$REL/vc-policy-off-card" "$REL/$NAME-vc-policy-off.zip" <<'PY'
 import os, sys, zipfile
 def pack(root, out):
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
@@ -199,8 +209,10 @@ def pack(root, out):
 pack(sys.argv[1], sys.argv[2])
 pack(sys.argv[3], sys.argv[4])
 pack(sys.argv[5], sys.argv[6])
+for k in range(7, len(sys.argv), 2):
+    pack(sys.argv[k], sys.argv[k + 1])
 PY
-( cd "$REL" && sha256sum "$NAME-install.zip" "$NAME-uninstall.zip" "$NAME-collect-logs.zip" > SHA256SUMS.txt && cat SHA256SUMS.txt )
+( cd "$REL" && sha256sum "$NAME-install.zip" "$NAME-uninstall.zip" "$NAME-collect-logs.zip" "$NAME-vc-policy-rgi.zip" "$NAME-vc-policy-map.zip" "$NAME-vc-policy-off.zip" > SHA256SUMS.txt && cat SHA256SUMS.txt )
 ( cd "$CARD" && find . -type f | LC_ALL=C sort | xargs sha256sum ) > "$LOGS/card-SHA256SUMS.txt"
 
 # Zip sprawdzony od strony odbiorcy: rozpakowany ma dac dokladnie drzewo karty.

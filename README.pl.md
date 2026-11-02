@@ -101,7 +101,7 @@ skrypt dwa razy: najpierw `ROLLBACK_RESULT=PASS` (stara wersja usunięta, nie re
 Domyślnie touchpad MMI działa w CarPlay jak **strzałki**: przesunięcie palca przenosi zaznaczenie, kliknięcie wybiera.
 
 Przystawki z Androidem przez CarPlay (np. Carlinkit) rysują kursor z surowej pozycji palca. Dla nich jest
-**`…-touchpad-stock.zip`** (jeszcze niesprawdzony z taką przystawką): rozpakuj na kartę, uruchom skrypt raz,
+**`…-touchpad-stock.zip`** (potwierdzony przez użytkownika z przystawką z Androidem w Q7 4M): rozpakuj na kartę, uruchom skrypt raz,
 zrestartuj MMI. **Z iPhone'em po kablu touchpad w tym trybie nie reaguje.**
 Powrót: `…-touchpad-dpad.zip`, te same kroki.
 

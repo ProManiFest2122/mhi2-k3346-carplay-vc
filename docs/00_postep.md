@@ -611,16 +611,18 @@
       przez nową trasę; rozłączenie gasi od razu. UWAGA: `rgd_hook.c` jest CRLF (kod Luki) — wstawki z rc3
       miały LF, ujednolicone; eksport do repo i tak normalizuje do LF.
 
-- [ ] **Błąd #6 (Q7 4M, VC H13/0378): touchpad w CarPlay / Carlinkit.** 1.0.1-rc6: `touchpad=dpad|stock`
+- [x] **Błąd #6 (Q7 4M, VC H13/0378): touchpad w CarPlay / Carlinkit.** 1.0.1-rc6: `touchpad=dpad|stock`
       (`/mnt/app/root/k3346-touchpad.conf`, znaczniki `TOUCHPAD_*`, domyślnie dpad), log zakresu współrzędnych.
       **Test u nas (run-46/47, A4 B9):** dpad jak dotąd, zakres x=69..924 y=342..915; `mode=stock source=file`
       działa, ale **z iPhone'em po kablu touchpad w trybie stock nie reaguje wcale** (surowe współrzędne iOS
-      ignoruje). Tryb stock NIE naprawia więc iPhone'a po kablu; ma sens tylko do próby z Carlinkit
-      (niesprawdzone).
+      ignoruje). Tryb stock NIE naprawia więc iPhone'a po kablu; ma sens tylko z przystawką.
       **Odpowiedź zgłaszającego (2026-11-01):** po kablu touchpad działa (przewijanie + klik), więc progi pasują do
       Q7; nie działa tylko kursor z Carlinkit → test `stock`. Opóźnienie HUD znikło po zmianie układu zegarów
       sport → classic. Waze bez strzałek: Waze nie wysyła RGI (Luka, `THIRD_PARTY_NAV_APPS.md`), opisane w README.
       Zipy jednoplikowe: `…-update.zip`, `…-update-touchpad-stock.zip`.
+      **Wynik (2026-11-02):** `…-update-touchpad-stock.zip` na 1.0: kursor z przystawki z Androidem znów działa.
+      Z iPhone'em po kablu touchpad w trybie stock nie reaguje, działa pokrętło; zgłaszający uważa, że w jego Q7
+      zawsze tak było. Jeden tryb naraz, przełączenie plikiem `touchpad-*` + restart MMI. Zgłoszenie zamknięte.
 
 - [ ] **Błąd #7 (A4 B9, 1.0.0, iOS 26.6.2, NavIgnore jest): czarna mapa na VC po ponownym podłączeniu USB.**
       Pierwsza sesja po restarcie MMI działa, po wyjęciu kabla na 15–20 s mapa jest czarna aż do restartu MMI; VIEW i

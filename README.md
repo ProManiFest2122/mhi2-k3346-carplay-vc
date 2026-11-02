@@ -102,7 +102,7 @@ script twice: first `ROLLBACK_RESULT=PASS` (old version removed, do not restart)
 By default the MMI touchpad works as **arrow keys** in CarPlay: swipe to move the selection, click to select.
 
 Boxes that run Android over CarPlay (for example Carlinkit) draw a cursor from the raw touchpad position.
-For those there is **`…-touchpad-stock.zip`** (not tested with such a box yet): unzip onto the card, run the
+For those there is **`…-touchpad-stock.zip`** (confirmed by a user with an Android box on a Q7 4M): unzip onto the card, run the
 script once, restart the MMI. **With an iPhone on the cable the touchpad does not react in this mode.**
 To go back: `…-touchpad-dpad.zip`, same steps.
 

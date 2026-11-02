@@ -15,6 +15,8 @@ OVERLAY=/mnt/app/root/vc_overlay
 OVERLAY_CONF=/mnt/app/root/mib2high-overlay.conf
 OVERLAY_READY=/tmp/vc-overlay-ready
 DMDT=/eso/bin/apps/dmdt
+VR_LOG=/tmp/vc_render.log
+SESSIONS=/tmp/mib2high-lvds-sessions
 
 log() { echo "`date 2>/dev/null` [lvds-control] $*" >> "$LOG"; }
 
@@ -44,6 +46,16 @@ cleanup() {
 trap 'cleanup' 0 1 2 15
 
 [ -e "$ACTIVE" ] || { rm -f "$HEARTBEAT" 2>/dev/null || true; exit 0; }
+
+# /tmp starts empty at every boot, so this counts CarPlay sessions since boot;
+# a number above 1 in the log means a reconnect (issue #7).
+SESSION_NO=`cat "$SESSIONS" 2>/dev/null || true`
+case "${SESSION_NO:-}" in
+    ''|*[!0-9]*) SESSION_NO=0 ;;
+esac
+SESSION_NO=$((SESSION_NO + 1))
+echo "$SESSION_NO" > "$SESSIONS" 2>/dev/null || true
+log "session #$SESSION_NO since boot"
 
 # v8l diagnostics only: read-only bounded /tmp rings for known factory
 # DSITracer appenders. Launch output and process status are collected separately.
@@ -76,6 +88,76 @@ esac
 [ -x "$RENDERER" ] || { log "renderer missing: $RENDERER"; exit 1; }
 
 export LD_LIBRARY_PATH=/mnt/app/armle/lib:/mnt/app/armle/usr/lib:/mnt/app/root/lib-target:/eso/lib:/armle/lib:/armle/lib/dll:/armle/usr/lib:/lib:/usr/lib
+RENDER_LDP="$LD_LIBRARY_PATH"
+
+# --- renderer watchdog (issue #7: black cluster after a USB reconnect) -------
+# Acts only on two states in which vc_render can never show a picture again,
+# and only after seeing the same state twice with no new log line between the
+# two looks, so a working renderer is never touched:
+#   close_hung   - the last line is "NvSSVideoClose ENTER": the close never
+#                  returned, so the process no longer accepts the hook
+#                  (nv_stop in renderer/upstream/vc_render.c).
+#   start_failed - the hook is connected but NvSS did not open; vc_render only
+#                  discards frames "until the hook reconnects", and the hook
+#                  has no reason to.
+# The hook retries its connection every 250 ms and asks the phone for a fresh
+# IDR (altscreen_output.c), so a new renderer picks the stream up mid-session.
+VR_STATE_PREV=''
+VR_LINES_PREV=''
+VR_ACT=''
+VR_TICK=0
+VR_RESTARTS=0
+VR_RESTART_MAX=2
+
+vr_state() {
+    awk '
+        /\[vc_render\] start out=/        { c = 0; f = 0 }
+        /\[vc_render\] hook connected/    { c = 1; f = 0 }
+        /\[vc_render\] NvSS start failed/ { f = 1 }
+        /\[vc_render\] hook disconnected/ { c = 0; f = 0 }
+        { last = $0 }
+        END {
+            s = "ok"
+            if (index(last, "[vc_render] NvSSVideoClose ENTER") > 0) s = "close_hung"
+            else if (c == 1 && f == 1) s = "start_failed"
+            print s, NR
+        }' "$VR_LOG" 2>/dev/null
+}
+
+# Sets VR_ACT to the state when the previous look saw the same stuck state and
+# the log has not grown since.
+vr_check() {
+    VR_ACT=''
+    set -- `vr_state`
+    VS="${1:-ok}"
+    VN="${2:-}"
+    if [ "$VS" != ok ] && [ "$VS" = "$VR_STATE_PREV" ] && [ "$VN" = "$VR_LINES_PREV" ]; then
+        VR_ACT="$VS"
+    fi
+    VR_STATE_PREV="$VS"
+    VR_LINES_PREV="$VN"
+}
+
+# Returns 0 once no vc_render is left. A renderer that survives both signals is
+# left exactly as it was, and nothing is started next to it.
+vr_stop() {
+    [ "$VR_RESTARTS" -lt "$VR_RESTART_MAX" ] || return 1
+    VR_RESTARTS=$((VR_RESTARTS + 1))
+    VR_STATE_PREV=''
+    VR_LINES_PREV=''
+    log "renderer watchdog: $1 confirmed; stopping vc_render ($VR_RESTARTS/$VR_RESTART_MAX)"
+    slay vc_render >/dev/null 2>&1 || true
+    sleep 2
+    if pidin 2>/dev/null | grep vc_render >/dev/null; then
+        slay -s KILL vc_render >/dev/null 2>&1 || true
+        sleep 2
+    fi
+    if pidin 2>/dev/null | grep vc_render >/dev/null; then
+        log "renderer watchdog: vc_render did not exit; left as it was"
+        return 1
+    fi
+    return 0
+}
 
 SIG="$W $H $FPS"
 OLD_SIG=`cat /tmp/mib2high-vc-render.profile 2>/dev/null || true`
@@ -83,6 +165,16 @@ if pidin 2>/dev/null | grep vc_render >/dev/null && [ "$OLD_SIG" != "$SIG" ]; th
     log "renderer profile changed old='$OLD_SIG' new='$SIG'; restarting"
     slay vc_render >/dev/null 2>&1 || true
     sleep 1
+fi
+
+# A renderer left behind by the previous session may be stuck in its close.
+# Normally the first look says "ok" and this costs nothing.
+if pidin 2>/dev/null | grep vc_render >/dev/null; then
+    vr_check
+    case "$VR_STATE_PREV" in
+        close_hung|start_failed) sleep 3; vr_check ;;
+    esac
+    [ -z "$VR_ACT" ] || vr_stop "$VR_ACT" || true
 fi
 
 if ! pidin 2>/dev/null | grep vc_render >/dev/null; then
@@ -222,6 +314,17 @@ while [ -e "$ACTIVE" ]; do
             : > "$REACQUIRE"
             REACQ_DONE=1
             log "second nav-ready observed; reacquire marker set"
+        fi
+    fi
+
+    VR_TICK=$((VR_TICK + 1))
+    if [ "$VR_TICK" -ge 5 ]; then
+        VR_TICK=0
+        vr_check
+        if [ -n "$VR_ACT" ] && vr_stop "$VR_ACT"; then
+            echo "$SIG" > /tmp/mib2high-vc-render.profile
+            LD_LIBRARY_PATH="$RENDER_LDP" on -p 25 "$RENDERER" --out 1 --layer 58 --w "$W" --h "$H" --fps "$FPS" --ts wall >> /tmp/vc_render-launch.log 2>&1 &
+            log "renderer watchdog: renderer start out=1 layer=58 ${W}x${H}@${FPS}"
         fi
     fi
 

@@ -92,8 +92,19 @@ the [M.I.B. wiki](https://wiki.mibsolution.one/en/MHI2).
 2. Run the script as in step 3. Wait for **`ROLLBACK_RESULT=PASS`** and **`SAFE TO REMOVE SD`**,
    then restart the MMI. The car is back to factory state, file for file.
 
-**Updating to a new version:** uninstall the old one, then install the new one. If you run a new
-install over an existing one, it changes nothing and tells you to uninstall first.
+**Updating to a new version, with one file:** unzip `…-update.zip` onto the **same** card and run the
+script twice: first `ROLLBACK_RESULT=PASS` (old version removed, do not restart), then
+`INSTALL_ALL_RESULT=PASS` (new version installed). Then restart the MMI. Step by step:
+[GUIDE.md, chapter 6](GUIDE.md#6-uninstall-and-before-every-update).
+
+## Touchpad modes
+
+By default the MMI touchpad works as **arrow keys** in CarPlay: swipe to move the selection, click to select.
+
+Boxes that run Android over CarPlay (for example Carlinkit) draw a cursor from the raw touchpad position.
+For those there is **`…-touchpad-stock.zip`** (not tested with such a box yet): unzip onto the card, run the
+script once, restart the MMI. **With an iPhone on the cable the touchpad does not react in this mode.**
+To go back: `…-touchpad-dpad.zip`, same steps.
 
 ## If something goes wrong
 
@@ -153,6 +164,11 @@ expected, what happened, how many minutes before collecting, and a photo of the 
   The full address book is not possible over CarPlay.
 - After pressing **VIEW**, the maneuver arrow disappears for up to ~0.7 s and comes back in the new place.
 - When there is no navigation route, the arrow tile is hidden on purpose.
+- At the first route after an MMI start the arrow appears 2–3 seconds later: the mod waits until it knows
+  which gauge layout is on screen.
+- **Waze** does not send route guidance data to the car: its map works on the cluster, but there are no
+  arrows. Google Maps and Apple Maps do send it.
+- **HUD:** one user saw the HUD arrow lag in the *sports* gauge layout; in *classic* it was in sync.
 
 **Use at your own risk.** No warranty of any kind. External power, a fresh M.I.B. backup and the
 original firmware should be at hand.

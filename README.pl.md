@@ -91,8 +91,19 @@ w [wiki M.I.B.](https://wiki.mibsolution.one/en/MHI2).
 2. Uruchom skrypt jak w kroku 3. Czekaj na **`ROLLBACK_RESULT=PASS`** i **`SAFE TO REMOVE SD`**,
    potem restart MMI. Auto wraca do stanu fabrycznego, plik w plik.
 
-**Aktualizacja do nowej wersji:** odinstaluj starą, potem zainstaluj nową. Instalacja uruchomiona na
-już zainstalowanym modzie niczego nie zmienia i podpowiada, żeby najpierw odinstalować.
+**Aktualizacja do nowej wersji, jednym plikiem:** rozpakuj `…-update.zip` na **tę samą** kartę i uruchom
+skrypt dwa razy: najpierw `ROLLBACK_RESULT=PASS` (stara wersja usunięta, nie restartuj), potem
+`INSTALL_ALL_RESULT=PASS` (nowa wersja zainstalowana). Na koniec restart MMI. Krok po kroku:
+[INSTRUKCJA.md, rozdział 6](INSTRUKCJA.md#6-odinstalowanie-i-przed-każdą-aktualizacją).
+
+## Tryby touchpada
+
+Domyślnie touchpad MMI działa w CarPlay jak **strzałki**: przesunięcie palca przenosi zaznaczenie, kliknięcie wybiera.
+
+Przystawki z Androidem przez CarPlay (np. Carlinkit) rysują kursor z surowej pozycji palca. Dla nich jest
+**`…-touchpad-stock.zip`** (jeszcze niesprawdzony z taką przystawką): rozpakuj na kartę, uruchom skrypt raz,
+zrestartuj MMI. **Z iPhone'em po kablu touchpad w tym trybie nie reaguje.**
+Powrót: `…-touchpad-dpad.zip`, te same kroki.
 
 ## Gdy coś pójdzie nie tak
 
@@ -149,6 +160,11 @@ oczekiwałeś, co się stało, ile minut przed zebraniem logów, ewentualnie zdj
   Pełna książka adresowa przez CarPlay nie jest możliwa.
 - Po wciśnięciu **VIEW** strzałka znika na maks. ~0,7 s i wraca w nowym miejscu.
 - Bez trasy w nawigacji kafelek strzałki jest celowo ukryty.
+- Przy pierwszej trasie po starcie MMI strzałka pojawia się 2–3 sekundy później: mod czeka, aż pozna układ
+  zegarów na ekranie.
+- **Waze** nie wysyła do auta danych prowadzenia: mapa na zegarach działa, ale strzałek nie ma. Google Maps
+  i Mapy Apple je wysyłają.
+- **HUD:** jeden użytkownik widział opóźnioną strzałkę na HUD w układzie zegarów *sport*; w *classic* było równo.
 
 **Na własne ryzyko.** Bez żadnej gwarancji. Zewnętrzne zasilanie, świeża kopia M.I.B. i oryginalne
 oprogramowanie powinny być pod ręką.

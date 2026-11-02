@@ -88,6 +88,13 @@ static int  g_visible_top_applied = -1;
  * The report normally follows the key by ~575 ms; if it never comes (VIEW
  * changed nothing), the tile comes back after this long. */
 #define VIEW_HOLD_MAX_MS 1500
+/* Unknown layout at the start of a session: hidden for at most this long
+ * (overlay_layout_unknown_hold).  The HMI said it 2.7 s after the first
+ * maneuver in run-45; 6 s leaves room and still beats waiting for VIEW. */
+#define LAYOUT_UNKNOWN_HOLD_MS 6000
+static int  g_layout_unknown_hold;   /* tile kept off: layout not known yet */
+static long g_layout_unknown_since;  /* when that wait started, 0 = none */
+static int  g_layout_unknown_logged; /* the hold was announced in the log */
 static int  g_view_hold;        /* tile kept off the canvas right now */
 static long g_view_hold_ms;     /* when the hold started */
 static int  g_view_expired;     /* the hold timed out on this press */
@@ -535,6 +542,17 @@ static void composite_panel(void)
      * the tile goes next.  An empty canvas for that half second beats the
      * arrow sitting in the old layout's place (2026-10-28 photos). */
     if (g_view_hold) {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_panel_fbo);
+        return;
+    }
+
+    /* Same idea at the start of a session: nobody has said which layout is
+     * on screen yet, so there is no right place to put the tile. */
+    /* The hold is worked out in the layout poll, every 100 ms.  Content that
+     * appeared since the last poll has no verdict yet (since == 0): wait for
+     * it rather than flash one frame in the default place. */
+    if (g_layout_unknown_hold
+        || (g_layout_slot == OVERLAY_LAYOUT_UNKNOWN && g_layout_unknown_since == 0)) {
         glBindFramebuffer(GL_FRAMEBUFFER, g_panel_fbo);
         return;
     }
@@ -1293,6 +1311,34 @@ void platform_poll(void)
         repaint = 1;
     }
     if (!pending) g_view_expired = 0;
+
+    /* Unknown layout with something to show: hidden until the HMI or the VC
+     * says where the tile goes, or LAYOUT_UNKNOWN_HOLD_MS - whichever first. */
+    {
+        int was = g_layout_unknown_hold;
+        long started = g_layout_unknown_since;
+        g_layout_unknown_hold = overlay_layout_unknown_hold(g_layout_slot,
+            g_content_present, now_ms, &g_layout_unknown_since,
+            LAYOUT_UNKNOWN_HOLD_MS);
+        if (g_layout_unknown_hold && !g_layout_unknown_logged) {
+            g_layout_unknown_logged = 1;
+            fprintf(stderr, "platform_harman: layout unknown - tile held until"
+                    " the HMI or the cluster reports it\n");
+        }
+        if (was && !g_layout_unknown_hold) {
+            int px = g_cfg.x, py = g_cfg.y;
+            overlay_layout_origin(g_layout_slot, g_cfg.x, g_cfg.y, g_cfg.x_alt,
+                                  g_cfg.y_alt, &px, &py);
+            fprintf(stderr, "platform_harman: tile shown at (%d,%d) after %ld ms (%s)\n",
+                    px, py, started ? now_ms - started : 0L,
+                    g_layout_slot == OVERLAY_LAYOUT_UNKNOWN
+                        ? "timeout - default place"
+                        : overlay_layout_src_name(g_layout_reader.source));
+            g_layout_unknown_logged = 0;
+            repaint = 1;
+        }
+        if (!was && g_layout_unknown_hold) repaint = 1;
+    }
 
     /* The part of the crop the VC leaves visible in this layout.  An unknown
      * slot is treated as big clocks, the same default composite_panel()

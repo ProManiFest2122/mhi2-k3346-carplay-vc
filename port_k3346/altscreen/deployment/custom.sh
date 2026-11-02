@@ -71,6 +71,12 @@ navignore_report(){ if [ -f "$NAVIGNORE_JAR" ]; then say 'NAVIGNORE=PRESENT'; re
 say 'NAVIGNORE=MISSING - the CarPlay map on the cluster will go black during route guidance.'
 say 'Install it in M.I.B.: m.i.b. -> navigation -> NavActiveIgnore -> Enable dual navigation'; }
 VCPOL_MARKS='VC_POLICY_MAP VC_POLICY_OFF VC_POLICY_RGI'
+# --- 1.0.1: tryb touchpada w CarPlay (issue #6, Q7 4M + Carlinkit). Czyta go
+# klasa Etapu 5 TMTouchscreenVBListener: dpad (domyslnie, jak 1.0.0) albo stock
+# (fabrycznie, surowe wspolrzedne - kursor Carlinkit). Nasz plik, pelny
+# ROLLBACK go usuwa; znaczniki jak VC_POLICY_* (najpierw logi, potem zmiana).
+TPAD_FILE="$APP/root/k3346-touchpad.conf"
+TPAD_MARKS='TOUCHPAD_STOCK TOUCHPAD_DPAD'
 say(){ echo "[V8S] $*"; }
 fail(){ say "ERROR $*"; exit 1; }
 # Same write test / guarded mount -uw logic as the working v8g2 simple installer.
@@ -273,6 +279,7 @@ if [ -f "$E7_INSTALLED" ] || [ -f "$E7_PENDING" ]; then tx_restore "$E7_BACKUP" 
 if [ -f "$E5_INSTALLED" ] || [ -f "$E5_PENDING" ]; then tx_restore "$E5_BACKUP" "$E5_NAMES" || fail 'etap5 restore failed: do not reboot'; rm -f "$E5_INSTALLED" "$E5_PENDING" || fail 'cannot clear etap5 flags'; : > "$E5_ROLLEDBACK" || fail 'cannot mark etap5 rollback'; say 'ETAP5_ROLLBACK=PASS'; fi
 if [ -f "$E4_INSTALLED" ] || [ -f "$E4_PENDING" ]; then e4_restore || fail 'etap4 restore failed: do not reboot'; rm -f "$E4_INSTALLED" "$E4_PENDING" || fail 'cannot clear etap4 flags'; : > "$E4_ROLLEDBACK" || fail 'cannot mark etap4 rollback'; say 'ETAP4_ROLLBACK=PASS'; fi
 rm -f "$VCPOL_FILE" "$VCPOL_FILE".new.* || fail 'cannot remove VC policy file'
+rm -f "$TPAD_FILE" "$TPAD_FILE".new.* || fail 'cannot remove touchpad mode file'
 restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'SAFE TO REMOVE SD'; }
 # ------------------------------------------------------------------------------
 # K3346 Etap 4: RGI w stock mm-ipod.
@@ -731,6 +738,7 @@ collect(){
         echo 'DSIBAP=full DSICarKombi=full expected after install'
         echo 'dmdt-gc.txt: oczekiwany kontekst 900 z displayable 58 oraz 77={20,102,101,58}; etap 1 (przed instalacja) mial 87 kontekstow i brak 900'
         if [ -f "$NAVIGNORE_JAR" ]; then echo 'NAVIGNORE=PRESENT'; else echo 'NAVIGNORE=MISSING'; fi
+        if [ -f "$TPAD_FILE" ]; then echo "TOUCHPAD_FILE=`cat "$TPAD_FILE"`"; else echo 'TOUCHPAD_FILE=none (dpad)'; fi
         if [ -f "$VCPOL_FILE" ]; then echo "VC_POLICY_FILE=`cat "$VCPOL_FILE"`"; else echo 'VC_POLICY_FILE=none (rgi)'; fi
         if [ -f "$E7_INSTALLED" ]; then echo 'ETAP7=INSTALLED'; elif [ -f "$E7_PENDING" ]; then echo 'ETAP7=PENDING'; elif [ -f "$E7_ROLLEDBACK" ]; then echo 'ETAP7=ROLLED_BACK'; else echo 'ETAP7=NOT_INSTALLED'; fi
         if [ -f "$MOD/RELEASE" ]; then echo "RELEASE=`cat "$MOD/RELEASE"`"; else echo 'RELEASE=dev (paczka etapowa)'; fi
@@ -790,6 +798,23 @@ for m in $VCPOL_MARKS; do [ ! -f "$MOD/$m" ] || say "NEXT_QUEUED=$m (run the scr
 say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
 say 'SAFE TO REMOVE SD'; }
+# Tryb touchpada - ten sam schemat co set_vc_policy (logi, atomowy zapis, kolejka).
+set_touchpad(){ mode="$1"; mark="$2"; say "MODE=TOUCHPAD touchpad=$mode"; checkrw "$SD" || fail 'SD not writable'
+[ -f "$INSTALLED" ] || fail 'TOUCHPAD: the mod is not installed (no installed.ok) - nothing changed'
+[ ! -e "$PENDING" ] || fail 'TOUCHPAD: unfinished install - use ROLLBACK'
+[ -d "$APP/root" ] || fail 'TOUCHPAD: missing app root directory'
+checkrw "$APP" || fail 'app filesystem not writable'
+rm -f "$TPAD_FILE".new.* 2>/dev/null
+QUIET_SAFE=1; collect; QUIET_SAFE=0
+echo "touchpad=$mode" > "$TPAD_FILE.new.$$" || fail 'cannot write touchpad mode'
+chmod 644 "$TPAD_FILE.new.$$" || { rm -f "$TPAD_FILE.new.$$"; fail 'cannot chmod touchpad mode'; }
+mv -f "$TPAD_FILE.new.$$" "$TPAD_FILE" || { rm -f "$TPAD_FILE.new.$$"; fail 'cannot install touchpad mode'; }
+rm -f "$MOD/$mark" || fail 'cannot clear touchpad marker'; sync || fail 'sync failed'
+say "TOUCHPAD_RESULT=PASS touchpad=$mode (logs of the current session saved above)"
+for m in $TPAD_MARKS; do [ ! -f "$MOD/$m" ] || say "NEXT_QUEUED=$m (run the script again)"; done
+say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
+say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'SAFE TO REMOVE SD'; }
 [ -d "$SD" ] || fail 'SD not mounted'; [ -d "$MOD" ] || fail 'package missing'
 # ROLLBACK ma pierwszenstwo NAD wymuszonym zbieraniem: zapomniany na karcie plik
 # COLLECT_LOGS nie moze nigdy zablokowac sciezki ratunku. Bezpieczenstwo przed wygoda.
@@ -806,6 +831,8 @@ elif [ -f "$E7_PROBE_MARK" ]; then probe_etap7
 elif [ -f "$MOD/VC_POLICY_MAP" ]; then set_vc_policy map VC_POLICY_MAP
 elif [ -f "$MOD/VC_POLICY_OFF" ]; then set_vc_policy off VC_POLICY_OFF
 elif [ -f "$MOD/VC_POLICY_RGI" ]; then set_vc_policy rgi VC_POLICY_RGI
+elif [ -f "$MOD/TOUCHPAD_STOCK" ]; then set_touchpad stock TOUCHPAD_STOCK
+elif [ -f "$MOD/TOUCHPAD_DPAD" ]; then set_touchpad dpad TOUCHPAD_DPAD
 elif [ -f "$INSTALLED" ]; then collect
 elif [ -f "$MOD/rolledback.ok" ]; then say 'ALREADY_ROLLED_BACK; no automatic reinstallation'
 else install; fi

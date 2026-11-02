@@ -161,7 +161,9 @@ bash tools/make_release.sh 1.0.0 --no-build # package already built artifacts
 
 Output in `work/release/<version>/`: `mhi2-k3346-carplay-vc-<version>-install.zip` (all stages, the
 `INSTALL_ALL` marker armed, `RELEASE` file with the version), `…-uninstall.zip` (only the `ROLLBACK`
-marker) and `SHA256SUMS.txt`. The script refuses CRLF in files for the car, non-ARM binaries, missing
+marker), `…-update.zip` (install + `ROLLBACK`: one file, two script runs), `…-update-touchpad-stock.zip`
+(the same + `TOUCHPAD_STOCK`), `…-touchpad-{stock,dpad}.zip`, `…-collect-logs.zip`,
+`…-vc-policy-{rgi,map,off}.zip` (diagnostic, not published) and `SHA256SUMS.txt`. The script refuses CRLF in files for the car, non-ARM binaries, missing
 payload, and any `lsd.*`, `.properties`, `.lua`, `.json`, `iap2.cfg`, log or backup in the tree: car
 files are changed by `awk` on the unit itself. The one Audi-derived file shipped is
 `mib2high-k3346-overrides.jar` (Stage 5 classes).
@@ -206,8 +208,19 @@ run individual script** once. The `INSTALL_ALL` marker installs every stage not 
 3 → 4 → 5 (with 6) → 7. Every stage stays a separate transaction with its own backup and automatic
 rollback; the first error stops the run with `INSTALL_ALL_RESULT=FAIL`, the failed stage is undone,
 earlier ones stay, and running again resumes. `SAFE TO REMOVE SD` is printed once, at the very end.
-Uninstall: `…-uninstall.zip` → run → `ROLLBACK_RESULT=PASS`. Update: uninstall, then install (an
+Uninstall: `…-uninstall.zip` → run → `ROLLBACK_RESULT=PASS`. Update: `…-update.zip` → run twice (an
 install over a complete installation reports `ALREADY_INSTALLED` and changes nothing).
+
+Settings, read by the Java classes at HMI start; every marker first collects logs, is consumed by its
+run, and a full `ROLLBACK` removes the file:
+
+| Marker | File | Effect |
+|---|---|---|
+| `TOUCHPAD_STOCK` / `TOUCHPAD_DPAD` | `/mnt/app/root/k3346-touchpad.conf` | touchpad in CarPlay: raw factory path (for Android-over-CarPlay boxes; a wired iPhone does not react) / arrow keys (default) |
+| `VC_POLICY_MAP` / `VC_POLICY_OFF` / `VC_POLICY_RGI` | `/mnt/app/root/mib2high-vc.conf` | diagnostic: at route start `map` does not change `favoredViewMode`, `off` skips the VC route state, `rgi` is the default |
+
+The NavIgnore patch of M.I.B. is required: without it the cluster map goes black during route guidance.
+The installer only reports it (`NAVIGNORE=PRESENT/MISSING`) and never touches it.
 
 ### 4.0a Per-stage install (developers)
 

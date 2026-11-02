@@ -205,10 +205,10 @@ Ta karta zostaje **kartą z M.I.B.** Na nią w następnych rozdziałach wgrasz t
 
 1. Wejdź na stronę **[Releases](../../releases/latest)** tego projektu.
 2. Przewiń w dół do sekcji **„Assets”**.
-3. Kliknij plik **`mhi2-k3346-carplay-vc-1.0.0-install.zip`**.
+3. Kliknij plik **`mhi2-k3346-carplay-vc-1.0.1-install.zip`**.
    **Nie** klikaj „Source code” — to jest kod dla programistów, nie do instalacji.
 4. Plik zapisze się w folderze **Pobrane** (Downloads).
-5. Pobierz od razu **`mhi2-k3346-carplay-vc-1.0.0-uninstall.zip`** i zachowaj go. Przyda się do
+5. Pobierz od razu **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** i zachowaj go. Przyda się do
    odinstalowania.
 
 **Nie rozpakowuj jeszcze niczego.** Zrobisz to w kroku 3, od razu na kartę.
@@ -229,14 +229,14 @@ Ta karta zostaje **kartą z M.I.B.** Na nią w następnych rozdziałach wgrasz t
 ### 3.2 Rozpakuj plik na kartę — Windows
 
 1. W folderze **Pobrane** kliknij **prawym** przyciskiem myszy na plik
-   `mhi2-k3346-carplay-vc-1.0.0-install.zip`.
+   `mhi2-k3346-carplay-vc-1.0.1-install.zip`.
 2. Wybierz **„Wyodrębnij wszystkie…”** (Extract All…).
 3. W oknie, które się pojawi, kliknij **„Przeglądaj…”** (Browse…) i wybierz **dysk karty** (np. `E:`),
    potem **„Wybierz folder”**.
 4. **UWAGA — tu prawie wszyscy robią błąd.** Popatrz na pole ze ścieżką. Windows sam dopisuje na
    końcu nazwę folderu, np.:
 
-   `E:\mhi2-k3346-carplay-vc-1.0.0-install`
+   `E:\mhi2-k3346-carplay-vc-1.0.1-install`
 
    **Skasuj** tę końcówkę, tak żeby w polu zostało samo:
 
@@ -252,7 +252,7 @@ Ta karta zostaje **kartą z M.I.B.** Na nią w następnych rozdziałach wgrasz t
 Na Macu **nie przeciągaj całego folderu `mod`** na kartę: Finder zaproponuje „Zastąp”, a to skasowałoby
 pliki M.I.B. z folderu `mod` na karcie. Zrób to tak:
 
-1. W folderze **Pobrane** kliknij dwukrotnie plik `mhi2-k3346-carplay-vc-1.0.0-install.zip`.
+1. W folderze **Pobrane** kliknij dwukrotnie plik `mhi2-k3346-carplay-vc-1.0.1-install.zip`.
    Powstanie folder o tej samej nazwie. Otwórz go — w środku jest folder **`mod`** i plik
    **`README_CarPlay_VC.txt`**.
 2. Przeciągnij plik **`README_CarPlay_VC.txt`** do głównego okna karty.
@@ -273,10 +273,10 @@ To najważniejszy krok przed wyjściem do auta. Otwórz kartę i sprawdź:
    - folder **`payload`**,
    - folder **`source`**.
 
-**Typowy błąd:** w głównym oknie karty jest folder **`mhi2-k3346-carplay-vc-1.0.0-install`**, a dopiero
+**Typowy błąd:** w głównym oknie karty jest folder **`mhi2-k3346-carplay-vc-1.0.1-install`**, a dopiero
 w nim `mod`. To znaczy, że w kroku 3.2 nie skasowałeś końcówki ścieżki. Naprawa: otwórz ten folder,
 zaznacz jego zawartość (`mod` i `README_CarPlay_VC.txt`), przeciągnij do głównego okna karty (Windows:
-„Zamień pliki”; Mac: postąp jak w kroku 3.2 dla Maca), a potem skasuj pusty już folder `mhi2-k3346-carplay-vc-1.0.0-install`.
+„Zamień pliki”; Mac: postąp jak w kroku 3.2 dla Maca), a potem skasuj pusty już folder `mhi2-k3346-carplay-vc-1.0.1-install`.
 
 ### 3.4 Wysuń kartę
 
@@ -410,7 +410,7 @@ Odinstalowanie przywraca auto do stanu fabrycznego, plik w plik. **Musisz użyć
 którą instalowałeś, bo na niej jest kopia oryginalnych plików.
 
 1. Włóż tę kartę do komputera.
-2. Rozpakuj **`mhi2-k3346-carplay-vc-1.0.0-uninstall.zip`** na kartę **dokładnie tak jak w kroku 3.2**
+2. Rozpakuj **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** na kartę **dokładnie tak jak w kroku 3.2**
    (Windows: skasuj końcówkę ścieżki, ma zostać samo `E:\`). Mac: rozpakuj zip w Pobranych i przeciągnij
    sam plik **`ROLLBACK`** (z `mod/mib2high-carplay-rgi-v8s-simple/`) do folderu
    `mod/mib2high-carplay-rgi-v8s-simple/` **na karcie**.
@@ -424,9 +424,17 @@ którą instalowałeś, bo na niej jest kopia oryginalnych plików.
 Auto jest fabryczne. Łatka NavIgnore z kroku 4.3 zostaje — to łatka M.I.B., nie nasza. Usuniesz ją
 w M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Remove dual navigation`**.
 
-**Aktualizacja do nowej wersji:** najpierw odinstaluj starą wersję (ten rozdział), potem zainstaluj nową
-(rozdziały 2–5). Jeśli uruchomisz instalację nowej wersji na zainstalowanej starej, nic się nie zmieni,
-a na ekranie zobaczysz `ALREADY_INSTALLED` z podpowiedzią, żeby najpierw odinstalować.
+**Aktualizacja do nowej wersji, jednym plikiem:**
+
+1. Pobierz `…-update.zip` nowej wersji z [Releases](../../releases/latest).
+2. Rozpakuj go do katalogu głównego **tej samej** karty, jak w kroku 3.2, i wysuń kartę (krok 3.4).
+3. W aucie przygotuj wszystko jak w kroku 4.1 i włóż kartę do lewego slotu (**SD1**).
+4. **`run individual script`** (krok 4.4) → czekaj na **`ROLLBACK_RESULT=PASS`**. Nie restartuj.
+5. **`run individual script`** jeszcze raz → czekaj na **`INSTALL_ALL_RESULT=PASS`** i **`SAFE TO REMOVE SD`**.
+6. Zrestartuj MMI (krok 5.1).
+
+Jeśli uruchomisz zwykły `…-install.zip` na zainstalowanej wersji, nic się nie zmieni, a na ekranie zobaczysz
+`ALREADY_INSTALLED` z podpowiedzią, żeby najpierw odinstalować.
 
 ---
 
@@ -440,6 +448,8 @@ a na ekranie zobaczysz `ALREADY_INSTALLED` z podpowiedzią, żeby najpierw odins
 | `INSTALL_ALL_RESULT=FAIL` | Coś przerwało instalację. Auto jest w **bezpiecznym stanie**: części zainstalowane wcześniej zostają, a ta, która się nie udała, została automatycznie cofnięta. | Powód jest w linii z `ERROR`. Zrób jej zdjęcie. Uruchom skrypt jeszcze raz (krok 4.4) — instalacja dokończy brakujące części. Jeśli znów jest `FAIL`, odinstaluj (rozdział 6) i zgłoś problem. |
 | Linia z `do not reboot` | Automatyczne cofanie się nie udało. | **Nie restartuj MMI.** Od razu odinstaluj (rozdział 6, kroki 1–7). |
 | Mapa na zegarach robi się czarna, gdy włączysz trasę (bez trasy jest) | Brak łatki NavIgnore. | Zrób krok 4.3. |
+| W CarPlay touchpad nie reaguje, iPhone po kablu | Touchpad jest w trybie fabrycznym (`touchpad-stock`). | Rozpakuj `…-touchpad-dpad.zip` na kartę, uruchom skrypt raz, zrestartuj MMI. |
+| Brak strzałek w Waze (w Google Maps i Mapach Apple są) | Waze nie wysyła do auta danych prowadzenia. | W modzie nie ma czego naprawiać; do strzałek użyj Google Maps albo Map Apple. |
 | Po restarcie nie ma mapy na zegarach | Najczęściej: zegary nie są na widoku nawigacji albo w CarPlay nie ma włączonej trasy. | Włącz trasę w CarPlay, przełącz zegary na nawigację. Jeśli dalej nic — zbierz logi i zgłoś (niżej). |
 | MMI nie uruchamia się po restarcie (czarny ekran albo ciągłe restarty) | Bardzo mało prawdopodobne, ale możliwe. | Odczekaj 5 minut, zrestartuj jeszcze raz (krok 5.1). Jeśli dalej nie działa — zobacz „MMI nie uruchamia się” w [README](README.pl.md#mmi-nie-uruchamia-się). |
 

@@ -208,10 +208,10 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 
 1. Go to the **[Releases](../../releases/latest)** page of this project.
 2. Scroll down to the **"Assets"** section.
-3. Click **`mhi2-k3346-carplay-vc-1.0.0-install.zip`**.
+3. Click **`mhi2-k3346-carplay-vc-1.0.1-install.zip`**.
    Do **not** click "Source code" — that is code for developers, not for installing.
 4. The file is saved in your **Downloads** folder.
-5. Also download **`mhi2-k3346-carplay-vc-1.0.0-uninstall.zip`** now and keep it. You will need it to
+5. Also download **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** now and keep it. You will need it to
    uninstall.
 
 **Do not unzip anything yet.** You will do it in step 3, straight onto the card.
@@ -231,14 +231,14 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 
 ### 3.2 Unzip onto the card — Windows
 
-1. In **Downloads**, **right**-click `mhi2-k3346-carplay-vc-1.0.0-install.zip`.
+1. In **Downloads**, **right**-click `mhi2-k3346-carplay-vc-1.0.1-install.zip`.
 2. Choose **"Extract All…"**.
 3. In the window that opens, click **"Browse…"**, choose the **card drive** (e.g. `E:`), then
    **"Select Folder"**.
 4. **CAREFUL — almost everybody gets this wrong.** Look at the path field. Windows adds a folder name
    at the end by itself, e.g.:
 
-   `E:\mhi2-k3346-carplay-vc-1.0.0-install`
+   `E:\mhi2-k3346-carplay-vc-1.0.1-install`
 
    **Delete** that ending so that only this is left:
 
@@ -254,7 +254,7 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 On a Mac **do not drag the whole `mod` folder** onto the card: Finder will offer "Replace", which would
 delete the M.I.B. files in the card's `mod` folder. Do it like this:
 
-1. In **Downloads**, double-click `mhi2-k3346-carplay-vc-1.0.0-install.zip`. A folder with the same name
+1. In **Downloads**, double-click `mhi2-k3346-carplay-vc-1.0.1-install.zip`. A folder with the same name
    appears. Open it — inside there is a folder **`mod`** and a file **`README_CarPlay_VC.txt`**.
 2. Drag **`README_CarPlay_VC.txt`** into the main window of the card.
 3. Open the unzipped **`mod`** folder from Downloads and, in a second window, the **`mod` folder on the card**.
@@ -276,11 +276,11 @@ This is the most important step before going to the car. Open the card and check
    - a folder **`payload`**,
    - a folder **`source`**.
 
-**Typical mistake:** the main window of the card has a folder **`mhi2-k3346-carplay-vc-1.0.0-install`**
+**Typical mistake:** the main window of the card has a folder **`mhi2-k3346-carplay-vc-1.0.1-install`**
 with `mod` inside it. That means you did not delete the end of the path in step 3.2. Fix: open that
 folder, select its contents (`mod` and `README_CarPlay_VC.txt`), drag them into the main window of the card
 (Windows: "Replace the files"; Mac: do it as in step 3.2 for Mac), then delete the now empty folder
-`mhi2-k3346-carplay-vc-1.0.0-install`.
+`mhi2-k3346-carplay-vc-1.0.1-install`.
 
 ### 3.4 Eject the card
 
@@ -412,7 +412,7 @@ Uninstalling returns the car to its factory state, file for file. **You must use
 installed from, because it holds the copy of the original files.
 
 1. Put that card into the computer.
-2. Unzip **`mhi2-k3346-carplay-vc-1.0.0-uninstall.zip`** onto the card **exactly as in step 3.2**
+2. Unzip **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** onto the card **exactly as in step 3.2**
    (Windows: delete the end of the path, only `E:\` must remain). Mac: unzip it in Downloads and drag
    only the file **`ROLLBACK`** (from `mod/mib2high-carplay-rgi-v8s-simple/`) into the folder
    `mod/mib2high-carplay-rgi-v8s-simple/` **on the card**.
@@ -426,9 +426,17 @@ installed from, because it holds the copy of the original files.
 The car is factory again. The NavIgnore patch from step 4.3 stays — it is an M.I.B. patch, not ours. To
 remove it in M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Remove dual navigation`**.
 
-**Updating to a new version:** first uninstall the old version (this chapter), then install the new one
-(chapters 2–5). If you run the new version's installation over the old one, nothing changes, and the
-screen shows `ALREADY_INSTALLED` with a hint to uninstall first.
+**Updating to a new version, with one file:**
+
+1. Download `…-update.zip` of the new version from [Releases](../../releases/latest).
+2. Unzip it onto the root of the **same** card, as in step 3.2, and eject the card (step 3.4).
+3. In the car, prepare as in step 4.1 and put the card in the left slot (**SD1**).
+4. **`run individual script`** (step 4.4) → wait for **`ROLLBACK_RESULT=PASS`**. Do not restart.
+5. **`run individual script`** again → wait for **`INSTALL_ALL_RESULT=PASS`** and **`SAFE TO REMOVE SD`**.
+6. Restart the MMI (step 5.1).
+
+If you run a plain `…-install.zip` over an installed version, nothing changes, and the screen shows
+`ALREADY_INSTALLED` with a hint to uninstall first.
 
 ---
 
@@ -442,6 +450,8 @@ screen shows `ALREADY_INSTALLED` with a hint to uninstall first.
 | `INSTALL_ALL_RESULT=FAIL` | Something interrupted the installation. The car is in a **safe state**: parts installed earlier stay, the part that failed was undone automatically. | The reason is on the line with `ERROR`. Take a photo of it. Run the script again (step 4.4) — it finishes the missing parts. If it says `FAIL` again, uninstall (chapter 6) and report the problem. |
 | A line with `do not reboot` | The automatic undo did not work. | **Do not restart the MMI.** Uninstall straight away (chapter 6, steps 1–7). |
 | The cluster map goes black when you start a route (without a route it is there) | The NavIgnore patch is missing. | Do step 4.3. |
+| In CarPlay the touchpad does not react, with an iPhone on the cable | The touchpad is set to factory mode (`touchpad-stock`). | Unzip `…-touchpad-dpad.zip` onto the card, run the script once, restart the MMI. |
+| No arrows with Waze (Google Maps and Apple Maps show them) | Waze does not send route guidance data to the car. | Nothing to fix in the mod; use Google Maps or Apple Maps for arrows. |
 | No map on the cluster after the restart | Most often: the cluster is not on the navigation view, or no route is running in CarPlay. | Start a route in CarPlay, switch the cluster to navigation. If still nothing — collect logs and report (below). |
 | The MMI does not start after the restart (black screen or keeps restarting) | Very unlikely, but possible. | Wait 5 minutes, restart once more (step 5.1). If it still does not work — see "If the MMI does not start" in the [README](README.md#if-the-mmi-does-not-start). |
 

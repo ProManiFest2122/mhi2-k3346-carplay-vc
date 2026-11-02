@@ -61,6 +61,16 @@ static pthread_mutex_t g_rgd_start_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Forward decl — implemented after rgd_update_t is in scope. */
 void rgd_periodic_tick(void);
 
+#ifdef K3346_OVERLAY_FEED
+/* Route ended: blank the overlay on the NEXT tick, not this one.  Java gets
+ * route_state=0 in the same tick and the VC needs about a second more to drop
+ * its own tile (car run-45: our clear ~89.3 s, BAP RG status 0 at 89.96 and
+ * 90.36 s).  Clearing a tick later makes arrow and tile go together instead
+ * of leaving an empty tile for a second.  Guarded by g_rgd_debounce_lock; a
+ * new route cancels it. */
+static int g_overlay_clear_pending;
+#endif
+
 /* Module state */
 static struct {
     bool active;
@@ -1244,6 +1254,9 @@ void rgd_clear_state(const char* reason) {
     g_rgd.state_zero_deadline_ms = 0;
     g_rgd.state_zero_from_reroute = false;
     g_rgd.emitted_route_state = 0;
+#ifdef K3346_OVERLAY_FEED
+    g_overlay_clear_pending = 0;     /* already cleared above, right now */
+#endif
     pthread_mutex_unlock(&g_rgd_debounce_lock);
     rgd_maneuver_map_reset();
     rgd_update_cache_reset();
@@ -1486,6 +1499,10 @@ static bool rgd_message_handler(hook_context_t* ctx, const iap2_frame_t* frame) 
                 if (g_rgd.state_zero_started_ms != 0) {
                     rgd_cancel_pending_zero_locked("route_state>0", upd.route_state);
                 }
+#ifdef K3346_OVERLAY_FEED
+                /* A new route already: its own maneuvers replace the arrow. */
+                g_overlay_clear_pending = 0;
+#endif
                 g_rgd.emitted_route_state = upd.route_state;
             }
             pthread_mutex_unlock(&g_rgd_debounce_lock);
@@ -1727,6 +1744,17 @@ static void rgd_state_handler(hook_context_t* ctx, int event, void* event_data) 
  * Idempotent: re-emitting state=0 to a Java side that already saw it
  * is a no-op (Java's RG handler short-circuits identical states). */
 void rgd_periodic_tick(void) {
+#ifdef K3346_OVERLAY_FEED
+    {
+        int clear_now;
+        pthread_mutex_lock(&g_rgd_debounce_lock);
+        clear_now = g_overlay_clear_pending;
+        g_overlay_clear_pending = 0;
+        pthread_mutex_unlock(&g_rgd_debounce_lock);
+        if (clear_now) k3346_overlay_feed_clear("route end");
+    }
+#endif
+
     /* Recover an already-active phone navigation session when the first 0x5200
      * raced Maps restoration and produced no initial snapshot.  This is a
      * no-op after any 0x5201/2/4 and is rate-limited inside the request helper. */
@@ -1758,6 +1786,17 @@ void rgd_periodic_tick(void) {
 
     LOG_INFO(LOG_MODULE, "Route reset timeout: emitting deferred state=0 to Java (elapsed=%llums)",
              (unsigned long long)elapsed);
+
+#ifdef K3346_OVERLAY_FEED
+    /* The route really ended: Java drops the factory tile with this state=0,
+     * so the arrow we draw ourselves goes with it - one tick later, see
+     * g_overlay_clear_pending.  Without this, the overlay kept the last
+     * maneuver until the next RGI update - and Google Maps sends none after
+     * the end of a route, leaving a "ghost" arrow (issue #5, car run-43). */
+    pthread_mutex_lock(&g_rgd_debounce_lock);
+    g_overlay_clear_pending = 1;
+    pthread_mutex_unlock(&g_rgd_debounce_lock);
+#endif
 
     /* Direct minimal bus frame — bypass update_cache (not synchronized
      * across threads).  bus_send_text is internally thread-safe. */

@@ -37,6 +37,12 @@ static void check_int(int got, int want, const char *what)
 #define L_BAP_SMALL_DUP "52.471 3#org.dsi.ifc.bap.DSIBAPListener#indication#52251|int:50|int:54|int:0|int:0|int:1"
 #define L_ZOOM700 "52.446 1#org.dsi.ifc.map.DSIMapViewerZoomEngine#setZoomArea#52249|{org.dsi.ifc.map.Rect:370:49:700:300}"
 #define L_BAP_BIG "65.295 2#org.dsi.ifc.bap.DSIBAPListener#indication#65155|int:50|int:54|int:0|int:0|int:0"
+/* Car runs 43/44 (2026-10-30), version 1.0.0: after a cold MMI start the VC
+ * said nothing about the layout until the first VIEW, but the HMI did. */
+#define L_HMI_SMALL "69.922 0#org.dsi.ifc.bap.DSIBAP#request#69821|int:50|int:54|int:0|int:7|int:1"
+#define L_HMI_BIG   "72.707 0#org.dsi.ifc.bap.DSIBAP#request#72577|int:50|int:54|int:0|int:7|int:0"
+#define L_ACK54     "68.177 2#org.dsi.ifc.bap.DSIBAPListener#acknowledge#68028|int:50|int:54|int:0"
+#define L_REQ55     "69.922 0#org.dsi.ifc.bap.DSIBAP#requestByteSequence#69823|int:50|int:55|int:7|{byte[]:0:0:0:0}"
 
 /* One VIEW press from the car, 2026-10-28 (run-31): the 12# listener got the
  * key ~190 ms before 1#, and the BAP 54 report came ~575 ms after the key. */
@@ -328,6 +334,97 @@ static void t_ring_view(void)
     check_int(r.view_pending, 0, "hold over");
 }
 
+static void t_hmi_request(void)
+{
+    overlay_layout_reader_t r;
+    int s;
+    const char cold[] =        /* run-44 from the start of the session */
+        "50.128 TelnetAppender v1.0 (2 active connections)\n"
+        L_REQ55 "\n"
+        L_HMI_SMALL "\n"
+        L_ACK54 "\n";
+    const char view[] =        /* run-43: VIEW to big clocks, then back */
+        L_HMI_SMALL "\n"
+        "72.707 2#org.dsi.ifc.bap.DSIBAPListener#indication#72570|int:50|int:54|int:0|int:0|int:0\n"
+        L_HMI_BIG "\n"
+        "74.081 2#org.dsi.ifc.bap.DSIBAPListener#indication#73925|int:50|int:54|int:0|int:0|int:1\n"
+        "74.095 0#org.dsi.ifc.bap.DSIBAP#request#73935|int:50|int:54|int:0|int:7|int:1\n";
+
+    printf("the HMI's own layout request, used until the VC speaks\n");
+    check_int(parse(L_HMI_SMALL, &s), OVERLAY_LAYOUT_SRC_HMI, "HMI request 54 = 1 is layout evidence");
+    check_int(s, 0, "HMI 1 -> small clocks, slot 0");
+    check_int(parse(L_HMI_BIG, &s), OVERLAY_LAYOUT_SRC_HMI, "HMI request 54 = 0 too");
+    check_int(s, 1, "HMI 0 -> big clocks, slot 1");
+    check_int(parse(L_ACK54, &s), OVERLAY_LAYOUT_SRC_NONE, "acknowledge is not layout");
+    check_int(parse(L_REQ55, &s), OVERLAY_LAYOUT_SRC_NONE, "FctID 55 request is not layout");
+    check_int(parse("70.1 0#org.dsi.ifc.bap.DSIBAP#request#1|int:50|int:54|int:0|int:6|int:1", &s),
+              OVERLAY_LAYOUT_SRC_NONE, "another opcode is not this record");
+    check_int(parse("70.1 0#org.dsi.ifc.bap.DSIBAP#request#1|int:51|int:54|int:0|int:7|int:1", &s),
+              OVERLAY_LAYOUT_SRC_NONE, "another service is not this record");
+    check_int(parse("70.1 3#org.dsi.ifc.bap.DSIBAP#request#1|int:50|int:54|int:0|int:7|int:1", &s),
+              OVERLAY_LAYOUT_SRC_NONE, "only the 0# caller");
+    check_int(strcmp(overlay_layout_src_name(OVERLAY_LAYOUT_SRC_HMI), "hmi") == 0, 1, "named for the log");
+
+    overlay_layout_reader_init(&r, "/nonexistent/%02d", 4);
+    overlay_layout_feed(&r, cold, strlen(cold));
+    check_int(r.slot, 0, "cold start (run-44): small clocks known before any VIEW");
+    check_int(r.source, OVERLAY_LAYOUT_SRC_HMI, "from the HMI");
+
+    overlay_layout_apply(&r, OVERLAY_LAYOUT_SRC_ZOOM, 1);
+    check_int(r.slot, 0, "zoom area does not override the HMI");
+    overlay_layout_apply(&r, OVERLAY_LAYOUT_SRC_BAP54, 1);
+    check_int(r.slot, 1, "the VC's own report overrides the HMI");
+    overlay_layout_apply(&r, OVERLAY_LAYOUT_SRC_HMI, 0);
+    check_int(r.slot, 1, "HMI no longer counts once the VC has spoken");
+
+    overlay_layout_reader_init(&r, "/nonexistent/%02d", 4);
+    overlay_layout_feed(&r, view, strlen(view));
+    check_int(r.slot, 0, "run-43 VIEW sequence ends on small clocks");
+    check_int(r.source, OVERLAY_LAYOUT_SRC_BAP54, "decided by the VC's report");
+}
+
+static void t_unknown_hold(void)
+{
+    long since = 0;
+    const long H = 6000;
+    printf("tile held while the layout is unknown (run-45 timeline)\n");
+
+    /* 48.4 s: first maneuver, nobody has said the layout yet */
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 48400, &since, H), 1,
+              "first maneuver with unknown layout: held");
+    check_int(since == 48400, 1, "wait starts at the first maneuver");
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 50000, &since, H), 1,
+              "still held 1.6 s later");
+    /* 51.1 s: the HMI says small clocks */
+    check_int(overlay_layout_unknown_hold(0, 1, 51100, &since, H), 0,
+              "layout known: shown");
+    check_int(since == 0, 1, "and the wait is over");
+
+    since = 0;
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 0, 1000, &since, H), 0,
+              "nothing to show: nothing to hold");
+    check_int(since == 0, 1, "no wait started without content");
+
+    since = 0;
+    overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 10000, &since, H);
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 15999, &since, H), 1,
+              "held just under the limit");
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 16000, &since, H), 0,
+              "never told: shown at the default place after the limit");
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 30000, &since, H), 0,
+              "and stays shown, no second wait in the same stretch");
+
+    overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 0, 31000, &since, H);
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 40000, &since, H), 1,
+              "a new route after a blank spell gets the full wait again");
+
+    since = 0;
+    check_int(overlay_layout_unknown_hold(1, 1, 5000, &since, H), 0,
+              "known layout is never held");
+    check_int(overlay_layout_unknown_hold(OVERLAY_LAYOUT_UNKNOWN, 1, 5000, NULL, H), 0,
+              "no state pointer: no hold");
+}
+
 int main(void)
 {
     snprintf(g_fmt, sizeof(g_fmt), "/tmp/ovl_ring_%ld_%%02d.log", (long)getpid());
@@ -344,6 +441,8 @@ int main(void)
     t_view_key();
     t_view_pending();
     t_ring_view();
+    t_hmi_request();
+    t_unknown_hold();
     ring_clear();
 
     printf("\noverlay_layout: %d OK, %d FAIL\n", g_pass, g_fail);

@@ -9,6 +9,9 @@
 #   mhi2-k3346-carplay-vc-<wersja>-uninstall.zip  sam znacznik ROLLBACK
 #   mhi2-k3346-carplay-vc-<wersja>-collect-logs.zip  sam znacznik COLLECT_LOGS (logi po nieudanej instalacji)
 #   mhi2-k3346-carplay-vc-<wersja>-vc-policy-{rgi,map,off}.zip  znacznik polityki VC (issue #5)
+#   mhi2-k3346-carplay-vc-<wersja>-touchpad-{stock,dpad}.zip     tryb touchpada w CarPlay (issue #6)
+#   mhi2-k3346-carplay-vc-<wersja>-update.zip                    odinstaluj poprzednia + zainstaluj (jeden plik)
+#   mhi2-k3346-carplay-vc-<wersja>-update-touchpad-stock.zip     to samo + touchpad fabryczny
 #   SHA256SUMS.txt
 #   card/, uninstall-card/   drzewa, z ktorych powstaly zipy (dla symulacji)
 #   build-logs/              logi budowania i pakowania
@@ -132,10 +135,30 @@ for pol in rgi map off; do
     mkdir -p "$PC/mod/$PKG"
     : > "$PC/mod/$PKG/$m"
 done
+# Tryb touchpada (issue #6): stock = fabrycznie (Carlinkit, Q7), dpad = jak 1.0.0.
+for tp in stock dpad; do
+    PC="$REL/touchpad-$tp-card"; POLCARDS="$POLCARDS $PC"
+    m=`echo "TOUCHPAD_$tp" | tr 'a-z' 'A-Z'`
+    mkdir -p "$PC/mod/$PKG"
+    : > "$PC/mod/$PKG/$m"
+done
 
 mkdir -p "$UNCARD/mod/$PKG"
 : > "$UNCARD/mod/$PKG/ROLLBACK"
 cp "$A/deployment/README_CarPlay_VC.txt" "$UNCARD/README_CarPlay_VC.txt"
+
+# Jeden plik = jedna wizyta w aucie (prosba uzytkownika, 2026-10-31).
+#  update.zip                 = ROLLBACK + INSTALL_ALL: kolejne uruchomienia skryptu
+#                               najpierw cofaja poprzednia wersje (na karcie bez kopii:
+#                               NOTHING_TO_UNDO), potem instaluja te.
+#  update-touchpad-stock.zip  = to samo + TOUCHPAD_STOCK (issue #6).
+# Kolejnosc wykonania wynika z dyspozytora custom.sh: ROLLBACK > INSTALL_ALL > TOUCHPAD_*.
+UPDCARD="$REL/update-card"; UPDTPCARD="$REL/update-touchpad-stock-card"
+cp -a "$CARD" "$UPDCARD"
+: > "$UPDCARD/mod/$PKG/ROLLBACK"
+cp -a "$UPDCARD" "$UPDTPCARD"
+: > "$UPDTPCARD/mod/$PKG/TOUCHPAD_STOCK"
+POLCARDS="$POLCARDS $UPDCARD $UPDTPCARD"
 
 # ------------------------------------------------------------- 3. kontrole
 step "kontrole karty"
@@ -186,7 +209,7 @@ echo "kontrole: OK"
 # Python, bo w Git Bash nie ma zip. Stala data wpisow i sortowanie: ten sam
 # stan zrodel daje ten sam zip.
 step "zipy"
-python3 - "$CARD" "$REL/$NAME-install.zip" "$UNCARD" "$REL/$NAME-uninstall.zip" "$LOGCARD" "$REL/$NAME-collect-logs.zip"     "$REL/vc-policy-rgi-card" "$REL/$NAME-vc-policy-rgi.zip" "$REL/vc-policy-map-card" "$REL/$NAME-vc-policy-map.zip"     "$REL/vc-policy-off-card" "$REL/$NAME-vc-policy-off.zip" <<'PY'
+python3 - "$CARD" "$REL/$NAME-install.zip" "$UNCARD" "$REL/$NAME-uninstall.zip" "$LOGCARD" "$REL/$NAME-collect-logs.zip"     "$REL/vc-policy-rgi-card" "$REL/$NAME-vc-policy-rgi.zip" "$REL/vc-policy-map-card" "$REL/$NAME-vc-policy-map.zip"     "$REL/vc-policy-off-card" "$REL/$NAME-vc-policy-off.zip" "$REL/touchpad-stock-card" "$REL/$NAME-touchpad-stock.zip" "$REL/touchpad-dpad-card" "$REL/$NAME-touchpad-dpad.zip" "$UPDCARD" "$REL/$NAME-update.zip" "$UPDTPCARD" "$REL/$NAME-update-touchpad-stock.zip" <<'PY'
 import os, sys, zipfile
 def pack(root, out):
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
@@ -212,7 +235,7 @@ pack(sys.argv[5], sys.argv[6])
 for k in range(7, len(sys.argv), 2):
     pack(sys.argv[k], sys.argv[k + 1])
 PY
-( cd "$REL" && sha256sum "$NAME-install.zip" "$NAME-uninstall.zip" "$NAME-collect-logs.zip" "$NAME-vc-policy-rgi.zip" "$NAME-vc-policy-map.zip" "$NAME-vc-policy-off.zip" > SHA256SUMS.txt && cat SHA256SUMS.txt )
+( cd "$REL" && sha256sum "$NAME-install.zip" "$NAME-uninstall.zip" "$NAME-collect-logs.zip" "$NAME-vc-policy-rgi.zip" "$NAME-vc-policy-map.zip" "$NAME-vc-policy-off.zip" "$NAME-touchpad-stock.zip" "$NAME-touchpad-dpad.zip" "$NAME-update.zip" "$NAME-update-touchpad-stock.zip" > SHA256SUMS.txt && cat SHA256SUMS.txt )
 ( cd "$CARD" && find . -type f | LC_ALL=C sort | xargs sha256sum ) > "$LOGS/card-SHA256SUMS.txt"
 
 # Zip sprawdzony od strony odbiorcy: rozpakowany ma dac dokladnie drzewo karty.

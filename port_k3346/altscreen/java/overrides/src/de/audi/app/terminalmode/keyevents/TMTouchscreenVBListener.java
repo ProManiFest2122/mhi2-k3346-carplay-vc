@@ -11,6 +11,14 @@
  * BUTTON_UP/RIGHT/DOWN/LEFT. Natywny tryb trackpada celowo nie jest wlaczany
  * (u Luki crash Apple Music na iOS 27.2). Android Auto i brak CarPlay -
  * zachowanie fabryczne. Kazdy blad -> sciezka fabryczna.
+ *
+ * 1.0.1 (issue #6, Q7 4M): tryb z /mnt/app/root/k3346-touchpad.conf,
+ * "touchpad=dpad" (domyslnie, takze bez pliku) albo "touchpad=stock" -
+ * touchpad zawsze sciezka fabryczna, takze w CarPlay. Przystawki typu
+ * Carlinkit (Android udajacy CarPlay) rysuja kursor z surowych wspolrzednych,
+ * ktorych D-pad nie przekazuje. W trybie dpad zakres wspolrzednych pada
+ * idzie do logu, bo progi Luki sa dobrane do malego pada na pokretle, a Q7
+ * ma inny.
  */
 package de.audi.app.terminalmode.keyevents;
 
@@ -30,13 +38,83 @@ extends TMVirtualButtonListener {
     private final K3346TouchpadDpad k3346Dpad = new K3346TouchpadDpad();
     private volatile boolean k3346Announced = false;
 
+    private static final String K3346_TOUCHPAD_FILE = "/mnt/app/root/k3346-touchpad.conf";
+    private static String k3346TouchpadSource = "default";
+    /* true = touchpad jako D-pad w CarPlay (jak 1.0.0), false = fabrycznie */
+    private static final boolean K3346_DPAD = !"stock".equals(k3346LoadTouchpadMode());
+
+    /* Zakres wspolrzednych pada w trybie dpad - do strojenia progow (Q7). */
+    private static final int K3346_RANGE_SAMPLES = 200;
+    private int k3346Samples;
+    private int k3346MinX = Integer.MAX_VALUE, k3346MaxX = Integer.MIN_VALUE;
+    private int k3346MinY = Integer.MAX_VALUE, k3346MaxY = Integer.MIN_VALUE;
+
+    /* "touchpad=<dpad|stock>"; '#' to komentarz.  FileInputStream, bo to API
+     * jest sprawdzone na tym J9 (K3346GatedPhoneService).  Kazdy problem ->
+     * dpad, czyli zachowanie 1.0.0. */
+    private static String k3346LoadTouchpadMode() {
+        java.io.FileInputStream in = null;
+        try {
+            in = new java.io.FileInputStream(K3346_TOUCHPAD_FILE);
+            byte[] buf = new byte[256];
+            int n = 0;
+            int r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) {
+                n += r;
+            }
+            String text = new String(buf, 0, n);
+            int start = 0;
+            while (start <= text.length()) {
+                int end = text.indexOf('\n', start);
+                if (end < 0) end = text.length();
+                String line = text.substring(start, end).trim();
+                start = end + 1;
+                if (line.length() == 0 || line.charAt(0) == '#') continue;
+                int eq = line.indexOf('=');
+                if (eq < 0) continue;
+                if (!"touchpad".equals(line.substring(0, eq).trim())) continue;
+                String v = line.substring(eq + 1).trim().toLowerCase();
+                if ("dpad".equals(v) || "stock".equals(v)) {
+                    k3346TouchpadSource = "file";
+                    return v;
+                }
+                k3346TouchpadSource = "file-invalid";
+                return "dpad";
+            }
+            k3346TouchpadSource = "file-no-key";
+        } catch (Throwable t) {
+            k3346TouchpadSource = "default";
+        } finally {
+            if (in != null) {
+                try { in.close(); } catch (Throwable ignored) { }
+            }
+        }
+        return "dpad";
+    }
+
+    private void k3346NoteRange(int x, int y) {
+        if (this.k3346Samples >= K3346_RANGE_SAMPLES) return;
+        if (x < this.k3346MinX) this.k3346MinX = x;
+        if (x > this.k3346MaxX) this.k3346MaxX = x;
+        if (y < this.k3346MinY) this.k3346MinY = y;
+        if (y > this.k3346MaxY) this.k3346MaxY = y;
+        this.k3346Samples++;
+        if (this.k3346Samples == 20 || this.k3346Samples == K3346_RANGE_SAMPLES) {
+            K3346Diag.log("K3346_DPAD range samples=" + this.k3346Samples
+                + " x=" + this.k3346MinX + ".." + this.k3346MaxX
+                + " y=" + this.k3346MinY + ".." + this.k3346MaxY);
+        }
+    }
+
     public TMTouchscreenVBListener(ITerminalLogger iTerminalLogger, ITerminalModeConfiguration iTerminalModeConfiguration, HMIService hMIService) {
         super(iTerminalLogger, iTerminalModeConfiguration, hMIService);
-        K3346Diag.log("K3346_DPAD TMTouchscreenVBListener constructed");
+        K3346Diag.log("K3346_DPAD TMTouchscreenVBListener constructed mode="
+            + (K3346_DPAD ? "dpad" : "stock") + " source=" + k3346TouchpadSource);
     }
 
     /* Kontroler CarPlay jest aktywny -> touchpad jako D-pad. */
     private ITerminalModeDSIKeyEventsController k3346CarPlayController() {
+        if (!K3346_DPAD) return null;      /* tryb stock: zawsze fabrycznie */
         try {
             ITerminalModeDSIKeyEventsController c = this.keyEventListener;
             if (c != null && K3346_CARPLAY_KEY_CONTROLLER.equals(c.getClass().getName())) {
@@ -75,6 +153,7 @@ extends TMVirtualButtonListener {
         }
         ITerminalModeDSIKeyEventsController c = this.k3346CarPlayController();
         if (c != null) {
+            this.k3346NoteRange(n4, n5);
             this.k3346Dpad.onTouch(n4, n5, k3346Sink(c));
             return;
         }
@@ -89,6 +168,7 @@ extends TMVirtualButtonListener {
         ITerminalModeDSIKeyEventsController c = this.k3346CarPlayController();
         if (c != null) {
             /* jak fabrycznie: TouchEvent(true, n, n2, false) -> x = n, y = n2 */
+            this.k3346NoteRange(n, n2);
             this.k3346Dpad.onTouchEnd();
             this.k3346Dpad.onTouch(n, n2, k3346Sink(c));
             return;

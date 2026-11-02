@@ -1107,6 +1107,38 @@ case "$OUT" in *"NAVIGNORE=MISSING"*"NavActiveIgnore -> Enable dual navigation"*
 OUT=$(run); R=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
 grep -q '^NAVIGNORE=MISSING' "$R/trace/metadata.txt" 2>/dev/null && ok "metadata: MISSING" || bad "metadata bez MISSING"
 
+# ----------------------------------------------------------------------- T21
+# Tryb touchpada (1.0.1, issue #6): znaczniki TOUCHPAD_* jak VC_POLICY_*.
+TPAD="$SIM/app/root/k3346-touchpad.conf"
+echo
+echo "--- T21a: TOUCHPAD_STOCK bez zainstalowanego moda -> ODMOWA, zero zapisow"
+setup; B=$(snapshot_files "$SIM/app" "$SIM/system")
+: > "$SIM/sd/mod/$PKGNAME/TOUCHPAD_STOCK"
+OUT=$(run)
+case "$OUT" in *"TOUCHPAD: the mod is not installed"*) ok "odmowa bez instalacji";; *) bad "brak odmowy"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "zero zapisow" || bad "zapisy mimo odmowy"
+
+echo
+echo "--- T21b: po instalacji: STOCK -> plik, DPAD -> nadpisany; logi przed zmiana; ROLLBACK -> fabryka"
+setup7; FAB=$(snapshot_files "$SIM/app" "$SIM/system"); : > "$E4M/INSTALL_ALL"; run >/dev/null
+for tp in stock dpad; do
+    m=$(echo "TOUCHPAD_$tp" | tr 'a-z' 'A-Z')
+    N0=$(ls -d "$E4M"/collected/run-* 2>/dev/null | wc -l)
+    : > "$E4M/$m"; OUT=$(run)
+    case "$OUT" in *"COLLECT_RESULT="*"TOUCHPAD_RESULT=PASS touchpad=$tp"*) ok "$m: logi + PASS";; *) bad "$m: brak PASS"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+    [ "$(cat "$TPAD" 2>/dev/null)" = "touchpad=$tp" ] && ok "$m: plik = touchpad=$tp" || bad "$m: zla tresc: $(cat "$TPAD" 2>/dev/null)"
+    [ "$(stat -c %a "$TPAD")" = 644 ] && ok "$m: tryb 644" || bad "$m: tryb $(stat -c %a "$TPAD")"
+    [ ! -e "$E4M/$m" ] && ok "$m: znacznik zuzyty" || bad "$m: znacznik zostal"
+    [ "$(( $(ls -d "$E4M"/collected/run-* | wc -l) - N0 ))" = 1 ] && ok "$m: jeden nowy katalog logow" || bad "$m: brak logow"
+    [ "$(lines_safe "$OUT")" = 1 ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = '[V8S] SAFE TO REMOVE SD' ] && ok "$m: SAFE TO REMOVE SD raz, na koncu" || bad "$m: SAFE TO REMOVE SD nie raz/nie na koncu"
+done
+OUT=$(run); R=$(ls -d "$E4M"/collected/run-* | sort -V | tail -1)
+grep -q 'TOUCHPAD_FILE=touchpad=dpad' "$R/trace/metadata.txt" 2>/dev/null && ok "COLLECT zapisuje tryb touchpada" || bad "metadata bez trybu touchpada"
+: > "$TPAD.new.777"; : > "$E4M/ROLLBACK"; OUT=$(run)
+case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK PASS";; *) bad "ROLLBACK nie przeszedl";; esac
+ls "$SIM/app/root" 2>/dev/null | grep -q 'k3346-touchpad.conf' && bad "plik/resztka touchpada zostala" || ok "ROLLBACK usuwa plik i resztki"
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
+
 # ----------------------------------------------------------------------- T18
 # Zipy wydania dokladnie tak, jak dostaje je uzytkownik: rozpakowane na karte,
 # bez naszych paczek etapowych i bez ZNACZNIKI/. Wlaczane zmienna RELEASE_DIR
@@ -1175,6 +1207,47 @@ case "$OUT" in *"VC_POLICY_RESULT=PASS policy=map"*) ok "polityka map z zipa";; 
 [ "$(cat "$SIM/app/root/mib2high-vc.conf" 2>/dev/null)" = "vc_policy=map" ] && ok "plik w aucie" || bad "brak pliku w aucie"
 unz "$ZIP_U" "$SIM/sd"; run >/dev/null
 [ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "uninstall -> fabryka" || bad "uninstall nie daje fabryki"
+fi
+
+echo
+echo "--- T18h: touchpad-stock.zip na zainstalowanej karcie -> tryb stock, uninstall -> fabryka"
+ZIP_T=$(ls "$RELEASE_DIR"/*-touchpad-stock.zip 2>/dev/null | head -1)
+if [ -z "$ZIP_T" ]; then bad "brak touchpad-stock.zip"; else
+setup nocard; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_I" "$SIM/sd"; run >/dev/null
+unz "$ZIP_T" "$SIM/sd"; OUT=$(run)
+case "$OUT" in *"TOUCHPAD_RESULT=PASS touchpad=stock"*) ok "tryb stock z zipa";; *) bad "tryb z zipa nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+[ "$(cat "$SIM/app/root/k3346-touchpad.conf" 2>/dev/null)" = "touchpad=stock" ] && ok "plik w aucie" || bad "brak pliku w aucie"
+unz "$ZIP_U" "$SIM/sd"; run >/dev/null
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "uninstall -> fabryka" || bad "uninstall nie daje fabryki"
+fi
+
+echo
+echo "--- T18i: jeden plik: update-touchpad-stock.zip na aucie z 1.0.0 -> 3 uruchomienia"
+ZIP_UT=$(ls "$RELEASE_DIR"/*-update-touchpad-stock.zip 2>/dev/null | head -1)
+ZIP_UP=$(ls "$RELEASE_DIR"/*-update.zip 2>/dev/null | head -1)
+ZIP_100=/work/release/1.0.0/mhi2-k3346-carplay-vc-1.0.0-install.zip
+if [ -z "$ZIP_UT" ] || [ -z "$ZIP_UP" ]; then bad "brak update zipow"; else
+if [ -f "$ZIP_100" ]; then
+setup nocard; FAB=$(snapshot_files "$SIM/app" "$SIM/system")
+unz "$ZIP_100" "$SIM/sd"; O=$(run); case "$O" in *INSTALL_ALL_RESULT=PASS*) ok "auto z 1.0.0";; *) bad "1.0.0 nie weszlo";; esac
+unz "$ZIP_UT" "$SIM/sd"
+O=$(run); case "$O" in *ROLLBACK_RESULT=PASS*) ok "1.: odinstalowanie 1.0.0";; *) bad "1. nie ROLLBACK"; echo "$O" | tail -3 | sed 's/^/      | /';; esac
+[ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "1.: fabryka bit w bit" || bad "1.: nie fabryka"
+O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "2.: instalacja nowej wersji";; *) bad "2. nie instalacja"; echo "$O" | tail -3 | sed 's/^/      | /';; esac
+O=$(run); case "$O" in *"TOUCHPAD_RESULT=PASS touchpad=stock"*) ok "3.: touchpad stock";; *) bad "3. nie touchpad"; echo "$O" | tail -3 | sed 's/^/      | /';; esac
+[ "$(cat "$SIM/app/root/k3346-touchpad.conf" 2>/dev/null)" = "touchpad=stock" ] && ok "plik trybu w aucie" || bad "brak pliku trybu"
+ls "$SIM$RM" | grep -qE '^(ROLLBACK|INSTALL_ALL|TOUCHPAD_)' && bad "zostaly znaczniki" || ok "wszystkie znaczniki zuzyte"
+O=$(run); case "$O" in *"MODE=COLLECT"*) ok "4.: zwykle zbieranie logow";; *) bad "4. nie COLLECT";; esac
+else bad "brak $ZIP_100 do testu aktualizacji"; fi
+
+echo
+echo "--- T18j: update.zip na czystym aucie -> nic do cofniecia, potem instalacja"
+setup nocard
+unz "$ZIP_UP" "$SIM/sd"
+O=$(run); case "$O" in *"ROLLBACK_RESULT=NOTHING_TO_UNDO"*) ok "1.: nic do cofniecia";; *) bad "1. zly wynik"; echo "$O" | tail -3 | sed 's/^/      | /';; esac
+case "$O" in *"do not reboot"*) bad "1.: straszy";; *) ok "1.: bez strachu";; esac
+O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "2.: instalacja";; *) bad "2. nie instalacja"; echo "$O" | tail -3 | sed 's/^/      | /';; esac
 fi
 
 echo

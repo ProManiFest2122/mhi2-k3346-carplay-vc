@@ -591,6 +591,59 @@
       `active_man` pusty → nakładka dostaje tylko „clear”. Potwierdzone surowym `rx.bin` obu aut. Do zrobienia
       po czarnej mapie (plan: zapamiętać listę przez ramkę resetu i przywrócić, gdy 5202 wrócą).
 
+- [ ] **1.0.1-rc3 (2026-10-30)** — dwa błędy potwierdzone w naszym aucie (1.0.0 + NavIgnore, run-43/44):
+      1. **„Duch” strzałki po końcu trasy** (też #5): po 800 ms od `route_state=0` hook wysyłał Javie trasa=0
+         (fabryczny kafelek znika), ale nakładce nie `clear` → ostatni manewr wisiał. Poprawka:
+         `k3346_overlay_feed_clear("route end")` w `rgd_periodic_tick` (`rgd_hook.c`, tick 1 Hz z busa).
+      2. **Pierwsza trasa po zimnym starcie: kafelek w miejscu dużych zegarów przy małych.** VC nie zgłasza
+         układu (BAP 50/54 indication) do pierwszego VIEW; za to fabryczne HMI na starcie sesji wysyła
+         `0#…DSIBAP#request#…|int:50|int:54|int:0|int:7|int:<stan>` i zawsze powtarza nim aktualny układ.
+         `overlay_layout.h`: nowe źródło `hmi`, ważne do pierwszego raportu VC (BAP54 > HMI > zoom).
+         Testy hosta na prawdziwych liniach z run-43/44: overlay_layout 104/0.
+      Strzałki u zgłaszającego #5 z NavIgnore działają — teorii o gubionej liście manewrów nie ruszamy.
+      **Test rc3 w aucie (run-45):** „duch” naprawiony (strzałka znika, fabryczny kafelek chwilę później).
+      Pozycja częściowo: request HMI przyszedł 2,7 s PO pierwszym manewrze (48,4 s → 51,1 s), więc kafelek
+      przez chwilę stał w miejscu domyślnym i sam przeskoczył. **rc4:** `overlay_layout_unknown_hold()` —
+      przy nieznanym układzie kafelek schowany do 6 s (potem miejsce domyślne jak dawniej);
+      overlay_layout 117/0.
+      **rc5:** strzałka gasła ~1 s przed fabrycznym kafelkiem (run-45: nasz clear ~89,3 s, BAP RG status 0
+      89,96/90,36 s) → `g_overlay_clear_pending`: clear w NASTĘPNYM ticku po „Route reset timeout”, kasowany
+      przez nową trasę; rozłączenie gasi od razu. UWAGA: `rgd_hook.c` jest CRLF (kod Luki) — wstawki z rc3
+      miały LF, ujednolicone; eksport do repo i tak normalizuje do LF.
+
+- [ ] **Błąd #6 (Q7 4M, VC H13/0378): touchpad w CarPlay / Carlinkit.** 1.0.1-rc6: `touchpad=dpad|stock`
+      (`/mnt/app/root/k3346-touchpad.conf`, znaczniki `TOUCHPAD_*`, domyślnie dpad), log zakresu współrzędnych.
+      **Test u nas (run-46/47, A4 B9):** dpad jak dotąd, zakres x=69..924 y=342..915; `mode=stock source=file`
+      działa, ale **z iPhone'em po kablu touchpad w trybie stock nie reaguje wcale** (surowe współrzędne iOS
+      ignoruje). Tryb stock NIE naprawia więc iPhone'a po kablu; ma sens tylko do próby z Carlinkit
+      (niesprawdzone).
+      **Odpowiedź zgłaszającego (2026-11-01):** po kablu touchpad działa (przewijanie + klik), więc progi pasują do
+      Q7; nie działa tylko kursor z Carlinkit → test `stock`. Opóźnienie HUD znikło po zmianie układu zegarów
+      sport → classic. Waze bez strzałek: Waze nie wysyła RGI (Luka, `THIRD_PARTY_NAV_APPS.md`), opisane w README.
+      Zipy jednoplikowe: `…-update.zip`, `…-update-touchpad-stock.zip`.
+
+- [ ] **Błąd #7 (A4 B9, 1.0.0, iOS 26.6.2, NavIgnore jest): czarna mapa na VC po ponownym podłączeniu USB.**
+      Pierwsza sesja po restarcie MMI działa, po wyjęciu kabla na 15–20 s mapa jest czarna aż do restartu MMI; VIEW i
+      zmiana aplikacji nawigacji nie pomagają. **Przyczyna nieznana, kodu nie zmieniamy bez dowodu.** Na naszym aucie mapa
+      wraca (potwierdzenie użytkownika), więc szukamy różnicy między autami: VC, iOS, konfiguracja. Logi z maila nie dotarły;
+      w zgłoszeniu poproszono o ponowne wysłanie według procedury + wersję VC (2026-11-01). Logi zapisywać do
+      `Logi_bugow_uzytkownikow\issue7\` (poza eksportem). Wzorzec zdrowej drugiej sesji: `work\auto_test_19\…\collected\run-40`
+      (przerwa 183 s): `hook connected`, `NvSSVideoOpen -> 0x0`, `dec_err=0`, `context=901`, Java `RESTORE` → `PREPARE` →
+      `CONFIGURE`, sonda nakładki 12–13% alfy. **Odrzucone:** `/tmp/mib2high-lvds-reacquire` (nikt go nie czyta) i sama
+      długość przerwy (u nas 8, 11, 183 s działa). Rozstrzyganie po logach, sesja 1 vs 2 i vs `run-40`:
+
+      | Co widać w logach | Wniosek |
+      |---|---|
+      | `vc_render.log`: brak drugiego `hook connected`, błąd `NvSSVideoOpen`, `dec_err>0` | wideo nie dochodzi do dekodera |
+      | `carplay_hook.log`: brak `SETUP_READY`/`FIRST_REAL_FRAME` w sesji 2, `V8S_CONTROL_TIMEOUT` | brak strumienia lub `showUI` |
+      | dekodowanie jest, ale `STATS` stale bardzo mało KB/klatkę | iPhone wysyła pusty obraz |
+      | realny ruch, `panel probe` z alfą bliską 100% | nakładka zasłania mapę |
+      | `lvds-control.log`: `duplicate start ignored`, `declaration failed`, `staying on 77` | stan kontekstów lub skryptu |
+      | Java: inny `CAPTURE_STATE_OK favored=`, brak `CONFIGURE`, wyjątek | stan VC po `RESTORE` |
+      | wszystko jak w `run-40`, a mimo to czarno | VC/DisplayManager: porównać `sloginfo.txt` (`stream closed`, `window closed`, `new stream`), dopiero potem paczka diagnostyczna |
+
+      `dmdt-gc.txt` urywa się na 11 264 B, przed kontekstami 900/901, więc nie potwierdza ich stanu.
+
 ## Gdzie co jest
 
 | Dokument | Po co |

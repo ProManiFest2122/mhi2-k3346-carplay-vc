@@ -26,9 +26,17 @@
  *      state, sent at session start and on every VIEW.  Parsed by the hook's
  *      own native/gauge_bap54.h, included rather than copied, so both readers
  *      can never disagree on what the record means.
- *   2. 1#...DSIMapViewerZoomEngine#setZoomArea#...Rect:x:y:w:h - the stock map
+ *   2. 0#org.dsi.ifc.bap.DSIBAP#request#...|int:50|int:54|int:0|int:7|int:<v>
+ *      - the stock HMI telling the VC the layout it believes is on screen.
+ *      It echoes every BAP 54 report (run-43: indication 0 -> request 0,
+ *      indication 1 -> request 1) and, crucially, the HMI sends it on its own
+ *      at session start.  After a cold MMI start the VC itself said nothing
+ *      until the first VIEW (car run-44, 2026-10-30), so without this the tile
+ *      sat in the big-clocks place over small clocks.  Used only until the
+ *      first BAP 54 record: the VC's own word wins.
+ *   3. 1#...DSIMapViewerZoomEngine#setZoomArea#...Rect:x:y:w:h - the stock map
  *      area: 460 wide with big clocks, 700 with small.  Used only until the
- *      first BAP 54 record, exactly as the hook does.
+ *      first BAP 54 or HMI record, as the hook does for BAP 54.
  *
  * Why the file and not port 1798 itself: the VC states the layout once at
  * session start and then only on VIEW.  On 2026-10-28 that record arrived at
@@ -66,10 +74,12 @@
 #define OVERLAY_LAYOUT_SRC_NONE   0
 #define OVERLAY_LAYOUT_SRC_BAP54  1
 #define OVERLAY_LAYOUT_SRC_ZOOM   2
+#define OVERLAY_LAYOUT_SRC_HMI    3
 
 static const char *overlay_layout_src_name(int src)
 {
     return src == OVERLAY_LAYOUT_SRC_BAP54 ? "bap54" :
+           src == OVERLAY_LAYOUT_SRC_HMI   ? "hmi" :
            src == OVERLAY_LAYOUT_SRC_ZOOM  ? "zoomarea" : "none";
 }
 
@@ -103,6 +113,27 @@ static int overlay_layout_parse_line(const char *line, int *slot)
     if (altscreen_bap54_layout_slot(p, &s, &raw)) {
         *slot = s;
         return OVERLAY_LAYOUT_SRC_BAP54;
+    }
+
+    /* The HMI's own statement of the layout (see source 2 above).  Same
+     * bit as the VC's report: 1 = small clocks.  Only the 0# DSIBAP caller,
+     * service 50, FctID 54, opcode 7 - anything else is not this record. */
+    {
+        static const char req[] = "0#org.dsi.ifc.bap.DSIBAP#request#";
+        unsigned long ts = 0;
+        int service = -1, fct = -1, a = -1, op = -1, v = -1;
+        char tail = 0;
+        int n;
+        if (strncmp(p, req, sizeof(req) - 1) == 0) {
+            n = sscanf(p + sizeof(req) - 1, "%lu|int:%d|int:%d|int:%d|int:%d|int:%d%c",
+                       &ts, &service, &fct, &a, &op, &v, &tail);
+            if ((n == 6 || (n == 7 && tail == '@')) && service == 50 && fct == 54
+                && a == 0 && op == 7 && v >= 0 && v <= 255) {
+                *slot = (v & 1) ? 0 : 1;
+                return OVERLAY_LAYOUT_SRC_HMI;
+            }
+            return OVERLAY_LAYOUT_SRC_NONE;
+        }
     }
 
     /* The hook looks at the zoom area only on 1# records (3# is the
@@ -169,7 +200,8 @@ typedef struct {
     int  count;         /* files in the ring */
     int  slot;          /* current slot, or OVERLAY_LAYOUT_UNKNOWN */
     int  source;        /* OVERLAY_LAYOUT_SRC_* that set it */
-    int  bap54_known;   /* once set, zoom area no longer counts (hook policy) */
+    int  bap54_known;   /* once set, HMI and zoom area no longer count (hook policy) */
+    int  hmi_known;     /* once set, zoom area no longer counts */
     int  started;       /* the one-off scan of the whole ring has run */
     int  cur;           /* ring index being followed, -1 = none yet */
     long cur_off;       /* bytes of it consumed - whole lines only */
@@ -190,15 +222,20 @@ static void overlay_layout_reader_init(overlay_layout_reader_t *r,
     r->cur    = -1;
 }
 
-/* The hook's order of authority: BAP 54 always wins; the zoom area counts
- * only while no BAP 54 record has been seen. */
+/* Order of authority: BAP 54 (the VC itself) always wins; the HMI's request
+ * counts only while no BAP 54 record has been seen; the zoom area only while
+ * neither has. */
 static void overlay_layout_apply(overlay_layout_reader_t *r, int src, int slot)
 {
     if (src == OVERLAY_LAYOUT_SRC_BAP54) {
         r->bap54_known = 1;
         r->slot = slot;
         r->source = src;
-    } else if (src == OVERLAY_LAYOUT_SRC_ZOOM && !r->bap54_known) {
+    } else if (src == OVERLAY_LAYOUT_SRC_HMI && !r->bap54_known) {
+        r->hmi_known = 1;
+        r->slot = slot;
+        r->source = src;
+    } else if (src == OVERLAY_LAYOUT_SRC_ZOOM && !r->bap54_known && !r->hmi_known) {
         r->slot = slot;
         r->source = src;
     }
@@ -371,6 +408,32 @@ static int overlay_layout_origin(int slot, int x, int y, int x_alt, int y_alt,
     if (slot == 1)      { if (out_x) *out_x = x;     if (out_y) *out_y = y;     return 1; }
     else if (slot == 0) { if (out_x) *out_x = x_alt; if (out_y) *out_y = y_alt; return 1; }
     return 0;
+}
+
+/* Keep the tile off the canvas while the layout is not known yet.
+ *
+ * After a cold MMI start the VC says nothing about its layout until the first
+ * VIEW, and the HMI's own statement of it (source "hmi") came 2.7 s AFTER the
+ * first maneuver in car run-45 (2026-10-30): the tile showed in the big-clocks
+ * place over small clocks and then jumped.  A moment without the arrow beats
+ * the arrow in the wrong place - the same trade as on VIEW.
+ *
+ * Returns 1 while the tile should stay hidden: the slot is unknown, there is
+ * something to show, and that has lasted less than hold_ms.  After hold_ms the
+ * tile shows at the default place, exactly as before this existed, so a car
+ * that never says its layout still gets its arrow.  *since_ms remembers when
+ * the wait started; it is reset whenever the slot is known or there is
+ * nothing to show, so every new wait gets the full hold_ms. */
+static int overlay_layout_unknown_hold(int slot, int content_present, long now_ms,
+                                       long *since_ms, long hold_ms)
+{
+    if (!since_ms) return 0;
+    if (slot != OVERLAY_LAYOUT_UNKNOWN || !content_present) {
+        *since_ms = 0;
+        return 0;
+    }
+    if (*since_ms == 0) *since_ms = now_ms ? now_ms : 1;
+    return (now_ms - *since_ms) < hold_ms;
 }
 
 #endif /* K3346_OVERLAY_LAYOUT_H */

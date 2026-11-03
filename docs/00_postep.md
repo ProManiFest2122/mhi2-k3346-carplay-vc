@@ -723,6 +723,7 @@
         `1.0.3` dopiero potem i na polecenie.
   - [ ] **Na razie niewspierane (README, zgłoszone przez użytkownika):** układ S4 Sport, także tylko zakodowany: problemy z mapą, zacinający się HUD, a przy VIEW
         mapa CarPlay znika, pojawia się fabryczna i po chwili wraca CarPlay. Bezprzewodowe adaptery CarLink: dużo błędów, niestabilność.
+        Strzałki na HUD działają według zgłoszeń, a przy S4 Sport zacinają się i mają opóźnienie. Sami nie mamy auta z HUD, więc tego nie sprawdziliśmy.
   - [ ] **Otwarte: Mapy Apple przy dużych zegarach bez ETA na mapie** (`run-51`; mapa i karta są). Nie wiadomo, czy da się
         to zmienić z naszej strony. `rc6` daje tam czas w kapsule.
 - [ ] **Etap 6 – ostatnie połączenia CarPlay na VC + dzwonienie z listy** (`docs\17`): paczka gotowa

@@ -24,6 +24,7 @@ wired CarPlay.
 | 🔙 | Map keeps running while **reversing** (the MMI shows the camera as usual) |
 | 📞 | **CarPlay calls on the cockpit phone tab**: caller name, answer / reject / hang up, steering-wheel key works |
 | 🕘 | **Recent calls** on the cockpit during CarPlay, dial from the list |
+| 🧭 | **Turn arrows on the HUD**, according to users with a HUD (no car with a HUD here). See [Not supported yet](#not-supported-yet) for the S4 Sport layout |
 | 🎵 | **Album art** of the playing song on the cockpit |
 | 🎙️ | **Siri** on a short press of the voice button |
 | 👆 | MMI **touchpad as arrow keys** in CarPlay |
@@ -54,14 +55,13 @@ rotary knob to the right → bottom of the list.
 | | Feature |
 |---|---|
 | 🔧 | Bug fixes |
-| ➡️ | Turn arrows on the HUD |
 | 🎧 | CarPlay 5-speaker system support (Thanks yety-ua for your research) |
 
 ### Not supported yet
 
-- **S4 Sport gauge layout**, also when it is only coded and not selected: problems with the map and a
-  stuttering HUD. When you press VIEW, the CarPlay map disappears, the factory map appears, and after a
-  moment the CarPlay map comes back.
+- **S4 Sport gauge layout**, also when it is only coded and not selected: problems with the map, and the
+  HUD arrows stutter and lag. When you press VIEW, the CarPlay map disappears, the factory map appears, and
+  after a moment the CarPlay map comes back.
 - **Wireless CarLink adapters:** many errors and unstable behaviour. Use the cable.
 
 ## Will it work in my car?
@@ -195,7 +195,7 @@ expected, what happened, how many minutes before collecting, and a photo of the 
   which gauge layout is on screen.
 - **Waze** does not send route guidance data to the car: its map works on the cluster, but there are no
   arrows. Google Maps and Apple Maps do send it.
-- **HUD:** one user saw the HUD arrow lag in the *sports* gauge layout; in *classic* it was in sync. See [Not supported yet](#not-supported-yet).
+- **HUD:** the arrows stutter and lag in the S4 Sport layout; one user had them in sync in *classic*. See [Not supported yet](#not-supported-yet).
 
 **Use at your own risk.** No warranty of any kind. External power, a fresh M.I.B. backup and the
 original firmware should be at hand.

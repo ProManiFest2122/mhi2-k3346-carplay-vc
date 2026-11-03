@@ -23,6 +23,7 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 | 🔙 | Mapa działa dalej przy **cofaniu** (MMI pokazuje kamerę jak zwykle) |
 | 📞 | **Rozmowy CarPlay na karcie telefonu w zegarach**: kto dzwoni, odbierz / odrzuć / rozłącz, przycisk na kierownicy działa |
 | 🕘 | **Ostatnie połączenia** w zegarach podczas CarPlay, dzwonienie z listy |
+| 🧭 | **Strzałki skrętów na HUD**, według użytkowników z HUD (sami nie mamy takiego auta). O układzie S4 Sport: [Na razie niewspierane](#na-razie-niewspierane) |
 | 🎵 | **Okładka** odtwarzanego utworu w zegarach |
 | 🎙️ | **Siri** krótkim wciśnięciem przycisku głosowego |
 | 👆 | **Touchpad MMI jako strzałki** w CarPlay |
@@ -53,13 +54,13 @@ pokrętło w prawo → dół listy.
 | | Funkcja |
 |---|---|
 | 🔧 | Poprawki błędów |
-| ➡️ | Strzałki skrętów na HUD |
 | 🎧 | CarPlay 5-głośnikowy MixUp (Dzięki yety-ua za prace) |
 
 ### Na razie niewspierane
 
-- **Układ zegarów S4 Sport**, także gdy jest tylko zakodowany, a nie wybrany: problemy z mapą i zacinający
-  się HUD. Po naciśnięciu VIEW mapa CarPlay znika, pojawia się fabryczna, a po chwili wraca mapa CarPlay.
+- **Układ zegarów S4 Sport**, także gdy jest tylko zakodowany, a nie wybrany: problemy z mapą, a strzałki na
+  HUD zacinają się i mają opóźnienie. Po naciśnięciu VIEW mapa CarPlay znika, pojawia się fabryczna, a po
+  chwili wraca mapa CarPlay.
 - **Bezprzewodowe adaptery CarLink:** dużo błędów i niestabilne działanie. Używaj kabla.
 
 ## Czy zadziała w moim aucie?
@@ -190,7 +191,7 @@ oczekiwałeś, co się stało, ile minut przed zebraniem logów, ewentualnie zdj
   zegarów na ekranie.
 - **Waze** nie wysyła do auta danych prowadzenia: mapa na zegarach działa, ale strzałek nie ma. Google Maps
   i Mapy Apple je wysyłają.
-- **HUD:** jeden użytkownik widział opóźnioną strzałkę na HUD w układzie zegarów *sport*; w *classic* było równo. Zob. [Na razie niewspierane](#na-razie-niewspierane).
+- **HUD:** w układzie S4 Sport strzałki zacinają się i mają opóźnienie; u jednego użytkownika w *classic* było równo. Zob. [Na razie niewspierane](#na-razie-niewspierane).
 
 **Na własne ryzyko.** Bez żadnej gwarancji. Zewnętrzne zasilanie, świeża kopia M.I.B. i oryginalne
 oprogramowanie powinny być pod ręką.

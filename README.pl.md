@@ -19,7 +19,7 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 |---|---|
 | 🗺️ | **Mapa CarPlay na zegarach**, w obu układach; przycisk **VIEW** przełącza układ |
 | 🔍 | **Przybliżanie mapy** lewą rolką na kierownicy |
-| ➡️ | **Strzałka manewru 3D** obok mapy, do tego odległość, nazwa ulicy i flaga celu |
+| ➡️ | **Strzałka manewru 3D** obok mapy, do tego odległość, nazwa ulicy i flaga celu. Z Mapami Apple i Google Maps: **Waze nie przekazuje kierunków**, więc z nim strzałek nie ma |
 | 🔙 | Mapa działa dalej przy **cofaniu** (MMI pokazuje kamerę jak zwykle) |
 | 📞 | **Rozmowy CarPlay na karcie telefonu w zegarach**: kto dzwoni, odbierz / odrzuć / rozłącz, przycisk na kierownicy działa |
 | 🕘 | **Ostatnie połączenia** w zegarach podczas CarPlay, dzwonienie z listy |

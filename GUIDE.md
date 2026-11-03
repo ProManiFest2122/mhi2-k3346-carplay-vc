@@ -19,7 +19,7 @@ After installation the **Virtual Cockpit** (the digital instrument cluster behin
 shows:
 
 - the **CarPlay map** (Apple Maps or Google Maps from your iPhone),
-- next to the map, an **arrow** showing where to turn and the **distance** to the turn,
+- next to the map, an **arrow** showing where to turn and the **distance** to the turn (Waze does not send directions, so there are no arrows with it),
 - **iPhone calls**: who is calling, answer and hang up with the steering-wheel button,
 - **recent calls** from the iPhone,
 - the **album art** of the song that is playing.

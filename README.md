@@ -20,7 +20,7 @@ wired CarPlay.
 |---|---|
 | 🗺️ | **CarPlay map on the cockpit**, in both gauge layouts; the **VIEW** button switches layout |
 | 🔍 | **Map zoom** with the left steering-wheel roller |
-| ➡️ | **3D maneuver arrow** next to the map, plus distance, street name and destination flag |
+| ➡️ | **3D maneuver arrow** next to the map, plus distance, street name and destination flag. With Apple Maps and Google Maps: **Waze does not send directions**, so there are no arrows with it |
 | 🔙 | Map keeps running while **reversing** (the MMI shows the camera as usual) |
 | 📞 | **CarPlay calls on the cockpit phone tab**: caller name, answer / reject / hang up, steering-wheel key works |
 | 🕘 | **Recent calls** on the cockpit during CarPlay, dial from the list |

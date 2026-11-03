@@ -18,7 +18,7 @@ Cała instalacja trwa ok. 30 minut, z czego w aucie ok. 15. Jeśli najpierw inst
 Po instalacji na **Virtual Cockpit** (cyfrowe zegary za kierownicą) zobaczysz:
 
 - **mapę z CarPlay** (Mapy Apple albo Google Maps z iPhone'a),
-- obok mapy **strzałkę**, gdzie skręcić, i **odległość** do skrętu,
+- obok mapy **strzałkę**, gdzie skręcić, i **odległość** do skrętu (Waze nie przekazuje kierunków, więc z nim strzałek nie ma),
 - **rozmowy z iPhone'a**: kto dzwoni, odbieranie i rozłączanie przyciskiem na kierownicy,
 - **ostatnie połączenia** z iPhone'a,
 - **okładkę** słuchanej piosenki.

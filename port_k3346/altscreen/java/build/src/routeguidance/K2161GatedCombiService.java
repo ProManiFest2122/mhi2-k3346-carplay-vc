@@ -19,6 +19,25 @@ public final class K2161GatedCombiService
     private volatile boolean blockRouteGuidance;
     private volatile boolean blockMapPresentation;
 
+    /*
+     * VC NavStatus bar over the CarPlay map: altitude, map scale and compass
+     * stay hidden for the whole CarPlay session. Street text is not touched.
+     * The last stock values are kept and replayed when the bar is released.
+     */
+    private boolean navStatusHidden;
+    private boolean haveAltitude;
+    private int altitudeValue;
+    private int altitudeUnit;
+    private boolean haveCompass;
+    private int compassAngle;
+    private int compassSymbolic;
+    private boolean haveMapScale;
+    private int mapScaleAutoZoom;
+    private boolean mapScaleAutoZoomActive;
+    private int mapScaleValue;
+    private int mapScaleUnit;
+    private boolean mapScaleIntersection;
+
     public K2161GatedCombiService(CombiBAPServiceNavi real) {
         if (real == null) {
             throw new IllegalArgumentException("real=null");
@@ -63,6 +82,56 @@ public final class K2161GatedCombiService
 
     public boolean isMapPresentationBlocked() {
         return blockMapPresentation;
+    }
+
+    /*
+     * Every write is guarded separately: restoreBestEffort() must still hand
+     * the raw service back to ClusterService if one of them throws.
+     */
+    public synchronized void setNavStatusHidden(boolean hidden) {
+        if (navStatusHidden == hidden) {
+            return;
+        }
+
+        navStatusHidden = hidden;
+
+        note(
+            "NAV_STATUS_HIDDEN=" +
+            (hidden ? "1" : "0")
+        );
+
+        if (hidden) {
+            try { real.updateAltitude(0x7FFF, 2); } catch (Throwable t) { navStatusFail(t); }
+            try { sendHiddenMapScale(); } catch (Throwable t) { navStatusFail(t); }
+            try { real.updateCompassInfo(-1, -1); } catch (Throwable t) { navStatusFail(t); }
+            return;
+        }
+
+        try {
+            if (haveAltitude) real.updateAltitude(altitudeValue, altitudeUnit);
+        } catch (Throwable t) { navStatusFail(t); }
+
+        try {
+            if (haveMapScale) real.updateMapScale(
+                mapScaleAutoZoom, mapScaleAutoZoomActive, mapScaleValue,
+                mapScaleUnit, mapScaleIntersection);
+        } catch (Throwable t) { navStatusFail(t); }
+
+        try {
+            if (haveCompass) real.updateCompassInfo(compassAngle, compassSymbolic);
+        } catch (Throwable t) { navStatusFail(t); }
+    }
+
+    public synchronized boolean isNavStatusHidden() {
+        return navStatusHidden;
+    }
+
+    private void sendHiddenMapScale() {
+        real.updateMapScale(15, false, 0xFFFF, 0xFF, false);
+    }
+
+    private void navStatusFail(Throwable t) {
+        note("NAV_STATUS_WRITE_FAIL class=" + t.getClass().getName());
     }
 
     /*
@@ -179,15 +248,33 @@ public final class K2161GatedCombiService
         real.hideInitializingScreen();
     }
 
-    public void updateCompassInfo(int a, int b) {
+    public synchronized void updateCompassInfo(int a, int b) {
+        compassAngle = a;
+        compassSymbolic = b;
+        haveCompass = true;
+        if (navStatusHidden) {
+            return;
+        }
         real.updateCompassInfo(a, b);
     }
 
+    /*
+     * BAPBridge owns the bar text during a CarPlay route and writes it to the
+     * raw service. Leaving the route refreshes the stock text through updateAll().
+     */
     public void updateCurrentPositionInfo(String a) {
+        if (blockRouteGuidance) {
+            blocked("updateCurrentPositionInfo");
+            return;
+        }
         real.updateCurrentPositionInfo(a);
     }
 
     public void updateTurnToInfo(String a, String b) {
+        if (blockRouteGuidance) {
+            blocked("updateTurnToInfo");
+            return;
+        }
         real.updateTurnToInfo(a, b);
     }
 
@@ -320,15 +407,29 @@ public final class K2161GatedCombiService
         real.updateMapOrientation(a);
     }
 
-    public void updateMapScale(
+    public synchronized void updateMapScale(
         int a,
         boolean b,
         int c,
         int d,
         boolean e
     ) {
+        mapScaleAutoZoom = a;
+        mapScaleAutoZoomActive = b;
+        mapScaleValue = c;
+        mapScaleUnit = d;
+        mapScaleIntersection = e;
+        haveMapScale = true;
         if (blockMapPresentation) {
             blocked("updateMapScale");
+            return;
+        }
+        /*
+         * A steering-wheel MapScale SetGet must always receive a Status, or
+         * NAVSD falls into INITIALIZING: resend the hidden value, never drop it.
+         */
+        if (navStatusHidden) {
+            sendHiddenMapScale();
             return;
         }
         real.updateMapScale(a, b, c, d, e);
@@ -340,7 +441,13 @@ public final class K2161GatedCombiService
         real.updateDestinationInfo(a);
     }
 
-    public void updateAltitude(int a, int b) {
+    public synchronized void updateAltitude(int a, int b) {
+        altitudeValue = a;
+        altitudeUnit = b;
+        haveAltitude = true;
+        if (navStatusHidden) {
+            return;
+        }
         real.updateAltitude(a, b);
     }
 

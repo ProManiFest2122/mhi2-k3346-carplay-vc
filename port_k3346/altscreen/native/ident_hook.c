@@ -58,12 +58,25 @@ static int append_rgi_component(void *ctx, void *pkt) {
     return rc;
 }
 
+/* PPID (parameter 34) of the vehicle profile with mapsRefreshRate=30: the phone then
+ * asks Maps for 30 frames a second.  It selects a phone-side policy and promises no
+ * rate on the cluster (RE luka-dev, MAPS_30FPS_PROFILE.md; unmeasured on his car).
+ * The stock Identify has no PPID (iap2.log, run-54), so nothing is overwritten.
+ * The map works without this, so a failure here must not fail the Identify. */
+static const char maps_profile_ppid[] = "bf889dfdaea54096";
+
+static void append_maps_profile(void *ctx, void *pkt) {
+    k2161_status_ident_maps_profile(ctx, packet_addparam_blob(ctx, pkt, 0x0022, maps_profile_ppid,
+                                                              sizeof(maps_profile_ppid)));
+}
+
 int k2161_wrapped_gps_builder(void *ctx, void *pkt) {
     int rc;
     if (!original_gps_builder) return -1;
     rc = original_gps_builder(ctx, pkt);
     if (rc == -1) return -1;
     if (append_rgi_component(ctx, pkt) != 0) return -1;
+    append_maps_profile(ctx, pkt);
     return 1;
 }
 

@@ -14,6 +14,14 @@ import java.util.List;
 public class K3346GatedPhoneServiceTest {
     static int fails = 0;
     static List calls = new ArrayList();
+    static String card(java.io.File f) throws Exception {
+        java.io.FileInputStream in = new java.io.FileInputStream(f);
+        byte[] b = new byte[512];
+        int got = in.read(b);
+        in.close();
+        return got <= 0 ? "" : new String(b, 0, got, "UTF-8");
+    }
+
     static void ok(boolean c, String n) { if (!c) fails++; System.out.println((c ? "  OK   " : "  FAIL ") + n); }
     static Object last(String m) {
         for (int i = calls.size() - 1; i >= 0; i--) { Object[] e = (Object[])calls.get(i); if (e[0].equals(m)) return e[1]; }
@@ -37,7 +45,13 @@ public class K3346GatedPhoneServiceTest {
         ok(K3346PpsCall.parse("smieci bez dwukropkow\n:\n").status == 0, "parser: smieci -> brak rozmowy");
         ok(K3346GatedPhoneService.bapState(n) == K3346GatedPhoneService.BAP_RINGING, "przychodzaca + Connecting -> BAP ringing");
 
+        final java.io.File cardFile = java.io.File.createTempFile("k3346card", "");
+        K3346CallCard.path = cardFile.getPath();
         K3346GatedPhoneService g = new K3346GatedPhoneService(real);
+        /* karta rozmowy: poza bramka nic nie pisze */
+        g.onPps(n);
+        ok(card(cardFile).length() == 0, "karta: bez CarPlay plik nietkniety");
+        n.status = 3;
         /* poza bramka: przezroczysto */
         g.updateFsgSetup(fsg(3)); g.updateFSGOperationState(5, false, false);
         ok(((FsgSetup)((Object[])last("updateFsgSetup"))[0]).getMobileConnectionType() == 3, "bez CarPlay: FsgSetup przechodzi bez zmian");
@@ -51,22 +65,26 @@ public class K3346GatedPhoneServiceTest {
         boolean[] sup = (boolean[])((Object[])last("updateMobileServiceSupport"))[0];
         ok(sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_CALL_STATE] && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_ACCEPT_CALL]
            && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_HANGUP_CALL] && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_DIAL_NUMBER]
-           && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_COMBINED_NUMBERS],
-           "CarPlay: stan rozmow, odbierz/rozlacz, ostatnie + wybieranie z listy (Etap 6)");
+           && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_COMBINED_NUMBERS]
+           && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_FAVORITE_LIST],
+           "CarPlay: stan rozmow, odbierz/rozlacz, ostatnie, ulubione + wybieranie z listy (Etap 6)");
         g.updateFSGOperationState(5, false, false);
         ok(((Integer)((Object[])last("updateFSGOperationState"))[0]).intValue() == 15, "CarPlay: stock Tel_State zatrzymany (w cache)");
 
         /* rozmowa przychodzaca -> aktywna -> koniec */
         g.onPps(n);
+        ok(card(cardFile).startsWith("R\nJan Kowalski\n"), "karta: dzwoni, z nazwa");
         CombiBAPCallState[] st = (CombiBAPCallState[])((Object[])last("updateCallStates"))[0];
         CombiBAPCallInfo[] in = (CombiBAPCallInfo[])((Object[])last("updateCallInfo"))[0];
         ok(st[0] != null && st[0].getCallState() == 1 && in[0].getPbName().equals("Jan Kowalski") && in[0].getTelNumber().equals("+00000000001"), "VC: dzwoni Jan Kowalski +00000000001");
         ok(st[0].isCallOptionAcceptCallEnabled(), "VC: dzwoniaca rozmowa z opcja Odbierz");
         ok(((Integer)((Object[])last("updateSignalQuality"))[0]).intValue() == 80, "VC: sygnal 4 kreski -> 80%");
         n.status = 1; g.onPps(n);
+        ok(card(cardFile).startsWith("A\nJan Kowalski\n"), "karta: po odebraniu aktywna");
         st = (CombiBAPCallState[])((Object[])last("updateCallStates"))[0];
         ok(st[0].getCallState() == 2 && !st[0].isCallOptionAcceptCallEnabled(), "VC: rozmowa aktywna, bez opcji Odbierz");
         n.status = 0; g.onPps(n);
+        ok(card(cardFile).equals("\n\n\nEND\n"), "karta: po rozlaczeniu pusta");
         st = (CombiBAPCallState[])((Object[])last("updateCallStates"))[0];
         ok(st[0] == null, "VC: po rozlaczeniu brak rozmowy");
         K3346PpsCall same = K3346PpsCall.parse("CallStateStatus:n:1\nCallStateDirection:n:1\nCallStatePhoneNumber::123\nCallStateCallerName::123\n");
@@ -182,9 +200,49 @@ public class K3346GatedPhoneServiceTest {
         ok(K3346GatedPhoneService.onVcDial("abc") && ((Integer)((Object[])last("dialNumberResult"))[0]).intValue() == 1,
            "wybieranie bez cyfr -> FAILED");
 
+        /* Etap 6: ulubione z pliku hooka; numer jak w kontakcie (myslniki, NBSP, znaczniki kierunku) */
+        calls.clear();
+        g.onFavorites("K3346_TEL_de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntryORITES v1\nn=6\n"
+            + "0\t1\t000-000-001\tAnna Testowa\n"
+            + "1\t1\t+00 000 000 002\t+00 000 000 002\n"
+            + "2\t1\tjan123@example.com\tJan Mail\n"
+            + "3\t2\t+00000000003\tFaceTime Audio\n"
+            + "4\t3\t+00000000004\tFaceTime Wideo\n"
+            + "5\t0\t‪+00 000 005‬\tInna Usluga\n");
+        de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[] favIap = (de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[])((Object[])last("updateFavoriteList"))[0];
+        ok(favIap.length == 3 && favIap[0].getName().equals("Anna Testowa") && favIap[0].getTelNumber().equals("000000001"),
+           "ulubione: nazwa i numer bez myslnikow");
+        ok(favIap[1].getName().equals("") && favIap[1].getTelNumber().equals("+00000000002"),
+           "ulubione: nazwa = sformatowany numer -> pusta");
+        ok(favIap[2].getName().equals("Inna Usluga") && favIap[2].getTelNumber().equals("+00000005"),
+           "ulubione: NBSP i znaczniki kierunku usuniete, service 0 zostaje");
+        ok(favIap[0].getPosID() == 0 && favIap[1].getPosID() == 1 && favIap[2].getPosID() == 2,
+           "ulubione: e-mail i FaceTime pominiete, posID bez dziur");
+        ok(K3346GatedPhoneService.dialableNumber("jan123@example.com").length() == 0 && K3346GatedPhoneService.dialableNumber("12a").length() == 0,
+           "ulubione: adres nie staje sie numerem z samych cyfr");
+        g.onFavorites("K3346_TEL_de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntryORITES v1\nn=1\n0\t1\t000000000000000000000000000000000\tZa dlugi\n");
+        ok(((Object[])last("updateFavoriteList"))[0] == fav, "ulubione: numer ponad 32 znaki pominiety, zostaje zapas z BT");
+        g.onFavorites("K3346_TEL_de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntryORITES v1\nn=1\n0\t1\t000-000-001\tAnna Testowa\n");
+        ok(((de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[])((Object[])last("updateFavoriteList"))[0])[0].getTelNumber().equals("000000001"), "ulubione: lista z iAP2 ma pierwszenstwo przed BT");
+        g.updateFavoriteList(fav);
+        ok(((de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[])((Object[])last("updateFavoriteList"))[0])[0].getTelNumber().equals("000000001"), "ulubione: lista z MMI nie zaslania listy z iAP2");
+        g.onFavorites("K3346_TEL_de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntryORITES v1\nn=0\n");
+        ok(((Object[])last("updateFavoriteList"))[0] == fav, "ulubione: pusta lista z iAP2 -> zapas z BT");
+        g.onFavorites("K3346_TEL_de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntryORITES v1\nn=1\n0\t1\t000-000-001\tAnna Testowa\n");
+        new java.io.File(K3346GatedPhoneService.CMD_FILE).delete();
+        calls.clear();
+        ok(K3346GatedPhoneService.onVcDial("000-000-001") && ((Integer)((Object[])last("dialNumberResult"))[0]).intValue() == 0
+           && "dial 000000001\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)),
+           "ulubione: wybranie z VC -> dial + same cyfry");
+        g.updateFavoriteList(new de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[0]);
+
         /* bramka OFF -> odtworzenie stock */
         calls.clear();
+        K3346PpsCall onLine = K3346PpsCall.parse("CallStateStatus:n:1\nCallStateDirection:n:0\nCallStatePhoneNumber::555\n");
+        g.onPps(onLine);
+        ok(card(cardFile).startsWith("A\n"), "karta: rozmowa przed koncem CarPlay");
         g.updateFsgSetup(fsg(3));
+        ok(card(cardFile).equals("\n\n\nEND\n"), "karta: koniec CarPlay czysci");
         ok(((Integer)((Object[])last("updateFSGOperationState"))[0]).intValue() == 5, "koniec CarPlay: odtworzony stock Tel_State 5");
         ok(((FsgSetup)((Object[])last("updateFsgSetup"))[0]).getMobileConnectionType() == 3, "koniec CarPlay: stock FsgSetup");
         ok(K3346GatedPhoneService.wrap(g) == g, "wrap nie nawarstwia wrapperow");
@@ -196,6 +254,7 @@ public class K3346GatedPhoneServiceTest {
         de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[] sc =
             (de.audi.atip.interapp.combi.bap.phone.data.CombiBAPCallStackEntry[])((Object[])last("updateCombinedNumbers"))[0];
         ok(sc == stockList, "koniec CarPlay: lista ostatnich stock odtworzona");
+        ok(((de.audi.atip.interapp.combi.bap.phone.data.CombiBAPFavoriteNumberEntry[])((Object[])last("updateFavoriteList"))[0]).length == 0, "koniec CarPlay: lista ulubionych stock zamiast iAP2");
 
         /* rozmowy z sesji zostaja po ponownym podlaczeniu kabla; swieza lista z BT usuwa duplikat */
         g.onRecents("K3346_TEL_RECENTS v1\nn=0\n");

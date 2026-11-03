@@ -335,7 +335,9 @@
         jesteśmy przezroczyści. Dwie wizyty poszły na tę niejednoznaczność.
   - [x] **`context_recipe` zostaje `102 101 58`** – zdjęcie bez nawigacji pokazuje, że na tych
         podkładkach siedzi fabryczna chrome mapy („85m”, „<ulica>”, „200m”, „offroad”), więc
-        wpisanie samego `58` kosztowałoby te elementy. Zielona karta („towards <ulica>”) jest
+        wpisanie samego `58` kosztowałoby te elementy. **Korekta 2026-11-02:** to był błędny wniosek
+        ze zdjęcia. `1.0.3-rc3` usunął wysokość i skalę samym BAP, więc ten pasek rysuje VC, nie
+        warstwy 101/102. Zielona karta („towards <ulica>”) jest
         **po angielsku przy polskim UI auta** → rysuje ją iPhone w strumieniu CarPlay (58),
         nie kombi; jej żadna zmiana recepty nie dotyczy.
   - [x] **Wizyta 5 wykonana (2026-10-28)** – Etap 7e zadziałał: `framebuffer 328x181`,
@@ -466,7 +468,7 @@
         `work\auto_test_19\karta_mod\…\collected\`. **Etap 7 zamknięty.**
   - [ ] Fizyczna karta ratunkowa ma jeszcze stary `ratunek.sh`; **przed tą wizytą nie trzeba jej
         wgrywać** (Etap 7 nie dotyka Javy ani HMI), a poprzednia podmiana wymagała formatowania karty
-  - [ ] **Etap 7d: karta rozmowy** – layout ustalony ze zdjęć (2026-10-26), brakuje renderowania tekstu
+  - [ ] **Etap 7d: karta rozmowy** – zrobione w `1.0.3-rc10`, czeka na test w aucie (wpis niżej). Historia: layout ze zdjęć (2026-10-26), brakowało renderowania tekstu
         (atlas glyphów; w rendererze Luki nie ma żadnego fontu). Wariant B sondy już odpowiedział:
         okno może wziąć całe płótno, więc karta rozmowy ma gdzie się zmieścić – zostaje sam tekst
 - [ ] **Do wyjaśnienia:** świeży build v8s daje `b8da2da0…`, a w aucie jest `058413dd…`.
@@ -536,9 +538,193 @@
         iPhone użytkownika: iOS 26.7.1. Kod v5 bez zmian (lista iAP2 ma pierwszeństwo).
   - [x] **Test na iOS 27.2 (2026-10-27): DZIAŁA** – BT wyłączony, kabel, historia połączeń z iPhone'a na VC
         od razu, bez zmian w kodzie (`docs\17`, „Wynik na iOS 27.2”). Logi jeszcze niezebrane.
-  - [ ] Opcjonalnie: **ulubione z iAP2 na VC** – nasz parser je dziś ignoruje (0x4171 param 5–7);
-        dopisać parser + Java `updateFavoriteList` (wzór Luka `GatedPhoneService`).
-        Do zrobienia **[Ty]**: `ROLLBACK_ETAP4` + `INSTALL_ETAP4` (2 uruchomienia), restart MMI.
+  - [x] **Ulubione z iAP2 na VC – `1.0.2-rc1`: DZIAŁA w aucie (2026-11-02, `run-48`)** (`docs\17`, sekcja
+        „Ulubione z iAP2”). iPhone już je wysyłał (`run-47`: count 1 + wpis), ginęły w parserze. Parser 6/7, osobny plik
+        `/tmp/k3346-tel-favorites.txt`, Java `onFavorites`, bit 43. Test C 49/0, Java 62/0, instalator 392/0, ratunek 52/0.
+        W aucie: `favorites n=1 skipped=0`, dwa wybrania z VC `result=OK` / `rc=0`, bez crashy. Logi:
+        `work\auto_test_20\`; kopia karty sprzed zmiany: `work\karta_przed_102rc1\`. README uzupełnione lokalnie,
+        **na GitHub nie wysłane (decyzja użytkownika)**.
+  - [ ] **`1.0.3-rc1`: `showETA=yes` w URL-ach mapy VC (2026-11-02), W AUCIE NIETESTOWANE.** Pomysł z wydania Luki
+        MHI2Q-2026-10-29, zmiana tylko w `native/gauge_layout_urls.h`. Do oceny w aucie: czy ETA nie dubluje się
+        z paskiem VC (BAP) i czy ramka mieści się w obu układach. Wycofanie: `update.zip` z `1.0.2-rc1`.
+        Test URL PASS, offsety ALL PASS, instalator 392/0, ratunek 52/0. Względem `1.0.2-rc1` różnią się
+        `libmib2high-carplay-rgi.so` i `RELEASE`, a dwa JAR-y tylko datami wpisów. Kopia karty sprzed zmiany:
+        `work\karta_przed_103rc1\`. **Test (`run-49`, logi `work\auto_test_21\`, zdjęcia, małe zegary):** ramka ETA jest
+        w obu aplikacjach, bez dubla w pasku, ale zasłonięta przez lewy zegar, etykietę `75 m` i dolny pasek.
+        Przyczyna: `view 1` miało x=132 i dół y=417, a ETA kotwiczy do dolnej krawędzi safe area.
+  - [ ] **`1.0.3-rc2`: nowe obszary widoku, W AUCIE NIETESTOWANE.** `config/mib2high-lvds-viewareas.conf`:
+        `view 1 270 90 702 290`, `view 2/3 490 90 460 300`, `view 0` bez zmian. Liczby z pomiarów Luki na panelu
+        1440×542 (pasek VC od ok. y=390), nie z naszego auta; prawa krawędź 972 omija nasz kafel (x=1091). Karta manewru
+        przy małych zegarach przesuwa się o ok. 138 px w prawo. **Czeka [Ty]:** zdjęcia obu układów, Apple i Google Maps.
+        Wycofanie: `update.zip` z `1.0.3-rc1` albo `1.0.2-rc1`. Na GitHub nic nie wysłane. Nie testowane osobno,
+        weszło do `rc3`.
+  - [ ] **`1.0.3-rc3`: ukrycie wysokości, skali i kompasu na pasku VC, W AUCIE NIETESTOWANE.** Sam pas z zegarem
+        i temperaturą rysuje VC, tego z MMI nie ruszymy. Elementy idą przez BAP (`CombiBAPListener` → nasza bramka):
+        `K2161GatedCombiService.setNavStatusHidden`, włączane w `RouteGuidance.start()`, zwalniane przez
+        `restoreBestEffort()`. Wartości: `updateAltitude(0x7FFF, 2)`, `updateMapScale(15, false, 0xFFFF, 0xFF, false)`,
+        `updateCompassInfo(-1, -1)` (RE Luki, nie sprawdzone na naszym VC; kompasu Luka na stałe nie ukrywa).
+        Skala przy ukryciu dalej wysyła status: odpowiedź na `MapScale_SetGet` z rolki. Ulica bez zmian.
+        Test `java/test/routeguidance/K2161GatedCombiServiceTest.java` (kompilacja wg `build_java_release.sh`: `-source 1.4`
+        dla źródeł, test zwykłym `javac`, classpath `work/lsd.jar`): 13/13, mutacje 12/12. **Czeka [Ty]:** zdjęcia,
+        rolka, odłączenie kabla, logi (`NAV_STATUS_HIDDEN=1/0`). Wycofanie: `update.zip` z `1.0.3-rc2`.
+        **Wynik (`run-50`, logi `work\auto_test_22\`, 4 zdjęcia):** wysokość, skala i kompas zniknęły, log
+        `NAV_STATUS_HIDDEN` 1 → 0 po odłączeniu → 1 po podłączeniu, rolka działa, 0 `INITIALIZING`. Półprzezroczyste tło
+        paska zostaje jako pusta kapsuła. Apple, małe zegary: `11:49 arrival` czytelne, dół ramki lekko pod kapsułą.
+        Apple, duże zegary: karta na cały środek, bez mapy i ETA. Google, oba układy: karta jest, **ETA brak**, a przy `rc1`
+        (`view 1` 840×332) było.
+  - [ ] **`1.0.3-rc4`: `physical 292 110`, W AUCIE NIETESTOWANE.** Układ karty i próg ETA w CarPlaySupport zależą od
+        rozmiaru fizycznego (Luka: `THIRD_PARTY_NAV_APPS.md`, ETA od ok. 202 px przy 292 mm). Przy 200 mm próg wychodzi
+        z proporcji ok. 295 px: pasuje do małych zegarów (332 tak, 290 nie), ale **nie tłumaczy dużych (300 px, brak ETA)**,
+        więc to hipoteza. **Czeka [Ty]:** ETA w Google i mapa w Apple przy dużych zegarach, czytelność (iPhone może rysować
+        ok. 30% mniejsze elementy). Tekst za mały → np. `physical 240 90`. Brak ETA → powrót do `200 75` i wyższy obszar.
+        Wycofanie: `update.zip` z `1.0.3-rc3`.
+        **Wynik (`run-51`, logi `work\auto_test_23\`, 4 zdjęcia): DZIAŁA.** ETA w Google wróciło w obu układach, mapa
+        w Apple przy dużych zegarach też. Rolka i wsteczny działają (użytkownik; logi tego nie pokazują). 0 `SIGSEGV`,
+        0 `INITIALIZING`, `dec_err=0`, średnio 20,6 FPS (nie wiadomo, czy dzięki tej zmianie). Małe zegary: ramka ETA
+        dotyka lewego zegara i ciemnej kapsuły.
+  - [ ] **`1.0.3-rc5`: `view 1 300 90 672 265`, W AUCIE NIETESTOWANE.** ETA dalej od zegara (x=300) i kapsuły (dół y=355,
+        oszacowane ze zdjęć). Prawa krawędź dalej x=972. Wysokość 265 > 202 px, szerokość 672 > 498 px przy 292 mm.
+        **Czeka [Ty]:** zdjęcia małych zegarów w Google i Apple, kontrola Google przy dużych, rolka, wsteczny, kabel, logi.
+        Wycofanie: `update.zip` z `1.0.3-rc4`. Karta albo ETA zniknie → `h=290` i tylko przesunięcie w prawo.
+        Nie testowane osobno, weszło do `rc6`.
+  - [ ] **`1.0.3-rc6`: godzina przyjazdu i czas jazdy w kapsule VC, W AUCIE NIETESTOWANE.** Tekst FctID 19:
+        `11:49 · 12 min · <ulica>`, powyżej godziny `1 h 05`, bez trasy sama ulica. Samego tła nie da się usunąć
+        z MMI (`NavStatus` w `hmi_app.elf` VC, a FctID 44 ukrywa też mapę; Luka, jego VC). `K3346NavBarText` + krok 4
+        w `BAPBridge`, tekst wysyłany tylko po zmianie. Czas lokalny z `Navigation.getEnv().getFramework()
+        .convertUTCTimeToLocalTime()`, bez niego godzina jest pomijana. **`BAPBridge.convertUtcToLocalMs` to no-op,
+        więc FctID 22 dostaje UTC; świadomie bez zmian, do sprawdzenia, jeśli VC pokaże zły czas na karcie celu.**
+        Bramka blokuje fabryczne FctID 19/20 podczas trasy, na starcie `updateTurnToInfo("", "")`. Pochodzenie `offroad`
+        nieustalone (0 razy w naszym BAP i w `iap2.log`). Testy `java/test/routeguidance/`: bramka 15/15, tekst 28/28,
+        mutacje wykryte. **Czeka [Ty]:** zdjęcia w Apple i Google, oba układy; czy `·` i godzina są poprawne. Wycofanie:
+        `update.zip` z `1.0.3-rc5` albo sprawdzonej `1.0.3-rc4`.
+        **Wynik (`run-52`, logi `work\auto_test_24\`, 4 zdjęcia): DZIAŁA.** Godzina zgodna z zegarem auta, `·` poprawne,
+        0 `SIGSEGV`, 0 `INITIALIZING`, 0 `offroad`; rc5 (ramka ETA) też dobrze. Drobiazg: raz `14:19 · 0 min` (iOS wysyła 0,
+        zanim zna czas), poprawione w `rc7`.
+  - [ ] **`1.0.3-rc7`: trzy strefy w kapsule, W AUCIE NIETESTOWANE.** Małe zegary: `14:25 · 3 min` po lewej i `1,2 km`
+        po prawej rysuje `vc_overlay` (`overlay/capsule_text.h`, `stb_truetype`, czcionka z firmware MMI), ulica w polu VC.
+        Duże: `14:25 · 3 min · 1,2 km` w polu VC. Tekst nakładki leży **pod** półprzezroczystą kapsułą VC, więc będzie
+        ciemniejszy. Pola tekstowego nie da się poszerzyć (ok. 359 px, RE Luki), boki VC przyjmują tylko liczby.
+        Wymiana przez pliki `/tmp/vc-capsule-{text,slot,off}`: **`rename()` na `/tmp` nie działa**, więc jeden zapis
+        i znacznik `END`. Brak pliku slotu = tekst jak w `rc6`; `draw=0` (brak czcionki, `capsule_text 0`, brama odmówiła)
+        = bez ulicy, w polu VC. Położenie (`capsule_*` w `mib2high-overlay.conf`) to szacunek ze zdjęć. Testy: Java
+        138/138, natywne 0 FAIL (`capsule_text` 112), mutacje wykryte, `sim_gate` 96, instalator 392, ratunek 52, offsety
+        ALL PASS. **Czeka [Ty]:** czytelność za dnia, położenie, VIEW na stojąco, zdjęcia. Za ciemne → `capsule_text 0`.
+        Wycofanie: `update.zip` z `1.0.3-rc6`. Potem `rc8`: opcja Kapsuła/Mapa/Obie w MMI (osobny plan; moduł CarPlay
+        ma tylko ekrany stanu, wzór `UpmixToneUi` Luki, teksty w `lang_data.zip`).
+        **Wynik (`run-53`, logi `work\auto_test_25\`, 4 zdjęcia): technicznie działa, ale ZA CIEMNE.** Położenie trafione
+        (`capsule_*` z szacunku), VIEW w obie strony, 0 `SIGSEGV`, 0 błędów GL z naszego rysowania. Średnio 18,0 FPS przy
+        19,8 w `run-52` (przyczyny nie ustalono, próby z różnych przejazdów). Tekst pod tłem paska jest słabo czytelny,
+        tego nie poprawimy z MMI.
+  - [ ] **`1.0.3-rc8`: boczne teksty wyłączone, W AUCIE NIETESTOWANE.** `capsule_text 0`: na obu układach
+        `14:25 · 3 min · 1,2 km` w polu VC, bez ulicy (ulicę telefon zwykle pokazuje na mapie). Kod rysowania zostaje,
+        włączany w `mib2high-overlay.conf`. **Ścieżka `draw=0` nie była jeszcze uruchomiona w aucie.** **Czeka [Ty]:**
+        oba układy, VIEW. Wycofanie: `update.zip` z `1.0.3-rc6`. Nietestowane osobno, weszło do `rc9`.
+  - [x] **`1.0.3-rc9`: opcja `Czas dojazdu CarPlay` (Kapsuła / Mapa / Obie), DZIAŁA W AUCIE.** Wiersz w fabrycznych
+        opcjach Connectivity (`cMOPT`, obok „O Apple CarPlay”), bo moduł CarPlay nie ma własnych ustawień. Podmiana:
+        `de.audi.tghu.connectivity.hmi.Activator` + `K3346EtaRow` w `overrides.jar`, każdy błąd zostawia fabryczny bank,
+        fabrykę albo drawer. **`lang_data.zip` bez zmian:** teksty z nadpisanego `getText`. Wartość: magazyn HMI (1008/1000,
+        dopisany do `FlushValuesDict`), kopia `/tmp/k3346-eta-mode`. Domyślnie Kapsuła. `altscreen_session.c` czyta plik co
+        500 ms i przy zmianie wysyła `showUI` z `showETA=yes` albo bez niego; **czy iPhone reaguje od razu, gdy zmienia się
+        tylko `showETA`, nie wiadomo** (inaczej działa po VIEW). `BAPBridge`: tryb Mapa = sama ulica. Testy: `K3346EtaRowTest`
+        na klasach z `lsd.jar` 72/72, mutacje 33/33. **Czeka [Ty]:** czy wiersz się pokazuje, czy MMI startuje normalnie, wszystkie
+        trzy pozycje, zapamiętanie po restarcie, logi `K3346_ETA_ROW` w `k3346-override-probe.log`. Wycofanie: `update.zip`
+        z `1.0.3-rc6`.
+        **Wynik (`run-54`, logi `work\auto_test_26\`, 5 zdjęć): DZIAŁA.** `row_added`, 10 wyborów `mirrored=true`, wszystkie
+        trzy tryby, zdjęcia zgodne z tabelą w obu układach. 0 `SIGSEGV`, 0 `offroad`, `dec_err=0`, 0 `row_failed`.
+        Ścieżka (potwierdzona przez użytkownika): MENU → Ustawienia (ostatnia pozycja) → Manager połączeń → pokrętło w prawo → na dole listy. Kursor na urządzeniu zmienia resztę listy
+        (`PropertyObject` w `cMOPT`), nasz wiersz nie ma warunku, więc jest zawsze. **Nie potwierdzone:** zapamiętanie po
+        restarcie (w logu jeden `boot mode=0`, restartu MMI po wyborze nie było). Średnio 16,3 FPS (19,8 w `run-52`, 18,0
+        w `run-53`): rysowanie kapsuły jest wyłączone, więc to nie ono; próby na stojąco, bez porównywalnej jazdy.
+  - [ ] **`1.0.3-rc10`: własna karta rozmowy na mapie VC, W AUCIE NIETESTOWANE.** Wariant A z wizualizacji:
+        `overlay/call_card.h`, plik `/tmp/vc-call-card` z `K3346CallCard` (`onPps`), kropka stanu, nazwa, stan i licznik
+        liczony w nakładce. Małe zegary (735, 300), duże (560, 305), 320×78, wartości w `mib2high-overlay.conf`.
+        **Reguła dużych zegarów (pomysł użytkownika):** gdy widać kartę, w trybach Mapa i Obie iPhone dostaje URL bez
+        `showETA`, a czas przechodzi do kapsuły; po rozmowie wraca sam, zapisana opcja bez zmian. Ta sama tabela w
+        `native/eta_mode.h` i `K3346NavBarText.timesOnBar`, obie testowane. `K3346HmiLanguage` wspólny dla karty i wiersza
+        opcji. Testy: `call_card` 84, `K3346CallCardTest` 33, `K3346EtaRowTest` 72, tabela i URL PASS, mutacje wykryte.
+        **Nieznane:** czy fabryczne okno dzwonienia zasłania kartę (`call_card_ringing 0` = karta od odebrania), czy
+        `showUI` w trakcie rozmowy przełącza ramkę płynnie, rysowanie na GPU. **Czeka [Ty]:** test z drugim telefonem,
+        też czy `Czas dojazdu CarPlay` pamięta wybór po restarcie. Wycofanie: `update.zip` z `1.0.3-rc9`.
+  - [ ] **`1.0.3-rc11`: profil Map 30 FPS, W AUCIE NIETESTOWANE.** `rc10` plus PPID `bf889dfdaea54096` (parametr 34)
+        w Identify (`native/ident_hook.c`; pomysł z wydania Luki 2026-10-29). Błąd dopisania nie psuje Identify. Punkt
+        wyjścia: 15–17 FPS na stojąco w `run-54`, średnie 16–20 w innych przebiegach, a `vc_render` dostaje tyle od telefonu.
+        Luka: 29,7 zamiast 21,4 AU/s na wirtualnym iPhonie, **w aucie niezmierzone**. **Czeka [Ty]:** czy CarPlay się łączy,
+        ok. 2 min na stojąco z trasą jak w `run-54`, `STATS` w `vc_render.log`, `K3346_MAPS30` w logu natywnym, parametr 34
+        i `IdentificationAccepted` w `iap2.log`. Nie sięgnie ok. 25 FPS → dalej odbiór i USB (`WIRED_30FPS_INVESTIGATION.md`).
+        Wycofanie: `update.zip` z `1.0.3-rc9`. `rc10` nie była instalowana, weszła tutaj.
+        **Wynik (`run-55`, logi `work\\auto_test_27\\`, 2 zdjęcia): karta rozmowy DZIAŁA**, jasna i czytelna, reguła dużych
+        zegarów też. `boot mode=1`: opcja pamięta wybór po restarcie. PPID wysłany i `IdentificationAccepted`, ale **bez
+        zysku FPS**: 16,9 średnio, maks. 21, na stojąco. Zgłoszone: ramka ETA czasem wraca dopiero po VIEW; strzałka czasem
+        w miejscu dużych zegarów (log `timeout - default place`).
+  - [ ] **`1.0.3-rc12`: strzałka i ramka ETA, W AUCIE NIETESTOWANE.** (1) `/tmp/vc-layout-last`: pierścień DSI powstaje od
+        nowa przy każdej sesji, a po ponownym podłączeniu kabla nikt nie powtarza układu aż do VIEW. Nakładka pamięta układ,
+        a kod natywny bierze go z `/tmp/vc-capsule-slot`, dopóki nie przyjdzie FctID 54. (2) Zmiana samego `showETA` przez
+        widok drugiego układu i z powrotem, jak VIEW (`k3346_eta_queue_view`, `eta_bounce`). **To hipoteza.** (3) `K3346_SHOWUI`
+        i `K3346_SHOWUI_ACK` w logu, żeby ją rozstrzygnąć. **Czeka [Ty]:** kabel na obu układach, zmiana opcji bez VIEW,
+        rozmowa zaczęta na dużych zegarach, FPS w jeździe. Wycofanie: `update.zip` z `1.0.3-rc11`.
+  - [ ] **`1.0.3-rc13`: 30 FPS przez `features=2`, W AUCIE NIETESTOWANE.** `rc12` plus jedna zmiana. joeyQuery (Audi B9, MHI2
+        ER AUG22 P3241, TRACE-012): iPhone sam dławi strumień 111 do ok. 16 FPS przy `features=0` bez urządzenia wejścia; po
+        `features=2` z pokrętłem ok. 30 FPS. U nas było 16–20. `advertise_cluster_knob` (`native/altscreen_airplay.c`) kopiuje
+        stockowe `Eso_Knob` jako `K3346_ClusterKnob`, wiąże je z ekranem 111 i ustawia `primaryInputDevice`. Tylko zgłoszenie:
+        bez rejestracji urządzenia i bez raportów HID. Brak pokrętła lub błąd kopii = dotychczasowe `features=0`. `Eso_Knob` jest
+        w `app.img`, ale lista urządzeń będzie dopiero w logu `K3346_KNOB`. **Uwaga przy pomiarze:** u joeyQuery licznik po
+        ponownym podłączeniu kabla to 15–17, po zimnym starcie 29–30, a dwa przejęcia UI z rzędu też dławią (może dotyczyć
+        odbicia ETA z `rc12`); harman-f ma 27,9 FPS przy `features=0`, ale inną drogą obrazu, więc to nie jedyny czynnik.
+        **Czeka [Ty]:** FPS w pierwszej sesji po restarcie (postój i jazda), potem po kablu, pokrętło i dotyk na głównym ekranie,
+        testy `rc12`. Wycofanie: `update.zip` z `1.0.3-rc11`.
+        **Wynik (`run-56`, `run-57`, logi `work\auto_test_28\`):** strzałka po kablu dobrze, reszta działa. `K3346_KNOB pick=0
+        advertised=1`, stock `Eso_Knob,Eso_Playback,Eso_Telephony,Eso_TrackPad`, główny ekran `features=2`, bez
+        `primaryInputDevice`. **FPS bez zmian w liczniku: 16–18** (`rc11`: 16,9), raz 25–27 przez ok. 30 s przy 72 km/h, a użytkownik
+        ocenia obraz jako płynny. `features=2` zostaje na razie (nie umie porównać, nic nie psuje). Ramka ETA: odbicie wykonane
+        i potwierdzone (`status=0`), kroki co ok. 160 ms, ramka dalej dopiero po VIEW; chowanie działa.
+  - [ ] **`1.0.3-rc14`: warianty ramki ETA, DIAGNOSTYKA, W AUCIE NIETESTOWANE.** `rc13` plus cykl sposobów pokazywania
+        ramki (`k3346_eta_tries` w `native/eta_mode.h`), każda prośba bierze kolejny, log `K3346_ETA_TRY`: A odbicie z przerwą
+        600 ms, B 1200, C 2500, D bez odbicia z powtórzeniem `showUI` po 1 s, E odbicie jak `rc13` z powtórzeniem, F sam `showUI`.
+        Chowanie bez zmian. **Czeka [Ty]:** numery prób, przy których ramka pojawiła się sama. Potem zostawić jeden wariant
+        i usunąć cykl. Test: `tests/test_k3346_eta_tries.c`. Wycofanie: `update.zip` z `1.0.3-rc11`.
+        **Wynik `rc14` (`run-58`, logi `work\auto_test_29\`):** małe zegary: przełączenie 0,6 s nie, 1,2 s tak, 2,5 s nie, bez
+        przełączania z powtórzeniem tak, szybkie przełączenie z powtórzeniem tak, sam `showUI` tak. Duże zegary: numeracja niepewna,
+        bo kabel odpadł po `n=8`, licznik ruszył od nowa, a w logu jest 13 prób przy 12 wpisach. Wpis 11 „nie” bez mignięcia pasuje do
+        bez przełączania z powtórzeniem. Samego `showUI` na dużych nie było, log kończy się na `E`. Przełączanie daje ramkę na chwilę
+        w złym miejscu albo 0,5 s na środku; hipoteza „za krótka przerwa” odpada. Skąd ramka znika, nie wiadomo. FPS 16,9, maks. 24.
+  - [ ] **`1.0.3-rc15`: ETA bez przełączania, opcja `Karta manewru CarPlay`, W AUCIE NIETESTOWANE.** (1) Pokazanie ramki na zmianę
+        `F_same_only` i `D_same_resend_1000`, log `K3346_ETA_TRY`, licznik od nowa po podłączeniu kabla. Chowanie jednym `showUI`, też
+        bez przełączania i też niesprawdzone. Kod odbicia usunięty. (2) Opcja dla dużych zegarów: `Pełna` (dziś), `Średnia` i `Mała`
+        (`view 4/5`, w=400 i 340, joeyQuery `safe-areas.md`, progu „no space” na 292 mm nie znamy), `Brak` (`/map`, ramka ETA w Mapach
+        Apple niesprawdzona). Klucz `1008/1001`, plik `/tmp/k3346-card-mode`, `/tmp/k3346-no-rgi` przy aplikacji bez wskazówek wraca
+        do `Pełna`. `/map` dopisany do `altScreenURLs`, nie do `suggestUI`. **Czeka [Ty]:** 6 prób na dużych, 2 na małych, 2 rozmowy na
+        dużych, zdjęcia każdej wartości karty. Potem zostawić jeden sposób i usunąć licznik. Testy: `tests/test_k3346_eta_tries.c`,
+        `tests/test_k3346_card.c`. Wycofanie: `update.zip` z `1.0.3-rc11`.
+        **Wynik `rc15` (`run-59`, logi `work\auto_test_30\`, 4 zdjęcia): ETA DZIAŁA:** 8 z 8 prób i 2 z 2 rozmów, sam `showUI` wystarcza,
+        chowanie też. VIEW i `Mapa` po 7,7 s: ramki nie było, po 11,8 s i 17,7 s była (hipoteza, jeden przypadek). `Średnia` i `Mała`: karta prawie
+        bez zmian, iPhone wyrzuca treść, odpadają. `Brak`: działa, ETA zostaje, ale karta nie wraca w tej sesji, także na małych
+        zegarach, mimo właściwego URL. FPS 17,1, maks. 24.
+  - [ ] **`1.0.3-rc16`, W AUCIE NIETESTOWANE.** (1) ETA: sam `showUI`, cykl usunięty. (2) Włączenie ramki czeka 12 s po zmianie układu
+        (`k3346_eta_held`, log `K3346_ETA_WAIT`). (3) Karta `Pełna`/`Brak`, widoki z powrotem 4. (4) Wyjście z `/map` przez `stopUI` (log
+        `K3346_STOPUI`), także przy VIEW na małe; **pierwsze użycie `stopUI` u nas, może wygasić mapę.** (5) Opcje `Strzałka na VC`, `Mapa na VC`,
+        `HUD CarPlay`, klucze `1002–1004`, pliki `/tmp/k3346-{arrows,map,hud}-mode`. Strzałka Wył.: nakładka chowa kafelek i VC wychodzi z
+        trybu wskazówek, bo tło kafelka rysuje VC (`vc_policy=off`, `run-39…42`); w trakcie trasy zwykły koniec i start wskazówek
+        (`restartGuidance`), **pierwszy raz w trakcie sesji**. Mapa Wył. + Strzałka Wł.: nowy kontekst 902 `{98 102 101 33}`, bo fabryczny 74 ma
+        złą strzałkę (20); układu jeszcze nie próbowaliśmy. Obie Wył.: 72 raz. Strumień iPhone'a i `vc_render` działają dalej.
+        **HUD Wył.: tylko `updateHUDDisplayContent(false)`, NIESPRAWDZONE, auto bez HUD.** Wycofanie: `update.zip` z `1.0.3-rc11`.
+        **Wynik (`run-60`, logi `work\auto_test_31\`):** ramka po VIEW 4 z 4, czekanie 5–10 s. Strzałka Wył./Wł. działa na obu układach, także w trakcie
+        trasy. Mapa Wył.: mapa Audi z kafelkiem, czysty widok, powrót mapy CarPlay, na obu układach (kontekst 902 działa). `stopUI` potwierdzone 4 razy,
+        karta nie wróciła. **Błąd: czarny kafelek bez strzałki po podłączeniu kabla.** iPhone wysłał dwie serie, a po resecie `5201` już bez listy
+        (`present=0x1583fb`, 237 razy; w `run-58` i `run-59` lista w każdej). Reset wyczyścił naszą listę, więc nakładka dostawała „brak manewru”. Stan 0
+        przyszedł przed `/map`, więc to nie skutek `Brak`.
+  - [ ] **`1.0.3-rc17`, W AUCIE NIETESTOWANE.** (1) Lista przeżywa reset (`rgd_list_restore.h`, log `K3346_LIST_RESTORED` w `k3346-rgi-ipod-native.log`).
+        Połączenie z `rgd_hook.c` sprawdzi tylko auto, na hoście jest sama logika. (2) `Brak` na obu układach, `stopUI` usunięte, karta ma wracać
+        po ponownym podłączeniu kabla: **niesprawdzone**, główne pytanie testu. **Czeka [Ty]:** karta po restarcie, `Brak`, powrót po kablu, 5 razy
+        kabel i strzałka. Wycofanie: `update.zip` z `1.0.3-rc11`.
+        **Wynik (`run-61`, logi `work\auto_test_32\`), postój:** karta po restarcie jest, `Brak` działa na obu układach, karta wraca po kablu przy `Pełna`,
+        strzałka wróciła w 5 z 5 podłączeń, własne testy użytkownika też dobrze; 11 połączeń bez błędu poleceń. **Poprawka listy nieudowodniona:** log `mm-ipod`
+        obejmuje tylko ostatnią sesję, tam `K3346_LIST_RESTORED` 0 razy, bo iPhone wysłał dwie serie, ale sam powtórzył listę. FPS 16,1, maks. 25.
+        **Czeka [Ty]:** normalna jazda z trasami i rozmowami. Czarny kafelek bez strzałki: od razu `run individual script`, bez odłączania kabla. Wydanie
+        `1.0.3` dopiero potem i na polecenie.
+  - [ ] **Na razie niewspierane (README, zgłoszone przez użytkownika):** układ S4 Sport, także tylko zakodowany: problemy z mapą, zacinający się HUD, a przy VIEW
+        mapa CarPlay znika, pojawia się fabryczna i po chwili wraca CarPlay. Bezprzewodowe adaptery CarLink: dużo błędów, niestabilność.
+  - [ ] **Otwarte: Mapy Apple przy dużych zegarach bez ETA na mapie** (`run-51`; mapa i karta są). Nie wiadomo, czy da się
+        to zmienić z naszej strony. `rc6` daje tam czas w kapsule.
 - [ ] **Etap 6 – ostatnie połączenia CarPlay na VC + dzwonienie z listy** (`docs\17`): paczka gotowa
       (grupa 0x41 w tabeli sterownika, 0x4170/0x4171/0x415A z hooka `mm-ipod`, Java lista + wybieranie);
       offsety ALL PASS, testy C/Java PASS, symulacja 173/173, ratunek 49/49. Książka adresowa przez CarPlay

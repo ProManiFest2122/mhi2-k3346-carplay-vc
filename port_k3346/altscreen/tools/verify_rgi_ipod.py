@@ -16,7 +16,7 @@ assert struct.unpack_from("<H", data, 18)[0] == 40, "Not ARM machine"
 for needed in (b"ipod_module", b"packet_addparam_blob", b"RouteGuidanceDisplayComponent",
                b"/dev/shmem/k3346-rgi-ipod-rx.log", b"/dev/shmem/k3346-rgi-ipod-rx.bin",
                b"/dev/shmem/k3346-rgi-ipod-native.log", b"/tmp/k3346-rgi-ipod-hook.log",
-               b"StartListUpdates", b"InitiateCall", b"/tmp/k3346-tel-recents.txt", b"/tmp/k3346-tel-cmd"):
+               b"StartListUpdates", b"InitiateCall", b"/tmp/k3346-tel-recents.txt", b"/tmp/k3346-tel-favorites.txt", b"/tmp/k3346-tel-cmd"):
     assert needed in data, "missing %r" % needed
 for forbidden in (b"AirPlayReceiverSession", b"mib2high-lvds-active", b"mib2high-lvds-control",
                   b"/dev/shmem/k2161-rgi-rx", b"mib2high-carplay-rgi-native.log",

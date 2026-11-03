@@ -73,6 +73,13 @@ Każda zmiana jest opisana komentarzem w samym pliku.
 (Etap 7c, atlas glyphów) i są w jego NOTICE wprost oznaczone jako cudze — atlas
 generujemy lokalnie i nie publikujemy.
 
+## `stb_truetype.h` — obcy kod, tekst na pasku VC
+
+`nothings/stb`, commit `6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760`, v1.26, bez zmian,
+SHA-256 `ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab`. Domena
+publiczna albo MIT, do wyboru. Czytamy nim tylko czcionkę z firmware MMI, bo nie
+chroni przed złośliwymi plikami (uwaga autora na początku pliku).
+
 ## Czego NIE przenosimy
 
 - `platform_qnx.c`, `common/cluster_surface.c` — QNX Screen, na K3346 nie ma `libscreen`.

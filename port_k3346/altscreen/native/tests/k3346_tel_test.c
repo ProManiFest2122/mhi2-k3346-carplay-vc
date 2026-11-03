@@ -52,6 +52,19 @@ static const uint8_t cap_fav[] =
     "\x40\x40\x00\x11\x41\x71\x00\x05\x00\x05\x01\x00\x06\x00\x07\x00"
     "\x00";
 
+/* Ulubione: dwie ramki z auta (run-47, iOS 27, 2026-11-01); numer, nazwa i UUID zastapione
+ * placeholderami tej samej dlugosci w bajtach. Numer jak w kontakcie, z myslnikami. */
+static const uint8_t cap_fav_avail[] =
+    "\x40\x40\x00\x11\x41\x71\x00\x05\x00\x05\x01\x00\x06\x00\x07\x00\x01";
+static const uint8_t cap_fav_entry[] =
+    "\x40\x40\x00\x6d\x41\x71\x00\x67\x00\x06"
+    "\x00\x06\x00\x00\x00\x00"
+    "\x00\x10\x00\x01" "000-000-016" "\x00"
+    "\x00\x14\x00\x02" "Za\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 Test" "\x00"
+    "\x00\x0b\x00\x03" "mobile" "\x00"
+    "\x00\x29\x00\x04" "00000000-0000-0000-0000-000000000000" "\x00"
+    "\x00\x05\x00\x05\x01";
+
 static int fails;
 #define CHECK(c, name) do { if (c) printf("  OK   %s\n", name); else { printf("  FAIL %s\n", name); fails++; } } while (0)
 
@@ -96,7 +109,8 @@ int main(void)
 {
     uint8_t buf[512], pkt[600];
     size_t n;
-    k3346_tel_list upd, last;
+    k3346_tel_lists upd;
+    k3346_tel_list last;
     char text[4096], num[40];
     int ctx = 1;
     char *f;
@@ -115,20 +129,72 @@ int main(void)
     CHECK(k3346_tel_build_initiate_call(buf, sizeof(buf), "") == 0, "0x415A: pusty numer -> 0");
 
     memset(&last, 0, sizeof(last));
-    CHECK(k3346_tel_parse_list_update(cap_avail + 6, sizeof(cap_avail) - 1 - 6, &upd) && upd.count_set && upd.count == 3,
+    CHECK(k3346_tel_parse_list_update(cap_avail + 6, sizeof(cap_avail) - 1 - 6, &upd) && upd.recents.count_set && upd.recents.count == 3,
           "ramka 1: dostepnosc + count 3");
-    k3346_tel_merge(&last, &upd);
-    CHECK(k3346_tel_parse_list_update(cap_entries + 6, sizeof(cap_entries) - 1 - 6, &upd) && upd.n == 3,
+    k3346_tel_merge(&last, &upd.recents);
+    CHECK(k3346_tel_parse_list_update(cap_entries + 6, sizeof(cap_entries) - 1 - 6, &upd) && upd.recents.n == 3,
           "ramka 2: 3 wpisy");
-    k3346_tel_merge(&last, &upd);
+    k3346_tel_merge(&last, &upd.recents);
     CHECK(last.n == 3 && strcmp(last.e[0].number, "+8613800000001") == 0 && strcmp(last.e[0].name, "Alice Test") == 0 &&
           last.e[0].type == 2 && last.e[0].occurrences == 2 && last.e[0].timestamp == 0x69ec6754ULL,
           "wpis 0: numer, nazwa, typ 2 (wybrane), wystapienia 2, czas");
     CHECK(strcmp(last.e[1].name, "+86 138 0000 0002") == 0 && last.e[2].occurrences == 7, "wpisy 1-2: nazwa = sformatowany numer, occ 7");
-    CHECK(k3346_tel_parse_list_update(cap_fav + 6, sizeof(cap_fav) - 1 - 6, &upd) && upd.n == 0 && !upd.count_set,
-          "ramka 3: ulubione ignorowane (nie ruszaja ostatnich)");
-    k3346_tel_merge(&last, &upd);
+    CHECK(k3346_tel_parse_list_update(cap_fav + 6, sizeof(cap_fav) - 1 - 6, &upd) && upd.recents.n == 0 && !upd.recents.count_set
+          && upd.favorites.count_set && upd.favorites.count == 0,
+          "ramka 3: ulubione count 0, bez ostatnich");
+    k3346_tel_merge(&last, &upd.recents);
     CHECK(last.n == 3, "po ulubionych lista ostatnich bez zmian");
+
+    /* ulubione: prawdziwe ramki z auta */
+    {
+        k3346_tel_list fav;
+        uint8_t patched[sizeof(cap_fav_entry)];
+        memset(&fav, 0, sizeof(fav));
+        CHECK(k3346_tel_parse_list_update(cap_fav_avail + 6, sizeof(cap_fav_avail) - 1 - 6, &upd) &&
+              upd.favorites.count_set && upd.favorites.count == 1 && !upd.recents.count_set,
+              "ulubione: dostepne, count 1, ostatnie bez zmian");
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(sizeof(cap_fav_entry) - 1 == 109 && k3346_tel_parse_list_update(cap_fav_entry + 6, sizeof(cap_fav_entry) - 1 - 6, &upd) &&
+              upd.favorites.n == 1 && upd.recents.n == 0, "ulubione: 1 wpis, 109 B jak w aucie");
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(fav.n == 1 && strcmp(fav.e[0].number, "000-000-016") == 0 && strcmp(fav.e[0].name, "Za\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 Test") == 0 &&
+              fav.e[0].service == 1, "ulubione: numer z myslnikami, nazwa UTF-8, service 1");
+
+        n = k3346_tel_format_favorites(&fav, text, sizeof(text));
+        CHECK(n > 0 && strcmp(text, "K3346_TEL_FAVORITES v1\nn=1\n0\t1\t000-000-016\tZa\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 Test\n") == 0,
+              "ulubione: format pliku dla Javy");
+
+        /* lista w kilku ramkach, wpisy wg indeksu */
+        memcpy(patched, cap_fav_entry, sizeof(patched));
+        patched[15] = 1;            /* indeks wpisu */
+        memset(&fav, 0, sizeof(fav));
+        k3346_tel_parse_list_update(patched + 6, sizeof(patched) - 1 - 6, &upd);
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(fav.n == 2 && fav.e[0].number[0] == 0 && strcmp(fav.e[1].number, "000-000-016") == 0,
+              "ulubione: wpis 1 przed wpisem 0 trafia na swoje miejsce");
+        k3346_tel_parse_list_update(cap_fav_entry + 6, sizeof(cap_fav_entry) - 1 - 6, &upd);
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(fav.n == 2 && strcmp(fav.e[0].number, "000-000-016") == 0, "ulubione: druga ramka uzupelnia wpis 0");
+
+        patched[15] = K3346_TEL_LIST_MAX;
+        k3346_tel_parse_list_update(patched + 6, sizeof(patched) - 1 - 6, &upd);
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(fav.n == 2, "ulubione: indeks poza lista odrzucony");
+
+        k3346_tel_parse_list_update(cap_fav + 6, sizeof(cap_fav) - 1 - 6, &upd);
+        k3346_tel_merge(&fav, &upd.favorites);
+        CHECK(fav.n == 0, "ulubione: count 0 czysci liste");
+
+        /* plik ma sie zmiescic w buforze Javy (4096) przy maksymalnych polach */
+        memset(&fav, 0, sizeof(fav));
+        fav.n = K3346_TEL_LIST_MAX;
+        for (i = 0; i < K3346_TEL_LIST_MAX; i++) {
+            memset(fav.e[i].number, '9', K3346_TEL_TEXT_MAX - 1);
+            memset(fav.e[i].name, 'n', K3346_TEL_TEXT_MAX - 1);
+        }
+        n = k3346_tel_format_favorites(&fav, text, sizeof(text));
+        CHECK(n > 0 && n < sizeof(text), "ulubione: pelna lista miesci sie w pliku");
+    }
 
     n = k3346_tel_format(&last, text, sizeof(text));
     {
@@ -169,6 +235,31 @@ int main(void)
     k3346_tel_observe(pkt, n, 28200);
     f = read_file("/tmp/k3346-tel-test-recents.txt");
     CHECK(f && strstr(f, "n=3\n"), "ucieta ramka ignorowana");
+
+    /* ulubione w sesji: wlasny plik, ostatnie bez zmian, bez ponownych prosb przy pustych */
+    n = link_packet(pkt, cap_fav_avail, sizeof(cap_fav_avail) - 1);
+    k3346_tel_observe(pkt, n, 28300);
+    n = link_packet(pkt, cap_fav_entry, 60);    /* ucieta ramka (len 0x6d, jest 60) */
+    k3346_tel_observe(pkt, n, 28350);
+    f = read_file("/tmp/k3346-tel-test-favorites.txt");
+    CHECK(f && strstr(f, "K3346_TEL_FAVORITES v1\nn=1\n0\t0\t\t\n"), "ulubione: count zapisany, ucieta ramka bez wpisu");
+    n = link_packet(pkt, cap_fav_entry, sizeof(cap_fav_entry) - 1);
+    k3346_tel_observe(pkt, n, 28400);
+    f = read_file("/tmp/k3346-tel-test-favorites.txt");
+    CHECK(f && strstr(f, "n=1\n0\t1\t000-000-016\t"), "ulubione: plik zapisany po 0x4171");
+    f = read_file("/tmp/k3346-tel-test-recents.txt");
+    CHECK(f && strstr(f, "n=3\n") && strstr(f, "Alice Test"), "ulubione nie ruszaja pliku ostatnich");
+    n = link_packet(pkt, cap_fav, sizeof(cap_fav) - 1);
+    k3346_tel_observe(pkt, n, 28500);
+    f = read_file("/tmp/k3346-tel-test-favorites.txt");
+    CHECK(f && strstr(f, "n=0\n"), "ulubione: count 0 w sesji czysci plik");
+    k3346_tel_tick(&ctx, 90000, fake_send);
+    CHECK(sent_count == 2, "puste ulubione przy niepustych ostatnich: bez ponownej prosby");
+    n = link_packet(pkt, cap_fav_avail, sizeof(cap_fav_avail) - 1);
+    k3346_tel_observe(pkt, n, 90100);
+    k3346_tel_session_reset();
+    f = read_file("/tmp/k3346-tel-test-favorites.txt");
+    CHECK(f && strstr(f, "n=0\n"), "reset sesji czysci tez ulubione");
 
     /* pusta lista (jak w aucie 2026-10-21) -> ponowne prosby 20 s / 60 s, max 4 */
     {

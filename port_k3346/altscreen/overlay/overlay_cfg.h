@@ -27,6 +27,14 @@
  *   x_alt 1091 / y_alt 110   # ... and with small clocks (slot 0)
  *   visible_top_big 0  # rows of the crop the VC covers with big clocks
  *   visible_top_small 0
+ *   capsule_text 0     # 1 = draw arrival/time and distance on the VC bar
+ *   capsule_left_x 372 / capsule_right_x 1068 / capsule_y 397 / capsule_h 36
+ *   capsule_font_px 24
+ *   capsule_font /path/to/font.ttf   # text value, like call_card_font*
+ *   call_card 1 / call_card_ringing 1 / call_card_w 320 / call_card_h 78
+ *   call_card_x_small 735 / call_card_y_small 300 / call_card_x_big 560 / call_card_y_big 305
+ *   call_card_name_px 28 / call_card_status_px 22
+ *   call_card_font /path / call_card_font_bold /path
  *
  * THREE RECTANGLES, and mixing two of them up cost a car visit on 2026-10-27:
  *
@@ -61,6 +69,9 @@
 
 #define OVERLAY_CFG_PATH_PRIMARY  "/mnt/app/root/mib2high-overlay.conf"
 #define OVERLAY_CFG_PATH_LOCAL    "./mib2high-overlay.conf"
+/* Ships with the MMI firmware, so the font is never in our package. */
+#define OVERLAY_CFG_CAPSULE_FONT  "/mnt/app/eso/browser/fonts/AudiTypeDisplay-Normal_14.ttf"
+#define OVERLAY_CFG_CALL_FONT_BOLD "/mnt/app/eso/browser/fonts/AudiTypeDisplay-Bold_11.ttf"
 
 typedef struct {
     int displayable;
@@ -100,6 +111,19 @@ typedef struct {
      * maneuver below it - which matters because the arm of a turn arrow sits
      * in the top rows of the crop.  A knob for the card, not a measurement. */
     int visible_top_big, visible_top_small;
+    /* The two ends of the VC bar with small clocks (capsule_text.h).  The strip
+     * runs from left_x to right_x: left text starts at its first column, right
+     * text ends at its last.  Estimated from photos, corrected on the card. */
+    int capsule_text;
+    int capsule_left_x, capsule_right_x, capsule_y, capsule_h, capsule_font_px;
+    char capsule_font[160];
+    /* The call card on the map (call_card.h): one strip, placed per layout.
+     * Estimated from photos, corrected on the card. */
+    int call_card, call_card_ringing;
+    int call_card_w, call_card_h;
+    int call_card_x_small, call_card_y_small, call_card_x_big, call_card_y_big;
+    int call_card_name_px, call_card_status_px;
+    char call_card_font[160], call_card_font_bold[160];
     char source[160];      /* which file the values came from, for the log */
 } overlay_cfg_t;
 
@@ -145,6 +169,26 @@ static void overlay_cfg_defaults(overlay_cfg_t *c)
     c->y_alt         = 110;
     c->visible_top_big   = 0;
     c->visible_top_small = 0;
+    /* Off: under the bar's base the text was too dark to read (run-53). */
+    c->capsule_text    = 0;
+    c->capsule_left_x  = 372;
+    c->capsule_right_x = 1068;
+    c->capsule_y       = 397;
+    c->capsule_h       = 36;
+    c->capsule_font_px = 24;
+    snprintf(c->capsule_font, sizeof(c->capsule_font), "%s", OVERLAY_CFG_CAPSULE_FONT);
+    c->call_card         = 1;
+    c->call_card_ringing = 1;
+    c->call_card_w       = 320;
+    c->call_card_h       = 78;
+    c->call_card_x_small = 735;
+    c->call_card_y_small = 300;
+    c->call_card_x_big   = 560;
+    c->call_card_y_big   = 305;
+    c->call_card_name_px = 28;
+    c->call_card_status_px = 22;
+    snprintf(c->call_card_font, sizeof(c->call_card_font), "%s", OVERLAY_CFG_CAPSULE_FONT);
+    snprintf(c->call_card_font_bold, sizeof(c->call_card_font_bold), "%s", OVERLAY_CFG_CALL_FONT_BOLD);
     snprintf(c->source, sizeof(c->source), "(built-in defaults)");
 }
 
@@ -171,6 +215,22 @@ static int overlay_cfg_apply(overlay_cfg_t *c, const char *key, long v)
     else if (!strcmp(key, "y_alt"))         c->y_alt         = (int)v;
     else if (!strcmp(key, "visible_top_big"))   c->visible_top_big   = (int)v;
     else if (!strcmp(key, "visible_top_small")) c->visible_top_small = (int)v;
+    else if (!strcmp(key, "capsule_text"))      c->capsule_text      = (int)v;
+    else if (!strcmp(key, "capsule_left_x"))    c->capsule_left_x    = (int)v;
+    else if (!strcmp(key, "capsule_right_x"))   c->capsule_right_x   = (int)v;
+    else if (!strcmp(key, "capsule_y"))         c->capsule_y         = (int)v;
+    else if (!strcmp(key, "capsule_h"))         c->capsule_h         = (int)v;
+    else if (!strcmp(key, "capsule_font_px"))   c->capsule_font_px   = (int)v;
+    else if (!strcmp(key, "call_card"))           c->call_card           = (int)v;
+    else if (!strcmp(key, "call_card_ringing"))   c->call_card_ringing   = (int)v;
+    else if (!strcmp(key, "call_card_w"))         c->call_card_w         = (int)v;
+    else if (!strcmp(key, "call_card_h"))         c->call_card_h         = (int)v;
+    else if (!strcmp(key, "call_card_x_small"))   c->call_card_x_small   = (int)v;
+    else if (!strcmp(key, "call_card_y_small"))   c->call_card_y_small   = (int)v;
+    else if (!strcmp(key, "call_card_x_big"))     c->call_card_x_big     = (int)v;
+    else if (!strcmp(key, "call_card_y_big"))     c->call_card_y_big     = (int)v;
+    else if (!strcmp(key, "call_card_name_px"))   c->call_card_name_px   = (int)v;
+    else if (!strcmp(key, "call_card_status_px")) c->call_card_status_px = (int)v;
     else return 0;
     return 1;
 }
@@ -200,13 +260,23 @@ static int overlay_cfg_load(overlay_cfg_t *c, const char *path_override)
     if (!f) return 0;
 
     while (fgets(line, sizeof(line), f)) {
-        char key[64];
+        char key[64], text[sizeof(c->capsule_font)];
         char *p = line, *hash;
         long v;
         int n = 0;
 
         hash = strchr(p, '#');
         if (hash) *hash = '\0';
+        if (sscanf(p, "%63s %159s", key, text) == 2) {
+            char *dst = !strcmp(key, "capsule_font") ? c->capsule_font
+                      : !strcmp(key, "call_card_font") ? c->call_card_font
+                      : !strcmp(key, "call_card_font_bold") ? c->call_card_font_bold : NULL;
+            if (dst) {
+                snprintf(dst, sizeof(c->capsule_font), "%s", text);
+                applied++;
+                continue;
+            }
+        }
         /* "key value" with any run of blanks; tolerate CR from a card edited
          * on Windows (the installer ships LF, a user's editor may not). */
         if (sscanf(p, "%63s %ld%n", key, &v, &n) < 2) continue;
@@ -270,6 +340,45 @@ static int overlay_cfg_sanitize(overlay_cfg_t *c)
         { c->visible_top_big = 0; fixed++; }
     if (c->visible_top_small < 0 || c->visible_top_small > c->height - 16)
         { c->visible_top_small = 0; fixed++; }
+    /* The strip is inside the window or it is not drawn at all: a typo on the
+     * card must not put text on top of a gauge. */
+    if (c->capsule_h < 16 || c->capsule_h > 80)             { c->capsule_h = 36; fixed++; }
+    if (c->capsule_font_px < 10 || c->capsule_font_px > 60) { c->capsule_font_px = 24; fixed++; }
+    if (c->capsule_left_x < 0 || c->capsule_right_x > c->canvas_width
+        || c->capsule_right_x - c->capsule_left_x < 64) {
+        c->capsule_left_x = 372;
+        c->capsule_right_x = 1068;
+        fixed++;
+    }
+    if (c->capsule_y < 0 || c->capsule_y + c->capsule_h > c->canvas_height) {
+        c->capsule_y = 397;
+        fixed++;
+    }
+    /* Only a small canvas (the emergency canvas_width 210) gets here. */
+    if (c->capsule_right_x > c->canvas_width || c->capsule_y + c->capsule_h > c->canvas_height)
+        c->capsule_text = 0;
+    c->capsule_text = c->capsule_text ? 1 : 0;
+    /* Same rule for the call card: inside the window, or not drawn. */
+    if (c->call_card_w < 120 || c->call_card_w > 700) { c->call_card_w = 320; fixed++; }
+    if (c->call_card_h < 48 || c->call_card_h > 160)  { c->call_card_h = 78;  fixed++; }
+    if (c->call_card_name_px < 10 || c->call_card_name_px > 60)     { c->call_card_name_px = 28;   fixed++; }
+    if (c->call_card_status_px < 10 || c->call_card_status_px > 60) { c->call_card_status_px = 22; fixed++; }
+    if (c->call_card_x_small < 0 || c->call_card_x_small + c->call_card_w > c->canvas_width)
+        { c->call_card_x_small = 735; fixed++; }
+    if (c->call_card_y_small < 0 || c->call_card_y_small + c->call_card_h > c->canvas_height)
+        { c->call_card_y_small = 300; fixed++; }
+    if (c->call_card_x_big < 0 || c->call_card_x_big + c->call_card_w > c->canvas_width)
+        { c->call_card_x_big = 560; fixed++; }
+    if (c->call_card_y_big < 0 || c->call_card_y_big + c->call_card_h > c->canvas_height)
+        { c->call_card_y_big = 305; fixed++; }
+    /* Only a small canvas (the emergency canvas_width 210) gets here. */
+    if (c->call_card_x_small + c->call_card_w > c->canvas_width
+        || c->call_card_y_small + c->call_card_h > c->canvas_height
+        || c->call_card_x_big + c->call_card_w > c->canvas_width
+        || c->call_card_y_big + c->call_card_h > c->canvas_height)
+        c->call_card = 0;
+    c->call_card = c->call_card ? 1 : 0;
+    c->call_card_ringing = c->call_card_ringing ? 1 : 0;
     c->alpha   = c->alpha   ? 1 : 0;
     c->managed = c->managed ? 1 : 0;
     return fixed;

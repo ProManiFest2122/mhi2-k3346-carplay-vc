@@ -16,7 +16,8 @@
  *    rezerwy FLASH (FLASH by ja odebral). Akcja, ktora kombi wyslalo z powodu
  *    przycisku sluchawki na kierownicy, nie jest powtarzana (stock flash juz
  *    ja wykonal) - inaczej odebranie + ponowne przelaczenie = "call failed";
- *  - bez list (ostatnie/ulubione), wybierania, wyciszania i zawieszania z VC.
+ *  - listy ostatnich i ulubionych z hooka mm-ipod (Etap 6), wybieranie z nich;
+ *    bez wyciszania i zawieszania z VC.
  * Bramka = werdykt stock: FctID 14 z mobileConnectionType 5 wysyla
  * BAPPropertyTelFSGSetup tylko przy aktywnym CarPlay. Poza bramka wszystko
  * przechodzi 1:1. Kazdy blad watku PPS jest polykany (log K3346Diag).
@@ -55,6 +56,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
 
     /* Etap 6: ostatnie polaczenia z hooka mm-ipod (iAP2 0x4171) i dzwonienie (0x415A) */
     static String RECENTS_FILE = "/tmp/k3346-tel-recents.txt";
+    static String FAVORITES_FILE = "/tmp/k3346-tel-favorites.txt";
     static String CMD_FILE = "/tmp/k3346-tel-cmd";
     /* BAP callMode jak stock BAPPropertyTelCombinedNumbers (Luka): */
     static final int CALLMODE_MISSED = 1, CALLMODE_RECEIVED = 2, CALLMODE_DIALED = 3;
@@ -107,6 +109,10 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     private CombiBAPCallStackEntry[] recents = new CombiBAPCallStackEntry[0];
     private String recentsText;
 
+    /* Etap 6: lista ulubionych CarPlay */
+    private CombiBAPFavoriteNumberEntry[] favorites = new CombiBAPFavoriteNumberEntry[0];
+    private String favoritesText;
+
     /* Etap 6 v4: MMI przy starcie CarPlay wylacza BT telefonu i czysci swoje listy
      * (test 2026-10-21: 102 -> 66 -> 31 -> 0), a iPhone przez iAP2 zawsze daje 0.
      * Zapamietana ostatnia pelna lista z BT + rozmowy z tej sesji CarPlay na gorze. */
@@ -154,6 +160,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
             } else {
                 stopPolling();
                 call = K3346PpsCall.NONE;
+                K3346CallCard.clear();
                 activeId = null;
                 replayStock();
             }
@@ -333,6 +340,12 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
                         /* brak pliku do pierwszej listy z iPhone'a - normalne */
                     }
                     try {
+                        String ft = readPps(FAVORITES_FILE);
+                        if (ft != null && !ft.equals(favoritesText)) onFavorites(ft);
+                    } catch (Throwable t) {
+                        /* jak wyzej */
+                    }
+                    try {
                         String text = readPps(PPS_TELEPHONY);
                         if (text != null && !text.equals(last)) {
                             last = text;
@@ -393,6 +406,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         regState = bapRegisterState(c.registration, c.airplane);
         carrier = c.operator;
         if (gated) {
+            K3346CallCard.update(c);
             publishCalls();
             publishComm();
         }
@@ -422,6 +436,46 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         recents = r;
         K3346Diag.log("K3346_PHONE recents n=" + r.length);
         if (gated) publishRecents();
+    }
+
+    /* plik hooka: "K3346_TEL_FAVORITES v1", "n=N", linie "i\tservice\tnumer\tnazwa" */
+    synchronized void onFavorites(String text) {
+        favoritesText = text;
+        java.util.Vector v = new java.util.Vector();
+        int skipped = 0, from = 0;
+        while (from < text.length()) {
+            int end = text.indexOf('\n', from);
+            if (end < 0) end = text.length();
+            String line = text.substring(from, end);
+            from = end + 1;
+            String[] f = split(line, '\t');
+            if (f.length < 4) continue;
+            int service = (int)toLong(f[1]);
+            String num = dialableNumber(f[2]), name = f[3];
+            /* 0x415A zawsze wysyla Service 1, wiec FaceTime wyszedlby jako zwykla rozmowa */
+            if (num.length() == 0 || num.length() > 32 || service == 2 || service == 3) {
+                skipped++;
+                continue;
+            }
+            v.addElement(new CombiBAPFavoriteNumberEntry(v.size(), isNumber(name) ? "" : name, num));
+        }
+        CombiBAPFavoriteNumberEntry[] r = new CombiBAPFavoriteNumberEntry[v.size()];
+        v.copyInto(r);
+        favorites = r;
+        K3346Diag.log("K3346_PHONE favorites n=" + r.length + " skipped=" + skipped);
+        if (gated) real.updateFavoriteList(favoritesForVc());
+    }
+
+    /* Numer w zapisie z kontaktu ("609-484-016", NBSP, znaczniki kierunku) -> 0-9 + * #.
+     * Litera lub '@' = to nie numer: pusty wynik, bo dial() zrobilby z "jan123@x.pl" numer 123. */
+    static String dialableNumber(String s) {
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '@' || Character.isLetter(ch)) return "";
+            if ((ch >= '0' && ch <= '9') || ch == '+' || ch == '*' || ch == '#') b.append(ch);
+        }
+        return b.toString();
     }
 
     static long toLong(String s) {
@@ -571,6 +625,7 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         support[MOBILE_SERVICE_SUPPORT_NETWORK_PROVIDER] = true;
         support[MOBILE_SERVICE_SUPPORT_SIGNAL_QUALITY] = true;
         support[MOBILE_SERVICE_SUPPORT_COMBINED_NUMBERS] = true;    /* Etap 6 */
+        support[MOBILE_SERVICE_SUPPORT_FAVORITE_LIST] = true;       /* Etap 6 */
         support[MOBILE_SERVICE_SUPPORT_DIAL_NUMBER] = true;         /* Etap 6: z listy */
         real.updateMobileServiceSupport(support);
         publishCalls();
@@ -766,7 +821,9 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         real.updateFavoriteList(gated ? favoritesForVc() : e);
     }
 
+    /* jak recentsForVc(): lista z iAP2 ma pierwszenstwo, zapas z BT przy pustej */
     private CombiBAPFavoriteNumberEntry[] favoritesForVc() {
+        if (favorites.length > 0) return favorites;
         if (lastBtFavorites != null) return lastBtFavorites;
         return stockFavorites != null ? stockFavorites : new CombiBAPFavoriteNumberEntry[0];
     }

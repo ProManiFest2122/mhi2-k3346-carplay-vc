@@ -210,6 +210,25 @@ static void t_shipped_file(void)
     check_int(c.y_alt, 110, "y_alt 110");
     check_int(c.visible_top_big, 0, "visible_top_big 0");
     check_int(c.visible_top_small, 0, "visible_top_small 0");
+    check_int(c.capsule_text, 0, "capsule text off (too dark, run-53)");
+    check_int(c.capsule_left_x, 372, "capsule from x 372");
+    check_int(c.capsule_right_x, 1068, "capsule to x 1068");
+    check_int(c.capsule_y, 397, "capsule at y 397");
+    check_int(c.capsule_h, 36, "capsule 36 high");
+    check_int(c.capsule_font_px, 24, "capsule font 24 px");
+    check_int(c.call_card, 1, "call card on");
+    check_int(c.call_card_ringing, 1, "call card while ringing");
+    check_int(c.call_card_w, 320, "call card 320 wide");
+    check_int(c.call_card_h, 78, "call card 78 high");
+    check_int(c.call_card_x_small, 735, "call card x, small clocks");
+    check_int(c.call_card_y_small, 300, "call card y, small clocks");
+    check_int(c.call_card_x_big, 560, "call card x, big clocks");
+    check_int(c.call_card_y_big, 305, "call card y, big clocks");
+    check_int(c.call_card_name_px, 28, "name font");
+    check_int(c.call_card_status_px, 22, "status font");
+    check(!strcmp(c.call_card_font, OVERLAY_CFG_CAPSULE_FONT), "call card font");
+    check(!strcmp(c.call_card_font_bold, OVERLAY_CFG_CALL_FONT_BOLD), "call card bold font");
+    check(!strcmp(c.capsule_font, OVERLAY_CFG_CAPSULE_FONT), "capsule font from the firmware");
     check_int(c.alpha, 1, "alpha on");
     check_int(c.managed, 1, "managed present (ignored by the renderer)");
 }
@@ -480,8 +499,187 @@ static void t_visible_top(void)
     check_int(c.visible_top_small, 0, "negative -> back to the whole crop");
 }
 
+static void t_capsule(void)
+{
+    overlay_cfg_t c;
+    const char *p;
+
+    printf("capsule strip\n");
+    overlay_cfg_defaults(&c);
+    check_int(c.capsule_text, 0, "off by default");
+    check_int(overlay_cfg_sanitize(&c), 0, "defaults need no clamping");
+    check(!strcmp(c.capsule_font, OVERLAY_CFG_CAPSULE_FONT), "default font");
+
+    p = write_tmp("ovl_capsule.conf",
+        "capsule_text 1\n"
+        "capsule_left_x 400\n"
+        "capsule_right_x 1000\n"
+        "capsule_y 410\n"
+        "capsule_h 30\n"
+        "capsule_font_px 22\n"
+        "capsule_font /tmp/some.ttf # comment\n");
+    check_int(overlay_cfg_load(&c, p), 7, "7 keys applied, the font path among them");
+    check_int(overlay_cfg_sanitize(&c), 0, "a good strip needs no clamping");
+    check_int(c.capsule_text, 1, "on from the card");
+    check_int(c.capsule_left_x, 400, "left");
+    check_int(c.capsule_right_x, 1000, "right");
+    check_int(c.capsule_y, 410, "y");
+    check_int(c.capsule_h, 30, "h");
+    check_int(c.capsule_font_px, 22, "px");
+    check(!strcmp(c.capsule_font, "/tmp/some.ttf"), "font path without the comment");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_left_x = -1;
+    check_int(overlay_cfg_sanitize(&c), 1, "left off the canvas clamped");
+    check_int(c.capsule_left_x, 372, "left back to the default");
+    check_int(c.capsule_right_x, 1068, "right with it");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_right_x = 1441;
+    check_int(overlay_cfg_sanitize(&c), 1, "right off the canvas clamped");
+    check_int(c.capsule_right_x, 1068, "right back to the default");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_right_x = c.capsule_left_x + 63;
+    check_int(overlay_cfg_sanitize(&c), 1, "too narrow clamped");
+    check_int(c.capsule_right_x, 1068, "narrow strip back to the default");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_right_x = c.capsule_left_x + 64;
+    check_int(overlay_cfg_sanitize(&c), 0, "narrowest strip allowed");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_y = 542 - 36 + 1;
+    check_int(overlay_cfg_sanitize(&c), 1, "below the canvas clamped");
+    check_int(c.capsule_y, 397, "y back to the default");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_y = 542 - 36;
+    check_int(overlay_cfg_sanitize(&c), 0, "last row allowed");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_h = 15;
+    check_int(overlay_cfg_sanitize(&c), 1, "too low clamped");
+    check_int(c.capsule_h, 36, "h back to the default");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_h = 81;
+    check_int(overlay_cfg_sanitize(&c), 1, "too high clamped");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_font_px = 9;
+    check_int(overlay_cfg_sanitize(&c), 1, "font too small clamped");
+    check_int(c.capsule_font_px, 24, "px back to the default");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_font_px = 61;
+    check_int(overlay_cfg_sanitize(&c), 1, "font too big clamped");
+
+    overlay_cfg_defaults(&c);
+    c.capsule_text = 5;
+    overlay_cfg_sanitize(&c);
+    check_int(c.capsule_text, 1, "any non-zero is on");
+
+    /* The emergency small canvas has no room for the strip: no text at all. */
+    overlay_cfg_defaults(&c);
+    c.canvas_width = 210;
+    c.canvas_height = 153;
+    c.x = c.y = c.x_alt = c.y_alt = 0;
+    c.capsule_text = 1;
+    overlay_cfg_sanitize(&c);
+    check_int(c.capsule_text, 0, "emergency canvas turns the text off");
+}
+
+static void t_call_card(void)
+{
+    overlay_cfg_t c;
+    const char *p;
+
+    printf("call card\n");
+    overlay_cfg_defaults(&c);
+    check_int(c.call_card, 1, "on by default");
+    check_int(overlay_cfg_sanitize(&c), 0, "defaults need no clamping");
+
+    p = write_tmp("ovl_card.conf",
+        "call_card 0\n"
+        "call_card_ringing 0\n"
+        "call_card_w 300\n"
+        "call_card_h 90\n"
+        "call_card_x_small 700\n"
+        "call_card_y_small 280\n"
+        "call_card_x_big 570\n"
+        "call_card_y_big 290\n"
+        "call_card_name_px 26\n"
+        "call_card_status_px 20\n"
+        "call_card_font /tmp/n.ttf\n"
+        "call_card_font_bold /tmp/b.ttf # bold\n");
+    check_int(overlay_cfg_load(&c, p), 12, "12 keys applied");
+    check_int(overlay_cfg_sanitize(&c), 0, "a good card needs no clamping");
+    check_int(c.call_card, 0, "off from the card");
+    check_int(c.call_card_ringing, 0, "no ringing from the card");
+    check_int(c.call_card_w, 300, "w");
+    check_int(c.call_card_h, 90, "h");
+    check_int(c.call_card_x_small, 700, "x small");
+    check_int(c.call_card_y_small, 280, "y small");
+    check_int(c.call_card_x_big, 570, "x big");
+    check_int(c.call_card_y_big, 290, "y big");
+    check_int(c.call_card_name_px, 26, "name px");
+    check_int(c.call_card_status_px, 20, "status px");
+    check(!strcmp(c.call_card_font, "/tmp/n.ttf"), "font path");
+    check(!strcmp(c.call_card_font_bold, "/tmp/b.ttf"), "bold path without the comment");
+
+#define CARD_BAD(field, value, what, want) do {                          \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 1, what);                    \
+        check_int(c.field, (want), what " back to the default");         \
+    } while (0)
+#define CARD_GOOD(field, value, what) do {                               \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 0, what);                    \
+    } while (0)
+    CARD_BAD(call_card_w, 119, "too narrow", 320);
+    CARD_GOOD(call_card_w, 120, "narrowest allowed");
+    CARD_BAD(call_card_w, 701, "too wide", 320);
+    CARD_BAD(call_card_h, 47, "too low", 78);
+    CARD_GOOD(call_card_h, 48, "lowest allowed");
+    CARD_BAD(call_card_h, 161, "too high", 78);
+    CARD_BAD(call_card_name_px, 9, "name font small", 28);
+    CARD_BAD(call_card_name_px, 61, "name font big", 28);
+    CARD_BAD(call_card_status_px, 9, "status font small", 22);
+    CARD_BAD(call_card_status_px, 61, "status font big", 22);
+    CARD_BAD(call_card_x_small, -1, "x small negative", 735);
+    CARD_BAD(call_card_x_small, 1440 - 320 + 1, "x small off the canvas", 735);
+    CARD_GOOD(call_card_x_small, 1440 - 320, "x small at the edge");
+    CARD_BAD(call_card_y_small, -1, "y small negative", 300);
+    CARD_BAD(call_card_y_small, 542 - 78 + 1, "y small off the canvas", 300);
+    CARD_GOOD(call_card_y_small, 542 - 78, "y small at the edge");
+    CARD_BAD(call_card_x_big, -1, "x big negative", 560);
+    CARD_BAD(call_card_x_big, 1440 - 320 + 1, "x big off the canvas", 560);
+    CARD_BAD(call_card_y_big, -1, "y big negative", 305);
+    CARD_BAD(call_card_y_big, 542 - 78 + 1, "y big off the canvas", 305);
+
+    overlay_cfg_defaults(&c);
+    c.call_card = 5;
+    c.call_card_ringing = 7;
+    overlay_cfg_sanitize(&c);
+    check_int(c.call_card, 1, "any non-zero is on");
+    check_int(c.call_card_ringing, 1, "any non-zero is ringing on");
+
+    /* The emergency small canvas has no room for the card: none at all. */
+    overlay_cfg_defaults(&c);
+    c.canvas_width = 210;
+    c.canvas_height = 153;
+    c.x = c.y = c.x_alt = c.y_alt = 0;
+    overlay_cfg_sanitize(&c);
+    check_int(c.call_card, 0, "emergency canvas turns the card off");
+}
+
 int main(void)
 {
+    t_call_card();
+    t_capsule();
     t_defaults();
     t_visible_top();
     t_plain();

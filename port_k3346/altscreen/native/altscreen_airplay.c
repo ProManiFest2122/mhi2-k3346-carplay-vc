@@ -22,6 +22,9 @@
 #define ALTSCREEN_DEFAULT_FPS 30
 #define ALTSCREEN_VIEW_COUNT_DEFAULT 4
 #define ALTSCREEN_VIEW_COUNT_MAX 4
+#define ALTSCREEN_KNOB_NAME "K3346_ClusterKnob"
+#define ALTSCREEN_KNOB_UUID "E0CB6FB0-0000-0000-0000-0000C0FFEE59"
+#define K_CFNUMBER_SINT64 4
 /* Advertise the same pixel canvas as the renderer profile.
  * v8j profile: 1440x542 for both advertised and rendered output.
  * p->w/p->h are loaded from the installed profile. */
@@ -51,6 +54,8 @@ typedef os_status (*cf_dict_set_i64_fn)(cf_ref, const void *, int64_t);
 typedef cf_ref (*cf_retain_fn)(cf_ref);
 typedef void (*cf_release_fn)(cf_ref);
 typedef unsigned char (*cf_equal_fn)(cf_ref, cf_ref);
+typedef unsigned char (*cf_string_get_cstring_fn)(cf_ref, char *, cf_index, uint32_t);
+typedef unsigned char (*cf_number_get_value_fn)(cf_ref, int, void *);
 
 typedef const void *(*cf_container_retain_cb)(void *, const void *);
 typedef void (*cf_container_release_cb)(void *, const void *);
@@ -87,6 +92,10 @@ typedef struct {
     cf_retain_fn retain;
     cf_release_fn release;
     cf_equal_fn equal;
+    cf_string_get_cstring_fn string_get_cstring;
+    cf_number_get_value_fn number_get_value;
+    cf_type_getter_fn string_type;
+    cf_type_getter_fn number_type;
     const void *dict_key_callbacks;
     const void *dict_value_callbacks;
     const void *array_callbacks;
@@ -98,6 +107,7 @@ typedef struct {
 
 static alt_cf_api g_cf;
 static int g_info_logged;
+static int g_knob_advertised;
 
 static void *sym(const char *name)
 {
@@ -159,6 +169,10 @@ static void resolve_cf(void)
     g_cf.retain = (cf_retain_fn)sym("CFRetain");
     g_cf.release = (cf_release_fn)sym("CFRelease");
     g_cf.equal = (cf_equal_fn)sym("CFEqual");
+    g_cf.string_get_cstring = (cf_string_get_cstring_fn)sym("CFStringGetCString");
+    g_cf.number_get_value = (cf_number_get_value_fn)sym("CFNumberGetValue");
+    g_cf.string_type = (cf_type_getter_fn)sym("CFStringGetTypeID");
+    g_cf.number_type = (cf_type_getter_fn)sym("CFNumberGetTypeID");
 
     g_cf.dict_key_callbacks = sym("kCFTypeDictionaryKeyCallBacks");
     if (g_cf.dict_key_callbacks == NULL)
@@ -564,8 +578,8 @@ static void load_profile(altscreen_profile *p)
      *
      * The renderer controller already consumes width/height/fps from this file.
      * Reusing it here prevents phone-facing geometry from drifting away from
-     * the actual vc_render geometry.  Feature/HID policy deliberately remains
-     * v5-safe (features=0, no primaryInputDevice) in this merge.
+     * the actual vc_render geometry.  The features field stays unused here:
+     * advertise_cluster_knob() decides features and primaryInputDevice.
      */
     f = fopen(ALTSCREEN_PROFILE_PATH, "r");
     if (f != NULL) {
@@ -631,7 +645,7 @@ static void load_profile(altscreen_profile *p)
         fclose(f);
     }
 
-    /* Keep 4 advertised slots, even if individual overrides are absent.
+    /* Keep every advertised slot, even if individual overrides are absent.
      * Unspecified slots inherit the safe default rather than generating invalid
      * updateViewArea indexes when the VC dial layout changes. */
     p->view_count = ALTSCREEN_VIEW_COUNT_MAX;
@@ -721,16 +735,14 @@ static cf_ref make_alt_display(cf_ref stock_main)
         goto fail;
 
     /*
-     * Keep v5's conservative feature/HID policy.  The only profile changes in
-     * this merged study are geometry + ViewAreas; feature-2/virtual-HID work is
-     * intentionally excluded from this recovery-derived baseline.
-     *
      * Joey's current GEN2 path puts adjacentViewAreas on updateViewArea
      * commands, not as an empty top-level display field, so the old empty
      * descriptor-level adjacentViewAreas entry is intentionally removed.
      */
     if (!set_string(alt, "uuid", ALTSCREEN_UUID) ||
-        !set_i64(alt, "features", 0) ||
+        !set_i64(alt, "features", g_knob_advertised ? 2 : 0) ||
+        (g_knob_advertised &&
+         !set_string(alt, "primaryInputDevice", ALTSCREEN_KNOB_UUID)) ||
         !set_i64(alt, "maxFPS", profile.fps) ||
         !set_i64(alt, "widthPixels", profile.w) ||
         !set_i64(alt, "heightPixels", profile.h) ||
@@ -746,9 +758,10 @@ static cf_ref make_alt_display(cf_ref stock_main)
 
     LOG_INFO(ALTINFO_MODULE,
              "display profile uuid=%s rendered=%dx%d@%d advertised=%dx%d physical=%dx%d "
-             "views=%u features=0 primaryInputDevice=absent",
+             "views=%u features=%d primaryInputDevice=%s",
              ALTSCREEN_UUID, profile.w, profile.h, profile.fps,
-             profile.w, profile.h, profile.physical_w, profile.physical_h, profile.view_count);
+             profile.w, profile.h, profile.physical_w, profile.physical_h, profile.view_count,
+             g_knob_advertised ? 2 : 0, g_knob_advertised ? ALTSCREEN_KNOB_UUID : "absent");
 
     g_cf.release(suggest_urls);
     g_cf.release(view_areas);
@@ -796,12 +809,13 @@ static cf_ref add_alt_display(cf_ref stock)
 
     LOG_INFO(ALTINFO_MODULE,
              "PROPERTY_RETURN property=displays stock_count=%ld returned_count=%ld "
-             "alt_uuid=%s type=%d geometry=%dx%d physical=0x0 features=0 "
-             "primaryInputDevice=absent cloned_stock=1 suggest_urls=3 "
+             "alt_uuid=%s type=%d geometry=%dx%d physical=0x0 features=%d "
+             "primaryInputDevice=%s cloned_stock=1 suggest_urls=3 "
              "showsInstruments=1 initialURL=%s",
              (long)count, (long)(count + 1), ALTSCREEN_UUID,
              AIRPLAY_STREAM_TYPE_ALT_SCREEN,
              profile.w, profile.h,
+             g_knob_advertised ? 2 : 0, g_knob_advertised ? ALTSCREEN_KNOB_UUID : "absent",
              ALTSCREEN_INITIAL_URL);
 
     if (!g_info_logged) {
@@ -844,14 +858,121 @@ static cf_ref make_allowed_cluster_urls(void)
 {
     cf_ref out = make_cluster_urls();
     cf_ref s;
-    const char *extra[] = { ALTSCREEN_URL_SMALL_GAUGES, ALTSCREEN_URL_BIG_GAUGES };
+    const char *extra[] = { ALTSCREEN_URL_SMALL_GAUGES, ALTSCREEN_URL_BIG_GAUGES,
+                            ALTSCREEN_URL_BIG_GAUGES_NO_CARD };
     unsigned int i;
     if (out == NULL) return NULL;
-    for (i = 0; i < 2u; ++i) {
+    for (i = 0; i < 3u; ++i) {
         s = cfs(extra[i]);
         if (s == NULL) { g_cf.release(out); return NULL; }
         g_cf.array_append(out, s);
         g_cf.release(s);
+    }
+    return out;
+}
+
+/*
+ * iPhone throttles stream 111 to ~16 fps when the alt display has features=0 and
+ * no input device (joeyQuery TRACE-012, Audi B9 MHI2).  Copy of the stock knob
+ * tied to the alt display; advertise-only, no HID device is registered and no
+ * report is sent.  Any failure leaves the stock list and features=0.
+ */
+static void knob_log_stock(cf_ref info, cf_ref devices)
+{
+    char names[160];
+    char name[48];
+    size_t used = 0;
+    int64_t main_features = -1;
+    const char *input = "none";
+    cf_ref displays = dict_get_obj(info, "displays");
+    cf_index i;
+    cf_index count = is_array(devices) ? g_cf.array_count(devices) : 0;
+
+    names[0] = '\0';
+    for (i = 0; i < count && g_cf.string_get_cstring != NULL && g_cf.string_type != NULL; ++i) {
+        cf_ref device = (cf_ref)g_cf.array_value(devices, i);
+        cf_ref value = dict_get_obj(device, "name");
+        int n;
+
+        if (value == NULL || g_cf.get_type(value) != g_cf.string_type() ||
+            !g_cf.string_get_cstring(value, name, sizeof(name), K_CFSTRING_UTF8))
+            snprintf(name, sizeof(name), "?");
+        n = snprintf(names + used, sizeof(names) - used, "%s%s", i > 0 ? "," : "", name);
+        if (n < 0 || (size_t)n >= sizeof(names) - used)
+            break;
+        used += (size_t)n;
+    }
+
+    if (is_array(displays) && g_cf.array_count(displays) > 0) {
+        cf_ref main_display = (cf_ref)g_cf.array_value(displays, 0);
+        cf_ref value = dict_get_obj(main_display, "features");
+
+        if (value != NULL && g_cf.number_get_value != NULL && g_cf.number_type != NULL &&
+            g_cf.get_type(value) == g_cf.number_type())
+            g_cf.number_get_value(value, K_CFNUMBER_SINT64, &main_features);
+        value = dict_get_obj(main_display, "primaryInputDevice");
+        if (value != NULL)
+            input = g_cf.string_type != NULL && g_cf.get_type(value) == g_cf.string_type()
+                        ? "string" : "other";
+    }
+
+    LOG_WARN(ALTINFO_MODULE,
+             "K3346_KNOB stock hidDevices=%ld names=%s main_features=%lld main_input=%s",
+             (long)count, names, (long long)main_features, input);
+}
+
+static int advertise_cluster_knob(cf_ref info)
+{
+    cf_ref stock = dict_get_obj(info, "hidDevices");
+    cf_ref devices = NULL;
+    cf_ref knob = NULL;
+    cf_index count = 0;
+    cf_index pick = -1;
+    cf_index i;
+    int ok = 0;
+
+    knob_log_stock(info, stock);
+
+    if (is_array(stock))
+        count = g_cf.array_count(stock);
+    for (i = 0; i < count && pick < 0; ++i) {
+        if (key_is_name(dict_get_obj((cf_ref)g_cf.array_value(stock, i), "name"), "Eso_Knob"))
+            pick = i;
+    }
+
+    if (pick >= 0) {
+        knob = clone_dict_manual((cf_ref)g_cf.array_value(stock, pick));
+        devices = g_cf.array_mutable_copy(NULL, count + 1, stock);
+    }
+    if (knob != NULL && devices != NULL &&
+        set_string(knob, "name", ALTSCREEN_KNOB_NAME) &&
+        set_string(knob, "uuid", ALTSCREEN_KNOB_UUID) &&
+        set_string(knob, "displayUUID", ALTSCREEN_UUID)) {
+        g_cf.array_append(devices, knob);
+        ok = set_obj(info, "hidDevices", devices);
+    }
+    if (knob != NULL) g_cf.release(knob);
+    if (devices != NULL) g_cf.release(devices);
+
+    LOG_WARN(ALTINFO_MODULE, "K3346_KNOB pick=%ld advertised=%d features=%d",
+             (long)pick, ok, ok ? 2 : 0);
+    return ok;
+}
+
+/* Stock may have asked for displays through the property hook first. */
+static cf_ref displays_without_alt(cf_ref displays)
+{
+    cf_ref out = new_array();
+    cf_index count = g_cf.array_count(displays);
+    cf_index i;
+
+    if (out == NULL)
+        return NULL;
+    for (i = 0; i < count; ++i) {
+        cf_ref display = (cf_ref)g_cf.array_value(displays, i);
+
+        if (!key_is_name(dict_get_obj(display, "uuid"), ALTSCREEN_UUID))
+            g_cf.array_append(out, display);
     }
     return out;
 }
@@ -884,7 +1005,7 @@ static cf_ref patch_property_result(cf_ref stock, cf_ref property)
             if (stock != NULL) g_cf.release(stock);
             LOG_INFO(ALTINFO_MODULE,
                      "PROPERTY_RETURN property=%s count=%d base=%s extra=%s|%s",
-                     name, allowed ? 5 : 3, ALTSCREEN_INITIAL_URL,
+                     name, allowed ? 6 : 3, ALTSCREEN_INITIAL_URL,
                      allowed ? ALTSCREEN_URL_SMALL_GAUGES : "-",
                      allowed ? ALTSCREEN_URL_BIG_GAUGES : "-");
             return patched;
@@ -943,6 +1064,7 @@ cf_ref AirPlayCopyServerInfo(cf_ref session,
     cf_ref enabled = NULL;
     cf_ref displays = NULL;
     cf_ref patched_displays = NULL;
+    cf_ref base_displays = NULL;
     cf_index display_count = 0;
 
     resolve_cf();
@@ -981,11 +1103,15 @@ cf_ref AirPlayCopyServerInfo(cf_ref session,
     g_cf.release(enabled);
     enabled = NULL;
 
+    g_knob_advertised = advertise_cluster_knob(out);
+
     displays = dict_get_obj(out, "displays");
     if (is_array(displays)) {
         display_count = g_cf.array_count(displays);
-        if (display_count == 1) {
-            patched_displays = add_alt_display(displays);
+        if (display_count >= 1)
+            base_displays = displays_without_alt(displays);
+        if (base_displays != NULL && g_cf.array_count(base_displays) == 1) {
+            patched_displays = add_alt_display(base_displays);
             if (patched_displays != NULL) {
                 if (set_obj(out, "displays", patched_displays))
                     display_count = g_cf.array_count(patched_displays);
@@ -993,11 +1119,13 @@ cf_ref AirPlayCopyServerInfo(cf_ref session,
                 patched_displays = NULL;
             }
         }
+        if (base_displays != NULL)
+            g_cf.release(base_displays);
     }
 
     LOG_WARN(ALTINFO_MODULE,
-             "SERVER_INFO enabledFeatures=altScreen|viewAreas displays=%ld type111=%d",
-             (long)display_count, display_count >= 2 ? 1 : 0);
+             "SERVER_INFO enabledFeatures=altScreen|viewAreas displays=%ld type111=%d features=%d",
+             (long)display_count, display_count >= 2 ? 1 : 0, g_knob_advertised ? 2 : 0);
 
     g_cf.release(stock);
     return out;

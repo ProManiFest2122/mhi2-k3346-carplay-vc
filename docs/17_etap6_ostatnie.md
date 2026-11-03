@@ -169,6 +169,67 @@ aktualizuje Etap 4 i 5 naraz).
   - Do zrobienia opcjonalnie: parser ulubionych + Java `updateFavoriteList` (wzór: Luka `GatedPhoneService`).
 - Logi z tego testu nie były zbierane. Przy najbliższym COLLECT oczekiwane `list_update … count=N` z N>0.
 
+## Ulubione z iAP2 (2026-11-02, `1.0.2-rc1`) – DZIAŁA w aucie (`run-48`)
+
+**Dowód, że iPhone je wysyła:** `run-47` (iOS 27, 2026-11-01), `iap2.log:412-418`. Po 12 ostatnich przychodzą
+dwie kolejne ramki 0x4171: `00 05 00 05 01 | 00 06 00 07 00 01` (ulubione dostępne, count 1) i grupa 6 z jednym
+wpisem (indeks, numer, nazwa, etykieta, AddressBookID, Service=1). Stary parser pomijał parametry 5–7, stąd
+w logu `list_update #3/#4 entries=0`. Żądanie 0x4170 **zostaje bez zmian** (limit 0 = domyślny limit iOS, 12).
+
+**Numer przychodzi w zapisie z kontaktu**, np. z myślnikami (`NNN-NNN-NNN`), a nie w E.164 jak w ostatnich.
+
+| Warstwa | Zmiana |
+|---|---|
+| `k3346_tel.{h,c}` | `k3346_tel_lists { recents, favorites }`, parametry 6/7 do ulubionych, pole `service` |
+| `/tmp/k3346-tel-favorites.txt` | **osobny plik**, `K3346_TEL_FAVORITES v1`, `n=N`, linie `i\tservice\tnumer\tnazwa`. Wspólny plik mógłby przekroczyć 4096 B: format zwróciłby 0 i zniknęłyby też ostatnie |
+| `K3346GatedPhoneService.onFavorites` | numer normalizowany do `0-9 + * #`; pominięte: adresy (litera lub `@`, inaczej `jan123@x.pl` wybrałoby „123”), FaceTime (service 2/3, bo 0x415A zawsze wysyła Service=1), numery ponad 32 znaki. `posID` kolejne po filtrze |
+| `favoritesForVc()` | niepusta lista z iAP2 ma pierwszeństwo, przy pustej zapas z BT – ta sama reguła co `recentsForVc()` |
+| `publishCarPlay()` | bit `MOBILE_SERVICE_SUPPORT_FAVORITE_LIST` (43): fabryczny `AppConnectorPhone` wylicza z niego `fctFavoriteListSupported` |
+
+Celowo bez zmian: ponowne prośby zależą tylko od pustych **ostatnich** (brak ulubionych to normalny stan), droga
+wybierania (`K3346GatedPhoneListener` → 0x415A).
+
+**Sprawdzone na komputerze:**
+- test C 49/49 (zwykły, UBSAN, ASAN), w tym prawdziwe ramki z `run-47` z placeholderami tej samej długości;
+- test telefonu w Javie 62/62, okładka 14/14, D-pad 7/7, `OVERRIDES_VERIFY=PASS`;
+- **niezmienione ramki z `run-47` przepuszczone przez kod**: `n=12`, `fav_n=1`, `service=1`, zgodnie z wysłanymi;
+- 10 mutacji (brak parametrów 6/7, brak `service`, mieszanie list, brak czyszczenia przy resecie, brak bitu 43,
+  brak pierwszeństwa iAP2, FaceTime, adres jako cyfry, dziury w `posID`): każdą test wykrywa;
+- offsety ALL PASS, symulacja instalatora na zipach 392/0, ratunek 52/0.
+
+**Względem 1.0.1 w paczce różnią się:** `libmib2high-carplay-rgi-ipod{,.etap7}.so` (te same bajty), `mib2high-k3346-overrides.jar`,
+`RELEASE` i `mib2high-carplay-rgi.jar` (tylko daty wpisów, treść 40 wpisów identyczna). Biblioteka v8s, `vc_render`
+i `vc_overlay` są identyczne.
+
+**Test C – komenda** (w kontenerze, `/src` = `port_k3346/altscreen`). Obraz ma na początku `PATH` narzędzia QNX,
+więc trzeba go ustawić na systemowe, inaczej `gcc` woła assembler ARM:
+
+```sh
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin; N=/src/native
+gcc -std=gnu99 -include stddef.h -g -fsanitize=undefined -I$N -I$N/framework -I$N/telephony \
+  '-DK3346_TEL_RECENTS_PATH="/tmp/k3346-tel-test-recents.txt"' \
+  '-DK3346_TEL_FAVORITES_PATH="/tmp/k3346-tel-test-favorites.txt"' \
+  '-DK3346_TEL_CMD_PATH="/tmp/k3346-tel-test-cmd"' \
+  -o /tmp/tel $N/tests/k3346_tel_test.c $N/telephony/k3346_tel.c $N/framework/iap2_protocol.c -lpthread && /tmp/tel
+```
+
+**Test w aucie [Ty]** (iOS 27.2, co najmniej 1 ulubiony w iPhonie): VC → Telefon → Ulubione → nazwa i numer; wybór
+pozycji → iPhone dzwoni. Logi: `k3346-rgi-ipod-native.log` → `fav_count=N`, `favorites_written n=N`;
+`k3346-override-probe.log` → `K3346_PHONE favorites n=N skipped=0`, `vc dial … result=OK`. Chwilowe `n=0 skipped=1`
+między ramką z count a ramką z wpisem jest normalne.
+
+**Wynik w aucie (2026-11-02, `run-48`, logi `work\auto_test_20\`): DZIAŁA.** Użytkownik: lista na VC i dzwonienie
+działają. Sumy `live` = paczka dla biblioteki `mm-ipod` i JAR-a overrides. Logi: `favorites_written n=1`,
+`K3346_PHONE favorites n=1 skipped=0`, `vc dial digits=9 result=OK` ×2, `initiate_call digits=9 rc=0` ×2, ostatnie
+12/12 bez regresji, rozmowa przychodząca `vc accept` → `vc hangup` → `vc key worked`, zero SIGSEGV.
+
+**Czego logi nie rozstrzygają:** (1) `vc dial` nie mówi, czy wybór pochodził z ulubionych, czy z ostatnich, więc
+dzwonienie z ulubionych znamy z relacji użytkownika; (2) w `run-48` nie ma `gate OFF`, więc logi nie pokazują powrotu
+listy fabrycznej po odłączeniu kabla. Do sprawdzenia przy następnym teście.
+
+**Uzupełnienie (`run-49`, `work\auto_test_21\`):** odłączenie kabla daje `gate OFF (stock)`, a po ponownym podłączeniu
+`gate ON`. Bramka działa w obie strony; wyświetlonej listy fabrycznej logi nie pokazują, a użytkownik nie zgłosił tu problemu.
+
 ## Zakres i ograniczenia
 
 - **Ostatnie połączenia** (odebrane / wybrane / nieodebrane, do 12 – limit iOS dla CarPlay) na karcie
@@ -176,7 +237,7 @@ aktualizuje Etap 4 i 5 naraz).
 - **Pełna książka adresowa – niewykonalna przez CarPlay.** iAP2 przenosi tylko ostatnie i ulubione; kontakty
   w MMI pochodzą z Bluetooth (PBAP), a CarPlay wyłącza Bluetooth telefonu (`DSICarplay.responseBTDeactivation`).
   Tak samo u Luki („Directory has no CarPlay source”).
-- Ulubione iPhone też wysyła (to samo żądanie co w aucie xPaiiN), ale na razie są ignorowane.
+- **Ulubione** od `1.0.2-rc1`, patrz sekcja wyżej. FaceTime i adresy e-mail nie trafiają na VC.
 
 ## Jak działa
 

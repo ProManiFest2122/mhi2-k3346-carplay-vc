@@ -62,6 +62,12 @@ void k2161_status_ident_success(void *ctx)
     if (log_ready()) stock_ipod_log(stock_logger, 0, "K2161_RGI ident_001e=ok\n");
 }
 
+void k2161_status_ident_maps_profile(void *ctx, int rc)
+{
+    k2161_status_note_context(ctx);
+    if (log_ready()) stock_ipod_log(stock_logger, 0, "K3346_MAPS30 ppid_rc=%d\n", rc);
+}
+
 void k2161_status_send_hooks_ready(int msg_ready, int close_ready)
 {
     if (msg_ready) k2161_status_iap2_msg_hook_installed = 1;

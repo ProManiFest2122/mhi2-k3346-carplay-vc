@@ -5,6 +5,7 @@
  */
 
 #include "rgd_hook.h"
+#include "rgd_list_restore.h"
 #include "diagnostics.h"
 #ifdef K3346_OVERLAY_FEED
 #include "overlay_feed.h"
@@ -163,6 +164,9 @@ static void write_lane_data_keys(bus_text_builder_t* b, unsigned slot, const rgd
 static void write_lane_clear_keys(bus_text_builder_t* b, unsigned slot);
 static void rgd_lazy_init(void);
 
+/* Written with g_rgd_debounce_lock held: the 1 Hz tick clears it as well. */
+static rgd_saved_list_t g_saved_list;
+
 static void rgd_update_cache_reset(void) {
     memset(&g_rgd.update_cache, 0, sizeof(g_rgd.update_cache));
 }
@@ -250,6 +254,38 @@ static void rgd_update_cache_merge(const rgd_update_t* upd) {
 	        g_rgd.lane_cache[i].present = 0;
 		    }
 		}
+
+static bool rgd_maneuver_cached(uint16_t iap_idx) {
+    for (int s = 0; s < MANEUVER_CACHE_SIZE; s++) {
+        if (g_rgd.slot_to_iap_idx[s] == iap_idx && g_rgd.slot_cache[s].present != 0)
+            return true;
+    }
+    return false;
+}
+
+/* See rgd_list_restore.h.  Called with the update about to be published. */
+static void rgd_restore_saved_list(rgd_update_t* upd) {
+    const rgd_update_t* c = &g_rgd.update_cache;
+    uint16_t count = 0;
+    unsigned restored;
+
+    if (upd->present & RGD_UPD_MANEUVER_COUNT) count = upd->maneuver_count;
+    else if (c->present & RGD_UPD_MANEUVER_COUNT) count = c->maneuver_count;
+
+    pthread_mutex_lock(&g_rgd_debounce_lock);
+    restored = rgd_saved_list_take(&g_saved_list,
+                                   (upd->present & RGD_UPD_MANEUVER_LIST) != 0,
+                                   g_rgd.emitted_route_state > 0,
+                                   count,
+                                   g_saved_list.valid && rgd_maneuver_cached(g_saved_list.list[0]),
+                                   upd->maneuver_list);
+    pthread_mutex_unlock(&g_rgd_debounce_lock);
+    if (restored == 0) return;
+    upd->maneuver_list_count = (uint16_t)restored;
+    upd->present |= RGD_UPD_MANEUVER_LIST;
+    rgi_diag_log("LIST", "K3346_LIST_RESTORED n=%u first=%u count=%u",
+                 restored, (unsigned)upd->maneuver_list[0], (unsigned)count);
+}
 
 static const uint64_t RGD_UPD_WRITE_MASK = RGD_UPD_ROUTE_STATE |
                                             RGD_UPD_MANEUVER_STATE |
@@ -1254,6 +1290,7 @@ void rgd_clear_state(const char* reason) {
     g_rgd.state_zero_deadline_ms = 0;
     g_rgd.state_zero_from_reroute = false;
     g_rgd.emitted_route_state = 0;
+    rgd_saved_list_clear(&g_saved_list);
 #ifdef K3346_OVERLAY_FEED
     g_overlay_clear_pending = 0;     /* already cleared above, right now */
 #endif
@@ -1455,6 +1492,12 @@ static bool rgd_message_handler(hook_context_t* ctx, const iap2_frame_t* frame) 
                        && upd.source_supports_route_guidance == 0;
         bool active_evidence = rgd_update_has_active_evidence(&upd);
 
+        if (hard_clear) {
+            pthread_mutex_lock(&g_rgd_debounce_lock);
+            rgd_saved_list_clear(&g_saved_list);
+            pthread_mutex_unlock(&g_rgd_debounce_lock);
+        }
+
         if (upd.present & RGD_UPD_ROUTE_STATE) {
             pthread_mutex_lock(&g_rgd_debounce_lock);
             uint8_t prev_state = g_rgd.last_route_state;
@@ -1478,6 +1521,12 @@ static bool rgd_message_handler(hook_context_t* ctx, const iap2_frame_t* frame) 
                     bool from_reroute = (prev_state == RGD_STATE_REROUTING)
                                      || (g_rgd.emitted_route_state == RGD_STATE_REROUTING);
 
+                    if ((g_rgd.update_cache.present & RGD_UPD_MANEUVER_LIST) &&
+                        (g_rgd.update_cache.present & RGD_UPD_MANEUVER_COUNT)) {
+                        rgd_saved_list_keep(&g_saved_list, g_rgd.update_cache.maneuver_list,
+                                            g_rgd.update_cache.maneuver_list_count,
+                                            g_rgd.update_cache.maneuver_count);
+                    }
                     rgd_update_cache_reset();
                     if (prev_state > 0) {
                         LOG_INFO(LOG_MODULE,
@@ -1516,8 +1565,10 @@ static bool rgd_message_handler(hook_context_t* ctx, const iap2_frame_t* frame) 
             }
             pthread_mutex_unlock(&g_rgd_debounce_lock);
         }
-        if (!suppress_update)
+        if (!suppress_update) {
+            rgd_restore_saved_list(&upd);
             write_bus_update_partial(&upd);
+        }
     }
     else if (frame->msgid == IAP2_MSG_ROUTE_GUIDANCE_MANEUVER) {
         rgd_mark_first_response(frame->msgid);
@@ -1782,6 +1833,7 @@ void rgd_periodic_tick(void) {
     g_rgd.state_zero_started_ms = 0;
     g_rgd.state_zero_deadline_ms = 0;
     g_rgd.state_zero_from_reroute = false;
+    rgd_saved_list_clear(&g_saved_list);
     pthread_mutex_unlock(&g_rgd_debounce_lock);
 
     LOG_INFO(LOG_MODULE, "Route reset timeout: emitting deferred state=0 to Java (elapsed=%llums)",

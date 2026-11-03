@@ -49,6 +49,8 @@
 #include "render.h"          /* render_set_visible_area(), Luka's public API */
 #include "overlay_blit.h"
 #include "overlay_fbo.h"
+#include "capsule_text.h"
+#include "call_card.h"
 
 static EGLDisplay g_dpy     = EGL_NO_DISPLAY;
 static EGLSurface g_surface = EGL_NO_SURFACE;
@@ -76,6 +78,7 @@ static int  g_layout_slot = OVERLAY_LAYOUT_UNKNOWN;
 static long g_layout_check_ms;
 static overlay_layout_reader_t g_layout_reader;
 static int  g_layout_reader_ready;
+static int  g_layout_saved = OVERLAY_LAYOUT_UNKNOWN;
 /* visible_top currently handed to the renderer; -1 = never set. */
 static int  g_visible_top_applied = -1;
 
@@ -217,6 +220,81 @@ static int make_blit_program(void)
 
 
 /* ---------------------------------------------------------------------------
+ * Text on the VC bar with small clocks.  What and why: capsule_text.h.
+ *
+ * The strip is rasterised only when its text changes, about once a minute, so
+ * the frames in between cost one textured quad.  It does not depend on the
+ * tile: a route can have text and no maneuver on screen.
+ */
+#define CAPSULE_POLL_MS 250
+
+static capsule_font_t  g_capsule_font;
+static capsule_lines_t g_capsule_lines;
+static int  g_capsule_font_ok;
+static int  g_capsule_draw;        /* font loaded and our layer is on the VC */
+static int  g_capsule_w;
+static unsigned char *g_capsule_alpha, *g_capsule_rgba;
+static GLuint g_capsule_tex;
+static int  g_capsule_upload;      /* rgba changed since the last glTexImage2D */
+static long g_capsule_check_ms;
+static int  g_capsule_pub_slot = -2, g_capsule_pub_draw = -1;  /* -2 = nothing yet */
+static int  g_capsule_pub_warned;
+
+/* The call card on the map.  What and why: call_card.h. */
+static capsule_font_t g_card_name_font, g_card_status_font;
+static call_card_t g_card;
+static int  g_card_ok;
+static unsigned char *g_card_rgba, *g_card_scratch;
+static GLuint g_card_tex;
+static int  g_card_upload;
+static long g_card_check_ms;
+static long g_card_timer_start_ms;   /* when this call became active, 0 = not yet */
+static long g_card_shown_seconds = -1;
+
+static void capsule_init(void)
+{
+    g_capsule_w = g_cfg.capsule_right_x - g_cfg.capsule_left_x;
+    if (!g_cfg.capsule_text) {
+        fprintf(stderr, "platform_harman: capsule text off in the conf\n");
+        return;
+    }
+    g_capsule_alpha = (unsigned char *)malloc((size_t)g_capsule_w * (size_t)g_cfg.capsule_h);
+    g_capsule_rgba  = (unsigned char *)malloc((size_t)g_capsule_w * (size_t)g_cfg.capsule_h * 4u);
+    if (!g_capsule_alpha || !g_capsule_rgba
+        || capsule_font_load(&g_capsule_font, g_cfg.capsule_font, g_cfg.capsule_font_px) != 0) {
+        fprintf(stderr, "platform_harman: capsule font NOT loaded (%s) - the text"
+                " stays in the VC field\n", g_cfg.capsule_font);
+        return;
+    }
+    g_capsule_font_ok = 1;
+    fprintf(stderr, "platform_harman: capsule strip x=%d..%d y=%d h=%d font %dpx %s\n",
+            g_cfg.capsule_left_x, g_cfg.capsule_right_x, g_cfg.capsule_y,
+            g_cfg.capsule_h, g_cfg.capsule_font_px, g_cfg.capsule_font);
+}
+
+static void call_card_init(void)
+{
+    size_t n = (size_t)g_cfg.call_card_w * (size_t)g_cfg.call_card_h;
+
+    if (!g_cfg.call_card) {
+        fprintf(stderr, "platform_harman: call card off in the conf\n");
+        return;
+    }
+    g_card_rgba = (unsigned char *)malloc(n * 4u);
+    g_card_scratch = (unsigned char *)malloc(n);
+    if (!g_card_rgba || !g_card_scratch
+        || capsule_font_load(&g_card_name_font, g_cfg.call_card_font_bold, g_cfg.call_card_name_px) != 0
+        || capsule_font_load(&g_card_status_font, g_cfg.call_card_font, g_cfg.call_card_status_px) != 0) {
+        fprintf(stderr, "platform_harman: call card font NOT loaded - no card\n");
+        return;
+    }
+    g_card_ok = 1;
+    fprintf(stderr, "platform_harman: call card %dx%d small (%d,%d) big (%d,%d) ringing=%d\n",
+            g_cfg.call_card_w, g_cfg.call_card_h, g_cfg.call_card_x_small, g_cfg.call_card_y_small,
+            g_cfg.call_card_x_big, g_cfg.call_card_y_big, g_cfg.call_card_ringing);
+}
+
+/* ---------------------------------------------------------------------------
  * Which texture format this unit keeps alpha in.
  *
  * GLES2 guarantees alpha only for GL_RGBA4 and GL_RGB5_A1; GL_RGBA8 as an FBO
@@ -246,6 +324,8 @@ static int g_panel_fmt = -1;      /* index into k_panel_fmts, -1 = none */
 static int g_panel_alpha_ok;      /* 0 = never put this panel on the cluster */
 static int g_no_alpha_warned;     /* say it once, not thirty times a second */
 static int g_tile_degenerate;     /* set by the readback probe, see overlay_fbo.h */
+static int g_tile_off;            /* the MMI option, see capsule_poll() */
+#define K3346_ARROWS_MODE_PATH "/tmp/k3346-arrows-mode"
 
 /* Solid white, nothing else: the only thing the alpha test draws. */
 static GLuint g_white_prog;
@@ -469,7 +549,7 @@ static int make_panel_target(void)
     return 0;
 }
 
-static void composite_panel(void)
+static void composite_tile(void)
 {
     int px = g_cfg.x, py = g_cfg.y;
     float pos[8], uv[8];
@@ -500,7 +580,7 @@ static void composite_panel(void)
      * rectangle of its contents over the map - which is what the car showed on
      * 2026-10-27, with and without a route.  An empty cluster panel is the
      * stock behaviour anyway: no maneuver, no box. */
-    if (!g_content_present) {
+    if (!g_content_present || g_tile_off) {
         glBindFramebuffer(GL_FRAMEBUFFER, g_panel_fbo);
         return;
     }
@@ -585,6 +665,92 @@ static void composite_panel(void)
     /* Hand the panel FBO back: it is what Luka's renderer believes is the
      * screen.  It rebinds it itself every frame, this is belt and braces. */
     glBindFramebuffer(GL_FRAMEBUFFER, g_panel_fbo);
+}
+
+/* One strip over the canvas composite_tile() has just cleared.  Blending ON, unlike
+ * the tile: a strip is mostly empty and must not wipe what is under it. */
+static void composite_strip(GLuint *tex, int *upload, const unsigned char *rgba,
+                            int x, int y, int w, int h)
+{
+    float pos[8], uv[8];
+    GLint i;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, g_cfg.canvas_width, g_cfg.canvas_height);
+    glActiveTexture(GL_TEXTURE0);
+    if (!*tex) {
+        glGenTextures(1, tex);
+        glBindTexture(GL_TEXTURE_2D, *tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        /* NPOT: anything but CLAMP_TO_EDGE samples as opaque black (docs/18). */
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        *upload = 1;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, *tex);
+    }
+    if (*upload) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        *upload = 0;
+    }
+
+    capsule_quad(g_cfg.canvas_width, g_cfg.canvas_height, x, y, w, h, pos, uv);
+    glUseProgram(g_blit_prog);
+    /* Same reason as in composite_tile: Luka's frame leaves his arrays on. */
+    for (i = 0; i < g_max_vattribs; i++)
+        glDisableVertexAttribArray((GLuint)i);
+    if (g_blit_uni_tex >= 0) glUniform1i(g_blit_uni_tex, 0);
+    glVertexAttribPointer((GLuint)g_blit_attr_pos, 2, GL_FLOAT, GL_FALSE, 0, pos);
+    glVertexAttribPointer((GLuint)g_blit_attr_uv,  2, GL_FLOAT, GL_FALSE, 0, uv);
+    glEnableVertexAttribArray((GLuint)g_blit_attr_pos);
+    glEnableVertexAttribArray((GLuint)g_blit_attr_uv);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    /* Back to what composite_tile() leaves for the renderer. */
+    glDisable(GL_BLEND);
+    glDisableVertexAttribArray((GLuint)g_blit_attr_pos);
+    glDisableVertexAttribArray((GLuint)g_blit_attr_uv);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_panel_fbo);
+}
+
+static int strip_can_draw(void)
+{
+    /* composite_tile() returned before glClear in exactly this case. */
+    return g_panel_tex && g_blit_prog && g_surface != EGL_NO_SURFACE && !g_view_hold;
+}
+
+static void composite_capsule(void)
+{
+    if (!g_capsule_draw || g_layout_slot != 0 || !strip_can_draw()) return;
+    if (!g_capsule_lines.left[0] && !g_capsule_lines.right[0]) return;
+    composite_strip(&g_capsule_tex, &g_capsule_upload, g_capsule_rgba, g_cfg.capsule_left_x,
+                    g_cfg.capsule_y, g_capsule_w, g_cfg.capsule_h);
+}
+
+static int call_card_visible(void)
+{
+    if (!g_card_ok || !g_card.state) return 0;
+    return g_card.state != 'R' || g_cfg.call_card_ringing;
+}
+
+static void composite_call_card(void)
+{
+    int small = g_layout_slot == 0;
+
+    if (!call_card_visible() || !strip_can_draw()) return;
+    composite_strip(&g_card_tex, &g_card_upload, g_card_rgba,
+                    small ? g_cfg.call_card_x_small : g_cfg.call_card_x_big,
+                    small ? g_cfg.call_card_y_small : g_cfg.call_card_y_big,
+                    g_cfg.call_card_w, g_cfg.call_card_h);
+}
+
+static void composite_panel(void)
+{
+    composite_tile();
+    composite_capsule();
+    composite_call_card();
 }
 
 /* ---------------------------------------------------------------------------
@@ -787,7 +953,7 @@ static void probe_panel_tick(void)
     struct timespec now;
     long now_ms;
 
-    if (!g_content_present || !g_panel_fbo) return;
+    if (!g_content_present || g_tile_off || !g_panel_fbo) return;
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return;
     now_ms = now.tv_sec * 1000L + now.tv_nsec / 1000000L;
 
@@ -1033,6 +1199,8 @@ int platform_init(int width, int height)
     if (width  > 0 && g_cfg.width  <= 0) g_cfg.width  = width;
     if (height > 0 && g_cfg.height <= 0) g_cfg.height = height;
     clamped = overlay_cfg_sanitize(&g_cfg);
+    capsule_init();
+    call_card_init();
 
     if (!getenv("IPL_CONFIG_DIR"))
         putenv("IPL_CONFIG_DIR=/etc/eso/production");
@@ -1246,6 +1414,93 @@ static void represent_last_frame(void)
     }
 }
 
+/* Tells Java the layout, and takes its text.  Nothing here touches GL. */
+static void capsule_poll(long now_ms, int *repaint)
+{
+    capsule_lines_t next;
+    int draw;
+
+    if (g_capsule_check_ms != 0 && (now_ms - g_capsule_check_ms) < CAPSULE_POLL_MS) return;
+    g_capsule_check_ms = now_ms;
+
+    /* Same cadence as the bar text, nothing depends on it being faster. */
+    draw = overlay_option_off_read(K3346_ARROWS_MODE_PATH, g_tile_off);
+    if (draw != g_tile_off) {
+        g_tile_off = draw;
+        fprintf(stderr, "platform_harman: tile %s by the MMI option\n", draw ? "hidden" : "shown");
+        *repaint = 1;
+    }
+
+    /* The gate in mib2high-lvds-control.sh refused context 901: this window
+     * runs, but nobody sees it. */
+    draw = g_capsule_font_ok && access(CAPSULE_OFF_PATH, F_OK) != 0;
+    if (draw != g_capsule_draw) {
+        g_capsule_draw = draw;
+        *repaint = 1;
+    }
+
+    if (g_layout_slot == OVERLAY_LAYOUT_UNKNOWN) {
+        if (g_capsule_pub_slot != OVERLAY_LAYOUT_UNKNOWN) {
+            remove(CAPSULE_SLOT_PATH);
+            g_capsule_pub_slot = OVERLAY_LAYOUT_UNKNOWN;
+        }
+    } else if (g_layout_slot != g_capsule_pub_slot || draw != g_capsule_pub_draw) {
+        if (capsule_slot_write(CAPSULE_SLOT_PATH, g_layout_slot, draw) == 0) {
+            g_capsule_pub_slot = g_layout_slot;
+            g_capsule_pub_draw = draw;
+            fprintf(stderr, "platform_harman: capsule slot=%d draw=%d\n", g_layout_slot, draw);
+        } else if (!g_capsule_pub_warned) {
+            g_capsule_pub_warned = 1;
+            fprintf(stderr, "platform_harman: cannot write %s errno=%d\n",
+                    CAPSULE_SLOT_PATH, errno);
+        }
+    }
+
+    if (!draw || !capsule_read_file(CAPSULE_TEXT_PATH, &next)) return;
+    if (!strcmp(next.left, g_capsule_lines.left) && !strcmp(next.right, g_capsule_lines.right))
+        return;
+    g_capsule_lines = next;
+    capsule_render(&g_capsule_font, &g_capsule_lines, g_capsule_alpha,
+                   g_capsule_w, g_cfg.capsule_h);
+    capsule_alpha_to_rgba(g_capsule_alpha, g_capsule_rgba, g_capsule_w, g_cfg.capsule_h);
+    g_capsule_upload = 1;
+    if (g_layout_slot == 0) *repaint = 1;
+}
+
+/* Takes the card from Java and keeps its clock going.  Nothing here touches GL. */
+static void call_card_poll(long now_ms, int *repaint)
+{
+    call_card_t next;
+    long seconds;
+    int changed;
+
+    if (!g_card_ok) return;
+    if (g_card_check_ms != 0 && (now_ms - g_card_check_ms) < CAPSULE_POLL_MS) return;
+    g_card_check_ms = now_ms;
+
+    if (!call_card_read_file(CALL_CARD_PATH, &next)) next = g_card;
+    changed = next.state != g_card.state || strcmp(next.name, g_card.name)
+              || strcmp(next.label, g_card.label);
+
+    /* Hold and back keep counting: it is the same call. */
+    if (!next.state) g_card_timer_start_ms = 0;
+    else if (next.state == 'A' && g_card_timer_start_ms == 0) g_card_timer_start_ms = now_ms;
+    seconds = g_card_timer_start_ms ? (now_ms - g_card_timer_start_ms) / 1000L : 0;
+
+    if (changed && next.state != g_card.state)
+        fprintf(stderr, "platform_harman: call card state %c -> %c\n",
+                g_card.state ? g_card.state : '-', next.state ? next.state : '-');
+
+    if (changed || (call_card_timed(next.state) && seconds != g_card_shown_seconds)) {
+        g_card = next;
+        g_card_shown_seconds = seconds;
+        call_card_render(&g_card_name_font, &g_card_status_font, &g_card, seconds,
+                         g_card_scratch, g_card_rgba, g_cfg.call_card_w, g_cfg.call_card_h);
+        g_card_upload = 1;
+        *repaint = 1;
+    }
+}
+
 void platform_poll(void)
 {
     /* No event loop: the signal flag is the only input.  The one thing worth
@@ -1265,8 +1520,16 @@ void platform_poll(void)
     if (!g_layout_reader_ready) {
         overlay_layout_reader_init(&g_layout_reader, NULL, 0);
         g_layout_reader_ready = 1;
+        g_layout_saved = overlay_layout_saved_read(OVERLAY_LAYOUT_SAVED_PATH);
     }
     slot = overlay_layout_reader_poll(&g_layout_reader);
+    if (slot != OVERLAY_LAYOUT_UNKNOWN && slot != g_layout_saved) {
+        g_layout_saved = slot;
+        if (overlay_layout_saved_write(OVERLAY_LAYOUT_SAVED_PATH, slot) != 0)
+            fprintf(stderr, "platform_harman: cannot write %s errno=%d\n",
+                    OVERLAY_LAYOUT_SAVED_PATH, errno);
+    }
+    slot = overlay_layout_effective(slot, g_layout_saved);
     pending = g_layout_reader.view_pending;
 
     /* VIEW pressed: off the canvas until the cluster says where to go. */
@@ -1293,7 +1556,8 @@ void platform_poll(void)
              * when it places the tile on the canvas. */
             fprintf(stderr, "platform_harman: layout slot=%d (%s clocks, %s)"
                     " panel at (%d,%d)\n", slot, slot == 1 ? "big" : "small",
-                    overlay_layout_src_name(g_layout_reader.source), px, py);
+                    g_layout_reader.slot == OVERLAY_LAYOUT_UNKNOWN ? "saved"
+                        : overlay_layout_src_name(g_layout_reader.source), px, py);
         }
     }
 
@@ -1357,6 +1621,9 @@ void platform_poll(void)
                     g_cfg.crop_y + top, top);
     }
 
+    capsule_poll(now_ms, &repaint);
+    call_card_poll(now_ms, &repaint);
+
     /* Show the change now, not with whatever frame comes next. */
     if (repaint) represent_last_frame();
 }
@@ -1371,6 +1638,14 @@ void platform_shutdown(void)
     struct timespec release_wait;
 
     if (g_surf) kd_surface_hide(g_surf);
+    remove(CAPSULE_SLOT_PATH);
+    if (g_capsule_font_ok) capsule_font_free(&g_capsule_font);
+    g_capsule_font_ok = 0;
+    if (g_card_ok) {
+        capsule_font_free(&g_card_name_font);
+        capsule_font_free(&g_card_status_font);
+    }
+    g_card_ok = 0;
 
     if (g_dpy != EGL_NO_DISPLAY) {
         if (g_ctx != EGL_NO_CONTEXT) glFinish();

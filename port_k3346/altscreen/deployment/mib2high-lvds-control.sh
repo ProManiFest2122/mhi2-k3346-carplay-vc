@@ -14,6 +14,12 @@ RENDERER=/mnt/app/root/vc_render
 OVERLAY=/mnt/app/root/vc_overlay
 OVERLAY_CONF=/mnt/app/root/mib2high-overlay.conf
 OVERLAY_READY=/tmp/vc-overlay-ready
+# overlay/capsule_text.h: text for the VC bar, its layout report, and "our layer
+# is not on the VC" for the overlay.
+CAPSULE_FILES="/tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-call-card /tmp/k3346-no-rgi"
+# The MMI options, K3346EtaRow: "1" = off. Kept across sessions.
+MAP_MODE=/tmp/k3346-map-mode
+ARROWS_MODE=/tmp/k3346-arrows-mode
 DMDT=/eso/bin/apps/dmdt
 
 log() { echo "`date 2>/dev/null` [lvds-control] $*" >> "$LOG"; }
@@ -34,7 +40,7 @@ cleanup() {
     slay vc_overlay >/dev/null 2>&1 || true
     # The overlay clears this itself on a clean shutdown; do it here too in case
     # it was killed hard, so no stale report survives this session.
-    rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" 2>/dev/null || true
+    rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" $CAPSULE_FILES 2>/dev/null || true
     if [ ! -e "$ACTIVE" ] && [ -x "$DMDT" ]; then
         export LD_LIBRARY_PATH=/eso/lib
         IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 72 >> "$LOG" 2>&1 || true
@@ -97,18 +103,20 @@ fi
 NAV0=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`
 REACQ_DONE=0
 [ "$NAV0" -ge 2 ] && REACQ_DONE=1
-log "session active nav_ready_count=$NAV0 features=$FEATURES"
+log "session active nav_ready_count=$NAV0 profile_features=$FEATURES"
 
 # --- Etap 7: cluster overlay (maneuver arrow + lanes) -----------------------
 # Separate process, separate displayable, drawn OVER the CarPlay map.  vc_render
 # is untouched: if anything here fails we fall back to context 77 and the map
 # keeps working exactly as it does today.
 OVERLAY_CTX=77
+# Map off with the arrow on: our tile over the factory map, when the overlay is up.
+NOMAP_CTX=72
 if [ -x "$OVERLAY" ]; then
     if ! pidin 2>/dev/null | grep vc_overlay >/dev/null; then
         # Drop any report left behind by an overlay that was killed rather than
         # shut down, so the gate below can only ever trust a fresh one.
-        rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" 2>/dev/null || true
+        rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" $CAPSULE_FILES 2>/dev/null || true
         # Start it with /mnt/app/root as the working directory.  The renderer
         # looks for its destination-flag texture at "./flag_atlas.rgba" and
         # then at "/mnt/app/root/hooks/flag_atlas.rgba" (upstream/main.c:45-46);
@@ -188,10 +196,12 @@ if [ -x "$OVERLAY" ]; then
 
     if [ -z "$READY_ID" ]; then
         log "overlay did not report a window within ${WAIT}s; staying on 77"
+        : > /tmp/vc-capsule-off
     elif [ "$READY_ID" != "$OVL_ID" ]; then
         # A stale marker from an earlier run with a different number would make
         # us declare a context for a displayable nobody is drawing.
         log "overlay reported displayable $READY_ID but conf says $OVL_ID; staying on 77"
+        : > /tmp/vc-capsule-off
     else
         # Order matters: index 0 is the FRONT of the composite, so our overlay
         # goes before the map.  Displayable 20 (stock MMI route guidance) is
@@ -199,20 +209,46 @@ if [ -x "$OVERLAY" ]; then
         if IPL_CONFIG_DIR=/etc/eso/production "$DMDT" dc 901 "$OVL_ID" $OVL_BEHIND >> "$LOG" 2>&1; then
             OVERLAY_CTX=901
             log "overlay ready after ${WAIT}s; context=901 {$OVL_ID $OVL_BEHIND} declared"
+            # Same layers with the factory map (33) in place of the CarPlay map.
+            # Not the stock 74: its displayable 20 is the wrong arrow.
+            NOMAP_BEHIND=''
+            for LAYER in $OVL_BEHIND; do
+                [ "$LAYER" = 58 ] && LAYER=33
+                NOMAP_BEHIND="$NOMAP_BEHIND $LAYER"
+            done
+            if IPL_CONFIG_DIR=/etc/eso/production "$DMDT" dc 902 "$OVL_ID" $NOMAP_BEHIND >> "$LOG" 2>&1; then
+                NOMAP_CTX=902
+                log "context=902 {$OVL_ID$NOMAP_BEHIND} declared"
+            else
+                log "context 902 declaration failed; map off means 72"
+            fi
         else
             log "overlay context declaration failed; staying on 77"
+            : > /tmp/vc-capsule-off
         fi
     fi
 fi
 
 GATE_TICK=0
+LAST_CTX=''
 while [ -e "$ACTIVE" ]; do
     if [ "$GATE_CONTEXT_OK" -eq 1 ]; then
         echo $$ > "$HEARTBEAT" 2>/dev/null || true
     fi
-    if [ "$GATE_TICK" -eq 0 ]; then
-        IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 "$OVERLAY_CTX" >> "$LOG" 2>&1 || true
+    WANT_CTX="$OVERLAY_CTX"
+    if [ "`cat "$MAP_MODE" 2>/dev/null`" = "1" ]; then
+        WANT_CTX=72
+        [ "`cat "$ARROWS_MODE" 2>/dev/null`" = "1" ] || WANT_CTX="$NOMAP_CTX"
     fi
+    if [ "$WANT_CTX" != "$LAST_CTX" ]; then
+        GATE_TICK=0
+        log "cluster context=$WANT_CTX"
+    fi
+    # 72 is the factory's own view: once, and then the HMI may change it.
+    if [ "$GATE_TICK" -eq 0 ] && { [ "$WANT_CTX" != "72" ] || [ "$LAST_CTX" != "72" ]; }; then
+        IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 "$WANT_CTX" >> "$LOG" 2>&1 || true
+    fi
+    LAST_CTX="$WANT_CTX"
     GATE_TICK=$((GATE_TICK + 1))
     [ "$GATE_TICK" -ge 3 ] && GATE_TICK=0
 
@@ -230,7 +266,7 @@ done
 
 rm -f "$REACQUIRE" "$HEARTBEAT"
 slay vc_overlay >/dev/null 2>&1 || true
-rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" 2>/dev/null || true
+rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" $CAPSULE_FILES 2>/dev/null || true
 IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 72 >> "$LOG" 2>&1 || true
 log "session inactive context=72"
 exit 0

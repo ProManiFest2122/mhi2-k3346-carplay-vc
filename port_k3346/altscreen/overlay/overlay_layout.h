@@ -76,6 +76,59 @@
 #define OVERLAY_LAYOUT_SRC_ZOOM   2
 #define OVERLAY_LAYOUT_SRC_HMI    3
 
+/* The VC and the HMI state the layout once, and the capture ring starts anew with
+ * every session: after replugging the phone nobody says it again until VIEW (car
+ * run-55, the tile sat in the big-clocks place over small clocks).  So the last
+ * known slot is kept here.  /tmp goes away with an MMI restart, and the session
+ * script leaves this file alone.  A real report always wins over it. */
+#define OVERLAY_LAYOUT_SAVED_PATH "/tmp/vc-layout-last"
+
+static int overlay_layout_saved_read(const char *path)
+{
+    char buf[4];
+    size_t got;
+    FILE *f = fopen(path, "r");
+
+    if (!f) return OVERLAY_LAYOUT_UNKNOWN;
+    got = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    if (got != 2 || buf[1] != '\n' || (buf[0] != '0' && buf[0] != '1'))
+        return OVERLAY_LAYOUT_UNKNOWN;
+    return buf[0] - '0';
+}
+
+/* The on/off MMI options: "0\n" on, "1\n" off.  No file means on; a file caught
+ * half written keeps the previous value. */
+static int overlay_option_off_read(const char *path, int previous)
+{
+    char buf[4];
+    size_t got;
+    FILE *f = fopen(path, "r");
+
+    if (!f) return 0;
+    got = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    if (got != 2 || buf[1] != '\n' || (buf[0] != '0' && buf[0] != '1'))
+        return previous;
+    return buf[0] - '0';
+}
+
+static int overlay_layout_saved_write(const char *path, int slot)
+{
+    FILE *f = fopen(path, "w");
+    int rc;
+
+    if (!f) return -1;
+    rc = fprintf(f, "%d\n", slot);
+    if (fclose(f) != 0 || rc != 2) return -1;
+    return 0;
+}
+
+static int overlay_layout_effective(int reported, int saved)
+{
+    return reported != OVERLAY_LAYOUT_UNKNOWN ? reported : saved;
+}
+
 static const char *overlay_layout_src_name(int src)
 {
     return src == OVERLAY_LAYOUT_SRC_BAP54 ? "bap54" :

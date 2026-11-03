@@ -45,6 +45,11 @@ public class RouteGuidance implements CarplayBus.Listener {
 
     /* Parsed state (reused to avoid allocations) */
     private State state = new State();
+    /* The bus thread and the capsule watcher share state and the bridge.  Never
+     * taken on the dispatcher thread: the bridge waits for that thread under it. */
+    private final Object frameLock = new Object();
+    private volatile Thread capsuleWatcher;
+    private static final long CAPSULE_WATCH_MS = 500L;
 
     /* ============================================================
      * State Container
@@ -280,10 +285,12 @@ public class RouteGuidance implements CarplayBus.Listener {
         running = true;
         rgActive = false;
         hasRouteUpdate = false;
+        bap.setNavStatusHidden(true);
 
         CarplayBus bus = CarplayBus.getInstance();
         bus.on(CarplayBus.EVT_RGD_UPDATE, this);
         bus.start();   /* idempotent */
+        startCapsuleWatcher();
 
         Log.i(TAG, "Started (subscribed to EVT_RGD_UPDATE)");
     }
@@ -296,6 +303,7 @@ public class RouteGuidance implements CarplayBus.Listener {
         running = false;
         rgActive = false;
         hasRouteUpdate = false;
+        capsuleWatcher = null;
 
         CarplayBus.getInstance().off(CarplayBus.EVT_RGD_UPDATE);
         if (bap != null) {
@@ -308,6 +316,65 @@ public class RouteGuidance implements CarplayBus.Listener {
 
     public boolean isRunning() {
         return running;
+    }
+
+    private void startCapsuleWatcher() {
+        Thread watcher = new Thread(new Runnable() {
+            public void run() {
+                watchCapsuleLayout();
+            }
+        }, "K3346CapsuleWatch");
+        watcher.setDaemon(true);
+        capsuleWatcher = watcher;
+        watcher.start();
+    }
+
+    private void watchCapsuleLayout() {
+        Thread me = Thread.currentThread();
+        boolean warned = false;
+        BAPBridge bridge = bap;
+        if (bridge != null) {
+            bridge.syncEtaModeFromStorage();   /* storage may block: not on the start path */
+        }
+        while (capsuleWatcher == me) {
+            try {
+                Thread.sleep(CAPSULE_WATCH_MS);
+                synchronized (frameLock) {
+                    if (running && rgActive && bap != null) {
+                        if (bap.arrowModeChanged()) {
+                            restartGuidance();
+                        }
+                    }
+                    if (running && rgActive && bap != null) {
+                        bap.applyHudMode();
+                        bap.refreshBarIfChanged(state);
+                    }
+                }
+            } catch (InterruptedException e) {
+                return;
+            } catch (Throwable t) {
+                if (!warned) {
+                    warned = true;
+                    Log.w(TAG, "Capsule watcher: " + t);
+                }
+            }
+        }
+    }
+
+    /* The MMI option on a running route: the ordinary end and start of guidance,
+     * then everything again, since the VC forgot what it had. */
+    private void restartGuidance() {
+        Log.i(TAG, "Guidance restart: arrow option changed");
+        bap.onStop();
+        bap.onShutdown();
+        rgActive = bap.onStart();
+        if (!rgActive) {
+            Log.w(TAG, "Guidance restart: ownership gate not ready");
+            return;
+        }
+        state.dirtyMask = -1;
+        bap.update(state);
+        state.clearDirty();
     }
 
     /* Pure extraction of the existing wantActive decision for host verification. */
@@ -339,6 +406,12 @@ public class RouteGuidance implements CarplayBus.Listener {
      * ============================================================ */
 
     public void onFrame(int type, int flags, byte[] payload, int len) {
+        synchronized (frameLock) {
+            handleFrame(type, payload, len);
+        }
+    }
+
+    private void handleFrame(int type, byte[] payload, int len) {
         if (!running) return;
         if (type != CarplayBus.EVT_RGD_UPDATE) return;
         CarplayBus.Data d = CarplayBus.parseText(payload, len);
@@ -471,6 +544,7 @@ public class RouteGuidance implements CarplayBus.Listener {
             if (v != state.sourceSupportsRg) {
                 state.sourceSupportsRg = v;
                 state.markDirty(State.DIRTY_SOURCE_SUPPORTS_RG);
+                K3346CapsuleFile.writeFlag(K3346CapsuleFile.NO_RGI_PATH, v == 0);
                 /*
                  * The reference route-guidance processor uses the "source supports route guidance" signal to suppress
                  * route guidance updates. For the HUD bridge, treat support==0 as a hard clear

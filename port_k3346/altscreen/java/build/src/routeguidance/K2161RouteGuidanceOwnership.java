@@ -203,6 +203,40 @@ public final class K2161RouteGuidanceOwnership {
     }
 
     /*
+     * Hide altitude, map scale and compass on the VC NavStatus bar.
+     * Released by restoreBestEffort() on the way back to the raw service.
+     */
+    public synchronized boolean setNavStatusHidden(
+        boolean hidden
+    ) throws Exception {
+
+        if (!installed || gate == null || dispatcher == null) {
+            note(
+                "NAV_STATUS_NOT_READY requested=" +
+                (hidden ? "1" : "0")
+            );
+
+            return false;
+        }
+
+        final boolean requested = hidden;
+
+        final K2161GatedCombiService targetGate =
+            gate;
+
+        runOnDispatcherAndWait(
+            dispatcher,
+            new Runnable() {
+                public void run() {
+                    targetGate.setNavStatusHidden(requested);
+                }
+            }
+        );
+
+        return true;
+    }
+
+    /*
      * Bundle-stop safety.
      *
      * Reopen native RG first, then put the original raw
@@ -225,6 +259,7 @@ public final class K2161RouteGuidanceOwnership {
             if (gate != null) {
                 gate.setRouteGuidanceBlocked(false);
                 gate.setMapPresentationBlocked(false);
+                gate.setNavStatusHidden(false);
             }
 
             if (restoreCluster != null &&

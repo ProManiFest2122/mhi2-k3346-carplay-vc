@@ -22,6 +22,7 @@ void k2161_status_base_ready(void);
 void k2161_status_ident_hook_ready(void);
 void k2161_status_ident_attempt(void *ctx);
 void k2161_status_ident_success(void *ctx);
+void k2161_status_ident_maps_profile(void *ctx, int rc);
 void k2161_status_send_hooks_ready(int msg_ready, int close_ready);
 void k2161_status_cmd2700(void *ctx, int rcvid, int tracked);
 void k2161_status_ffff_success(void *ctx, int rcvid);

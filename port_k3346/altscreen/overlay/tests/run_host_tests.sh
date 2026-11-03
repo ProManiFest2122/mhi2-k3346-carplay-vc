@@ -92,6 +92,16 @@ gcc "${CFLAGS[@]}" -o "$OUT/overlay_fbo_test" "$D/overlay_fbo_test.c"
 run_test overlay_fbo "$OUT/overlay_fbo_test"
 
 echo
+echo "== capsule_text (text on the VC bar, the files Java and the overlay share)"
+gcc "${CFLAGS[@]}" -o "$OUT/capsule_text_test" "$D/capsule_text_test.c" -lm
+run_test capsule_text "$OUT/capsule_text_test"
+
+echo
+echo "== call_card (our call card on the map)"
+gcc "${CFLAGS[@]}" -o "$OUT/call_card_test" "$D/call_card_test.c" -lm
+run_test call_card "$OUT/call_card_test"
+
+echo
 # ENABLE_LOGGING=0 turns the LOG_* macros into no-ops so the test does not need
 # the hook's logging backend (which is QNX-flavoured) just to check bytes.
 echo
@@ -105,5 +115,9 @@ gcc "${CFLAGS[@]}" -DENABLE_LOGGING=0 \
     "$ALT/native/routeguidance/maneuver_map.c" \
     -lpthread
 run_test overlay_feed "$OUT/overlay_feed_test"
+
+gcc -std=gnu99 -O1 -g -Wall -Wextra -Wno-unused-function -o "$OUT/rgd_list_restore_test" \
+    "$ALT/native/tests/rgd_list_restore_test.c"
+run_test rgd_list_restore "$OUT/rgd_list_restore_test"
 
 echo "OVERLAY_HOST_TESTS=PASS"

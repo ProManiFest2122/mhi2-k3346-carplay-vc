@@ -425,8 +425,69 @@ static void t_unknown_hold(void)
               "no state pointer: no hold");
 }
 
+static void t_saved(void)
+{
+    char path[64];
+    FILE *f;
+
+    printf("saved layout\n");
+    snprintf(path, sizeof(path), "/tmp/ovl_saved_%ld", (long)getpid());
+    remove(path);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "no file: unknown");
+
+    check_int(overlay_layout_saved_write(path, 0), 0, "small written");
+    check_int(overlay_layout_saved_read(path), 0, "small read back");
+    check_int(overlay_layout_saved_write(path, 1), 0, "big written");
+    check_int(overlay_layout_saved_read(path), 1, "big read back");
+
+    f = fopen(path, "w"); fclose(f);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "empty: unknown");
+    f = fopen(path, "w"); fputs("1", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "no newline: unknown");
+    f = fopen(path, "w"); fputs("1x", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "other byte for the newline: unknown");
+    f = fopen(path, "w"); fputs("2\n", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "not a slot: unknown");
+    f = fopen(path, "w"); fputs("1\nx", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "trailing bytes: unknown");
+    remove(path);
+    check_int(overlay_layout_saved_write("/nonexistent-dir/x", 1), -1, "unwritable reported");
+
+    check_int(overlay_layout_effective(1, 0), 1, "a report wins over the saved slot");
+    check_int(overlay_layout_effective(0, 1), 0, "a report wins, other way round");
+    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, 0), 0, "no report: saved small");
+    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, 1), 1, "no report: saved big");
+    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, OVERLAY_LAYOUT_UNKNOWN),
+              OVERLAY_LAYOUT_UNKNOWN, "nothing known: unknown");
+}
+
+static void test_option_off(void)
+{
+    const char *path = "/tmp/overlay_option_off_test";
+    FILE *f;
+
+    remove(path);
+    check_int(overlay_option_off_read(path, 1), 0, "no file: on, whatever came before");
+    f = fopen(path, "w"); fputs("1\n", f); fclose(f);
+    check_int(overlay_option_off_read(path, 0), 1, "1: off");
+    f = fopen(path, "w"); fputs("0\n", f); fclose(f);
+    check_int(overlay_option_off_read(path, 1), 0, "0: on");
+    f = fopen(path, "w"); fputs("2\n", f); fclose(f);
+    check_int(overlay_option_off_read(path, 1), 1, "other value keeps off");
+    check_int(overlay_option_off_read(path, 0), 0, "other value keeps on");
+    f = fopen(path, "w"); fputs("1", f); fclose(f);
+    check_int(overlay_option_off_read(path, 0), 0, "half written keeps on");
+    f = fopen(path, "w"); fputs("1x", f); fclose(f);
+    check_int(overlay_option_off_read(path, 0), 0, "other byte for the newline keeps on");
+    f = fopen(path, "w"); fputs("1\n\n", f); fclose(f);
+    check_int(overlay_option_off_read(path, 0), 0, "too long keeps on");
+    remove(path);
+}
+
 int main(void)
 {
+    test_option_off();
+    t_saved();
     snprintf(g_fmt, sizeof(g_fmt), "/tmp/ovl_ring_%ld_%%02d.log", (long)getpid());
 
     t_parse_real_lines();

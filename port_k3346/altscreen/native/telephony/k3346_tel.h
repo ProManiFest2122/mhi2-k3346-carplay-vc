@@ -1,6 +1,6 @@
 /*
- * K3346 Etap 6: ostatnie polaczenia CarPlay (iAP2 0x4170/0x4171) i dzwonienie
- * z listy (0x415A) w mm-ipod. Formaty wiadomosci i parser wg luka-dev
+ * K3346 Etap 6: ostatnie polaczenia i ulubione CarPlay (iAP2 0x4170/0x4171) i
+ * dzwonienie z listy (0x415A) w mm-ipod. Formaty wiadomosci i parser wg luka-dev
  * hook/telephony/tel_hook.c (GPL-3.0; bajty 0x4170 = zweryfikowane w aucie
  * zadanie xPaiiN). Tylko w bibliotece mm-ipod (makro K3346_TEL_LISTS).
  */
@@ -23,6 +23,7 @@ typedef struct {
     uint16_t index;
     char number[K3346_TEL_TEXT_MAX];
     char name[K3346_TEL_TEXT_MAX];
+    uint8_t service;        /* 1 telefon, 2 FaceTime audio, 3 FaceTime wideo, 0 inne */
     uint8_t type;           /* 1 odebrane, 2 wybrane, 3 nieodebrane, 0 inne */
     uint64_t timestamp;     /* s od 1970 */
     uint8_t occurrences;
@@ -35,15 +36,21 @@ typedef struct {
     k3346_tel_entry e[K3346_TEL_LIST_MAX];
 } k3346_tel_list;
 
+typedef struct {
+    k3346_tel_list recents;     /* 0x4171 parametry 1 (wpis), 2 (count) */
+    k3346_tel_list favorites;   /* 0x4171 parametry 6 (wpis), 7 (count) */
+} k3346_tel_lists;
+
 /* Wysylka wiadomosci przez stock sterownik (send_hook.c); 0 = OK. */
 typedef int (*k3346_tel_send_fn)(void *ctx, uint16_t msgid, const uint8_t *payload, size_t len);
 
 /* ---- czyste funkcje (testy na PC) ---- */
 size_t k3346_tel_build_start_lists(uint8_t *out, size_t max);
 size_t k3346_tel_build_initiate_call(uint8_t *out, size_t max, const char *number);
-int k3346_tel_parse_list_update(const uint8_t *payload, size_t len, k3346_tel_list *recents_upd);
+int k3346_tel_parse_list_update(const uint8_t *payload, size_t len, k3346_tel_lists *upd);
 void k3346_tel_merge(k3346_tel_list *last, const k3346_tel_list *upd);
 size_t k3346_tel_format(const k3346_tel_list *l, char *out, size_t max);
+size_t k3346_tel_format_favorites(const k3346_tel_list *l, char *out, size_t max);
 int k3346_tel_parse_command(const char *text, char *number, size_t number_max);
 
 /* ---- sesja (hook) ---- */

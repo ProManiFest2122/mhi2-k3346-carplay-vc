@@ -18,6 +18,7 @@
 #include "altscreen.h"
 #include "gauge_bap54.h"
 #include "gauge_layout_urls.h"
+#include "eta_mode.h"
 #include "framework/logging.h"
 
 #define ALTSCREEN_SESSION_MODULE "AltScreenSession"
@@ -164,6 +165,10 @@ typedef struct {
     int route_active;
     int current_view;
     int pending_view;
+    int ui_eta_on_map;           /* what the last showUI of this session asked for */
+    int eta_force_show;
+    int ui_card;                 /* what the last showUI of this session used */
+    uint64_t layout_change_ms;   /* last showUI that changed the layout */
     int pending_view_from_gauge; /* 1=gauge update; v8S changes alignment only on slot transition */
     uint64_t view_due_ms;
     int control_inflight; /* Commands currently inside SendCommand, not async callbacks. */
@@ -1107,6 +1112,8 @@ fail:
     return NULL;
 }
 
+static int g_card_mode = K3346_CARD_FULL;   /* written by the view control worker */
+
 static cf_ref make_view_request(int view)
 {
     cf_ref request = NULL;
@@ -1541,6 +1548,9 @@ static void v8s_control_completion(os_status status, cf_ref response, void *opaq
         last_slot = state->last_ui_slot;
     }
     pthread_mutex_unlock(&g_lock);
+    if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SHOWUI_ACK view=%d status=%d valid=%d",
+                 ctx->view, (int)status, accepted);
     LOG_INFO(ALTSCREEN_SESSION_MODULE,
              "V8S_CONTROL_ACK receiver=%p token=%llu stage=%d view=%d "
              "status=%d valid=%d next=%d last_slot=%d",
@@ -1574,15 +1584,30 @@ static void v8s_control_dispatch_failed(void *receiver, uint64_t generation,
              (unsigned long long)token, stage, view, rc, accepted);
 }
 
+/* Written by the view control worker only, read with g_lock held. */
+static int g_eta_mode = K3346_ETA_CAPSULE;
+static int g_call_visible;
+static int g_card_stored = K3346_CARD_FULL;
+
+static int eta_on_map_locked(void)
+{
+    return k3346_eta_map_effective(g_eta_mode, g_call_visible, g_layout_slot);
+}
+
+static int eta_for_state_locked(const altscreen_state *state, uint64_t now)
+{
+    return k3346_eta_held(eta_on_map_locked(), state->ui_eta_on_map, state->layout_change_ms, now);
+}
+
 static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token,
-                             int stage, int view)
+                             int stage, int view, int eta_on_map, int card)
 {
     control_completion_context *ctx;
     cf_ref request = NULL;
     os_status rc = -1;
     const char *url = NULL;
     if (stage == ALTSCREEN_CONTROL_SHOW) {
-        url = altscreen_gauge_url_for_view(view);
+        url = altscreen_gauge_url_for_view(view, eta_on_map, card == K3346_CARD_NONE);
         request = make_event_request("showUI", url);
     } else if (stage == ALTSCREEN_CONTROL_VIEW) {
         request = make_view_request(view);
@@ -1600,6 +1625,9 @@ static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token
         /* On rc==0, the completion owns ctx, even when called synchronously. */
         if (rc == 0) ctx = NULL;
     }
+    if (stage == ALTSCREEN_CONTROL_SHOW)
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SHOWUI view=%d eta=%d rc=%d url=%s",
+                 view, eta_on_map, (int)rc, url);
     if (request != NULL) g_api.release(request);
     if (ctx != NULL) free(ctx);
     pthread_mutex_lock(&g_lock);
@@ -1624,7 +1652,7 @@ static void v8s_control_tick(void)
         uint64_t generation = 0, token = 0;
         altscreen_state *picked = NULL;
         int view = -1, stage = ALTSCREEN_CONTROL_IDLE;
-        int zoom = 0, i;
+        int zoom = 0, i, eta_on_map = 0, card = K3346_CARD_FULL;
         uint64_t now = now_ms();
         int active = access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0;
 
@@ -1658,8 +1686,13 @@ static void v8s_control_tick(void)
                 state->pending_view = -1;
                 state->pending_view_from_gauge = 0;
                 state->view_due_ms = 0;
-                state->control_stage = state->last_ui_slot != desired / 2
+                if (state->last_ui_slot >= 0 && state->last_ui_slot != desired / 2)
+                    state->layout_change_ms = now;
+                state->control_stage = (state->last_ui_slot != desired / 2 ||
+                                        state->ui_eta_on_map != eta_for_state_locked(state, now) ||
+                                        state->eta_force_show)
                     ? ALTSCREEN_CONTROL_SHOW : ALTSCREEN_CONTROL_VIEW;
+                state->eta_force_show = 0;
                 if (old_target != desired)
                     LOG_INFO(ALTSCREEN_SESSION_MODULE,
                              "V8S_CONTROL_LATEST receiver=%p old=%d latest=%d "
@@ -1678,6 +1711,12 @@ static void v8s_control_tick(void)
             generation = state->control_generation;
             view = state->control_target_view;
             stage = state->control_stage;
+            eta_on_map = eta_for_state_locked(state, now);
+            card = g_card_mode;
+            if (stage == ALTSCREEN_CONTROL_SHOW) {
+                state->ui_eta_on_map = eta_on_map;
+                state->ui_card = card;
+            }
             token = ++g_control_request_serial;
             state->control_token = token;
             state->control_awaiting_ack = 1;
@@ -1707,13 +1746,99 @@ static void v8s_control_tick(void)
             pthread_mutex_unlock(&g_lock);
         }
         if (receiver != NULL && stage != ALTSCREEN_CONTROL_IDLE)
-            v8s_control_send(receiver, generation, token, stage, view);
+            v8s_control_send(receiver, generation, token, stage, view, eta_on_map, card);
+}
+
+/* The option or a call changed what the map should show: the phone gets a new URL
+ * for the same view.  A VIEW press needs nothing from
+ * here: its own showUI already carries the value for the new layout, so only a
+ * session that really shows something else is queued. */
+static void eta_mode_poll(void)
+{
+    static int last_on_map = -1;
+    int mode = k3346_eta_mode_read(K3346_ETA_MODE_PATH, g_eta_mode);
+    int call = k3346_call_visible_read(K3346_CALL_CARD_PATH, g_call_visible);
+    int overlay_slot = k3346_layout_slot_read(K3346_LAYOUT_SLOT_PATH);
+    int card_stored = k3346_card_mode_read(K3346_CARD_MODE_PATH, g_card_stored);
+    int no_rgi = access(K3346_NO_RGI_PATH, F_OK) == 0;
+    int card = k3346_card_effective(card_stored, no_rgi);
+    int on_map, i, queued = 0, layout_taken = 0, card_queued = 0;
+    static int last_card = -1;
+    static int last_wait;
+    int waiting = 0;
+    uint64_t now = now_ms();
+
+    pthread_mutex_lock(&g_lock);
+    g_eta_mode = mode;
+    g_call_visible = call;
+    g_card_stored = card_stored;
+    g_card_mode = card;
+    /* Only until the VC speaks: its FctID 54 is the authority. */
+    if (!g_bap54_layout_known && overlay_slot >= 0 && overlay_slot != g_layout_slot) {
+        g_layout_slot = overlay_slot;
+        layout_taken = 1;
+    }
+    on_map = eta_on_map_locked();
+    for (i = 0; i < ALTSCREEN_MAX_STATES; ++i) {
+        altscreen_state *state = &g_states[i];
+        if (!state->active || !state->screen_started || state->stop_requested)
+            continue;
+        if (layout_taken) {
+            /* A showUI for the new layout carries the current ETA value as well. */
+            state->pending_view = route_view_for_state(state);
+            state->pending_view_from_gauge = 1;
+            state->view_due_ms = now;
+            ++queued;
+            continue;
+        }
+        if (state->pending_view >= 0 || state->control_stage != ALTSCREEN_CONTROL_IDLE)
+            continue;
+        /* This showUI carries the ETA value as well. */
+        if (state->last_ui_slot >= 0 && state->ui_card != card) {
+            state->eta_force_show = 1;
+            state->pending_view = route_view_for_state(state);
+            state->pending_view_from_gauge = 1;
+            state->view_due_ms = now;
+            ++card_queued;
+            continue;
+        }
+        if (eta_for_state_locked(state, now) != on_map)
+            waiting = 1;
+        if (state->ui_eta_on_map == eta_for_state_locked(state, now))
+            continue;
+        state->pending_view = route_view_for_state(state);
+        state->pending_view_from_gauge = 1;
+        state->view_due_ms = now;
+        ++queued;
+    }
+    pthread_mutex_unlock(&g_lock);
+    if (card != last_card) {
+        last_card = card;
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_CARD mode=%d stored=%d no_rgi=%d queued=%d",
+                 card, card_stored, no_rgi, card_queued);
+    }
+    if (waiting != last_wait) {
+        last_wait = waiting;
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_ETA_WAIT on=%d", waiting);
+    }
+    if (layout_taken)
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_LAYOUT_FROM_OVERLAY slot=%d queued=%d",
+                 overlay_slot, queued);
+    if (on_map != last_on_map) {
+        last_on_map = on_map;
+        LOG_WARN(ALTSCREEN_SESSION_MODULE,
+                 "K3346_ETA_MODE mode=%d call=%d on_map=%d queued=%d",
+                 mode, call, on_map, queued);
+    }
 }
 
 static void *view_control_worker(void *arg)
 {
+    unsigned ticks = 0;
     (void)arg;
     for (;;) {
+        if (ticks++ % 10 == 0)   /* every 500 ms, and before the first showUI */
+            eta_mode_poll();
         v8s_control_tick();
         usleep(50000);
     }

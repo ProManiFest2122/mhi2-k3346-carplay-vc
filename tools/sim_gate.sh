@@ -42,7 +42,8 @@ setup_fakes(){
         echo 'echo "dmdt $*" >> /tmp/sim_gate_dmdt.log'
         echo 'case "${1:-}" in'
         echo '  gd|gs) exit 0 ;;'
-        echo '  dc) if [ -f /tmp/sim_gate_dc_fails ]; then exit 1; fi; exit 0 ;;'
+        echo '  dc) if [ -f /tmp/sim_gate_dc_fails ]; then exit 1; fi'
+        echo '      if [ "$2" = 902 ] && [ -f /tmp/sim_gate_dc902_fails ]; then exit 1; fi; exit 0 ;;'
         echo '  *) exit 0 ;;'
         echo 'esac'
     } > /eso/bin/apps/dmdt
@@ -80,6 +81,15 @@ setup_fakes(){
         echo '  G=$((G+1))'
         echo '  echo "$G" > /tmp/sim_gate_gticks'
         echo '  if [ "$G" -ge `cat /tmp/sim_gate_late` ]; then echo "98 210 153" > /tmp/vc-overlay-ready; fi'
+        echo 'fi'
+        # Flaga dla nakladki znika z koncem sesji, wiec notujemy ja w trakcie.
+        echo 'if grep -q "overlay start" /tmp/mib2high-lvds-control.log 2>/dev/null && [ -f /tmp/vc-capsule-off ]; then : > /tmp/sim_gate_saw_off; fi'
+        echo 'if grep -q "overlay start" /tmp/mib2high-lvds-control.log 2>/dev/null && grep -q stary /tmp/vc-capsule-text 2>/dev/null; then : > /tmp/sim_gate_stale_seen; fi'
+        # Opcje MMI zmieniane w trakcie sesji: "tick plik wartosc" (pusta = usun).
+        echo 'if [ -f /tmp/sim_gate_plan ]; then'
+        echo '  while read T F V; do'
+        echo '    if [ "$N" = "$T" ]; then if [ -n "$V" ]; then echo "$V" > "$F"; else rm -f "$F"; fi; fi'
+        echo '  done < /tmp/sim_gate_plan'
         echo 'fi'
         echo '[ "$N" -ge 30 ] && rm -f /tmp/mib2high-lvds-active'
         echo 'exit 0'
@@ -136,6 +146,10 @@ install_overlay(){
 reset_state(){
     rm -f "$CTLLOG" "$DMLOG" /tmp/sim_gate_sleeps /tmp/sim_gate_dc_fails \
           /tmp/sim_gate_late /tmp/sim_gate_gticks \
+          /tmp/sim_gate_saw_off /tmp/sim_gate_stale_seen \
+          /tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-layout-last \
+          /tmp/k3346-no-rgi /tmp/k3346-map-mode /tmp/k3346-arrows-mode \
+          /tmp/sim_gate_plan /tmp/sim_gate_dc902_fails \
           /tmp/vc-overlay-ready /tmp/vc-overlay-ready.tmp \
           /tmp/mib2high-lvds-control.pid /tmp/k2161-altscreen-heartbeat \
           /tmp/mib2high-lvds-reacquire /mnt/app/root/vc_overlay
@@ -169,6 +183,129 @@ expect_77(){
     expect_restore "$1"
 }
 
+# Brama odmowila: nakladka zyje, ale jej warstwy nie ma na VC, wiec Java nie moze
+# liczyc na boki kapsuly (overlay/capsule_text.h).
+expect_capsule_off(){
+    if [ -f /tmp/sim_gate_saw_off ]
+    then ok "$1: nakladka wie, ze jej warstwy nie ma na VC"
+    else bad "$1: brak /tmp/vc-capsule-off przy odmowie"; fi
+    expect_capsule_clean "$1"
+}
+
+expect_capsule_on(){
+    if [ -f /tmp/sim_gate_saw_off ]
+    then bad "$1: /tmp/vc-capsule-off mimo kontekstu 901"
+    else ok "$1: bez /tmp/vc-capsule-off"; fi
+    expect_capsule_clean "$1"
+}
+
+expect_capsule_clean(){
+    if [ -e /tmp/vc-capsule-text ] || [ -e /tmp/vc-capsule-slot ] || [ -e /tmp/vc-capsule-off ]
+    then bad "$1: pliki kapsuly zostaly po sesji"
+    else ok "$1: po sesji nie ma plikow kapsuly"; fi
+}
+
+case_stale_capsule(){
+    echo "--- $SH: tekst kapsuly z poprzedniej sesji"
+    reset_state; install_overlay ok
+    printf 'stary\nstary\nEND\n' > /tmp/vc-capsule-text
+    echo '1 1' > /tmp/vc-capsule-slot
+    : > /tmp/vc-capsule-off
+    : > /tmp/k3346-no-rgi
+    # Ostatni uklad zegarow ma przezyc koniec sesji: po ponownym podlaczeniu
+    # kabla nikt go nie powtarza az do VIEW (run-55).
+    echo 1 > /tmp/vc-layout-last
+    run_ctl
+    if [ "`cat /tmp/vc-layout-last 2>/dev/null`" = "1" ]
+    then ok "zapisany uklad zegarow przezyl sesje"
+    else bad "zapisany uklad zegarow zniknal po sesji"; fi
+    if [ -e /tmp/k3346-no-rgi ]
+    then bad "flaga aplikacji bez wskazowek przezyla sesje"
+    else ok "flaga aplikacji bez wskazowek usunieta"; fi
+    if [ -f /tmp/sim_gate_stale_seen ]
+    then bad "stary tekst przezyl start nakladki"
+    else ok "stary tekst usuniety przed startem nakladki"; fi
+    expect_capsule_on "stara kapsula"
+}
+
+# Kolejne konteksty z logu, bez powtorzen i bez koncowego powrotu na 72.
+ctx_seq(){
+    awk '$1=="dmdt" && $2=="sc" && $3=="4" { if ($4!=p) { printf "%s ", $4; p=$4 } }' "$DMLOG" 2>/dev/null
+}
+ctx_count(){
+    awk -v c="$1" '$1=="dmdt" && $2=="sc" && $3=="4" && $4==c { n++ } END { print n+0 }' "$DMLOG" 2>/dev/null
+}
+expect_seq(){
+    if [ "`ctx_seq`" = "$2" ]; then ok "$1: konteksty $2"
+    else bad "$1: konteksty `ctx_seq`, oczekiwano $2"; fi
+}
+
+case_map_options(){
+    echo "--- $SH: opcje Mapa i Strzalka na VC"
+    reset_state; install_overlay ok
+    run_ctl
+    if grep -q 'dmdt dc 902 98 102 101 33' "$DMLOG" 2>/dev/null
+    then ok "kontekst 902 w kolejnosci {98,102,101,33}"
+    else bad "zla albo brakujaca deklaracja kontekstu 902"; fi
+    expect_seq "bez plikow opcji" "901 72 "
+    if [ "`ctx_count 901`" -ge 3 ]; then ok "901 dalej powtarzane co kilka sekund"
+    else bad "901 wyslane tylko `ctx_count 901` razy"; fi
+
+    reset_state; install_overlay ok
+    echo 0 > /tmp/k3346-map-mode; echo 0 > /tmp/k3346-arrows-mode
+    run_ctl
+    expect_seq "obie Wl" "901 72 "
+
+    reset_state; install_overlay ok
+    echo 0 > /tmp/k3346-map-mode; echo 1 > /tmp/k3346-arrows-mode
+    run_ctl
+    expect_seq "mapa Wl, strzalka Wyl" "901 72 "
+
+    reset_state; install_overlay ok
+    echo 1 > /tmp/k3346-map-mode
+    run_ctl
+    expect_seq "mapa Wyl, strzalka Wl" "902 72 "
+    if [ "`ctx_count 902`" -ge 3 ]; then ok "902 powtarzane jak 901"
+    else bad "902 wyslane tylko `ctx_count 902` razy"; fi
+    if [ "`cat /tmp/k3346-map-mode 2>/dev/null`" = "1" ]; then ok "wybor mapy przezyl koniec sesji"
+    else bad "wybor mapy zniknal z koncem sesji"; fi
+
+    reset_state; install_overlay ok
+    echo 1 > /tmp/k3346-map-mode; echo 1 > /tmp/k3346-arrows-mode
+    run_ctl
+    expect_seq "obie Wyl" "72 "
+    # Koniec sesji wysyla 72 dwa razy (petla i trap), wiec w sesji tylko raz.
+    if [ "`ctx_count 72`" = "3" ]; then ok "72 tylko raz w sesji"
+    else bad "72 wyslane `ctx_count 72` razy, oczekiwano 3"; fi
+
+    reset_state; install_overlay ok
+    { echo '10 /tmp/k3346-map-mode 1'; echo '15 /tmp/k3346-arrows-mode 1'
+      echo '20 /tmp/k3346-map-mode'; echo '25 /tmp/k3346-arrows-mode'; } > /tmp/sim_gate_plan
+    run_ctl
+    expect_seq "zmiany w trakcie sesji" "901 902 72 901 72 "
+
+    reset_state; install_overlay ok
+    : > /tmp/sim_gate_dc902_fails
+    echo 1 > /tmp/k3346-map-mode
+    run_ctl
+    expect_seq "902 odrzucony" "72 "
+
+    reset_state; install_overlay ok
+    : > /tmp/sim_gate_dc902_fails
+    run_ctl
+    expect_seq "902 odrzucony, mapa Wl" "901 72 "
+
+    reset_state; install_overlay none
+    echo 1 > /tmp/k3346-map-mode
+    run_ctl
+    expect_seq "nakladka bez meldunku, mapa Wyl" "72 "
+
+    reset_state
+    { echo '10 /tmp/k3346-map-mode 1'; echo '20 /tmp/k3346-map-mode'; } > /tmp/sim_gate_plan
+    run_ctl
+    expect_seq "bez nakladki, mapa w trakcie" "77 72 77 72 "
+}
+
 case_none_installed(){
     echo "--- $SH: nakladki nie ma w ogole"
     reset_state
@@ -187,6 +324,7 @@ case_no_report(){
     then ok "log mowi, ze meldunku nie bylo"
     else bad "brak komunikatu o braku meldunku"; fi
     expect_77 "brak meldunku"
+    expect_capsule_off "brak meldunku"
 }
 
 case_good_report(){
@@ -202,6 +340,7 @@ case_good_report(){
     if [ "`work_ctx`" = "901" ]; then ok "kombi pracowalo na 901"
     else bad "kombi pracowalo na `work_ctx`, oczekiwano 901"; fi
     expect_restore "meldunek dobry"
+    expect_capsule_on "meldunek dobry"
 }
 
 case_wrong_id(){
@@ -212,6 +351,7 @@ case_wrong_id(){
     then ok "log wskazuje rozjazd numerow"
     else bad "brak komunikatu o rozjezdzie numerow"; fi
     expect_77 "zly numer"
+    expect_capsule_off "zly numer"
 }
 
 case_junk_report(){
@@ -219,6 +359,7 @@ case_junk_report(){
     reset_state; install_overlay junk
     run_ctl
     expect_77 "smieci w meldunku"
+    expect_capsule_off "smieci w meldunku"
 }
 
 case_stale_report(){
@@ -231,6 +372,7 @@ case_stale_report(){
     then ok "nieswiezy meldunek usuniety przed startem nakladki"
     else bad "zaufal nieswiezemu meldunkowi"; fi
     expect_77 "nieswiezy meldunek"
+    expect_capsule_off "nieswiezy meldunek"
 }
 
 # Renderer, ktory melduje dopiero w 8. sekundzie.
@@ -259,6 +401,7 @@ case_late_report(){
     if [ "`work_ctx`" = "901" ]; then ok "kombi pracowalo na 901"
     else bad "kombi pracowalo na `work_ctx`, oczekiwano 901"; fi
     expect_restore "spozniony meldunek"
+    expect_capsule_on "spozniony meldunek"
 }
 
 case_dc_fails(){
@@ -272,6 +415,7 @@ case_dc_fails(){
     if [ "`work_ctx`" = "77" ]; then ok "kombi pracowalo na 77"
     else bad "kombi pracowalo na `work_ctx`, oczekiwano 77"; fi
     expect_restore "dc odmawia"
+    expect_capsule_off "dmdt dc odmawia"
 }
 
 case_cleanup(){
@@ -293,6 +437,8 @@ run_all(){
     case_stale_report
     case_late_report
     case_dc_fails
+    case_stale_capsule
+    case_map_options
     case_cleanup
 }
 

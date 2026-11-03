@@ -64,6 +64,8 @@ public class BAPBridge {
      *         non-navigation/COMPASS presentation.
      */
     private static boolean VC_RGI_ENABLED = !"off".equals(VC_POLICY);
+    private boolean arrowsOff;
+    private boolean hudSuppressed;
 
     /* Only the rgi policy selects and holds favoredViewMode=RGI. */
     private static final boolean VC_SET_FAVORED = "rgi".equals(VC_POLICY);
@@ -95,10 +97,22 @@ public class BAPBridge {
     private int lastFirstManeuverIdx = -1;
     private int lastFirstManeuverVer = -1;
     private String latchedTurnToText = "";
+    private String latchedTurnToName = "";
+    /* Time data arrives up to once a second; the bar text changes far less often. */
+    private String lastBarText = null;
+    private String lastBarRoad = null;
+    private String lastBarStreet = "";
+    private int capsuleSlot = K3346NavBarText.SLOT_NONE;
+    private boolean capsuleDraw = false;
+    private int etaMode = K3346CapsuleFile.ETA_CAPSULE;
+    private boolean callVisible = false;
+    private String lastCapsuleLeft = null;
+    private String lastCapsuleRight = null;
     private final Object distanceToManeuverLock = new Object();
     private boolean hasLastDistM = false;
     private int lastDistM = 0;
     private K2161RouteGuidanceOwnership ownership;
+    private boolean navStatusHiddenWanted = false;
 
     private ClusterService csRef;
 
@@ -465,7 +479,10 @@ public class BAPBridge {
          */
         /* v8j verified behavior: no VC map suppression here. */
 
-        if (setHudDisplayContent(true)) {
+        if (K3346CapsuleFile.readOff(K3346CapsuleFile.HUD_MODE_PATH, hudSuppressed)) {
+            Log.i(TAG,
+                "VC policy active: no VC guidance, HUD off");
+        } else if (setHudDisplayContent(true)) {
             Log.i(TAG,
                 "VC policy active: HUD_ONLY_DDP2");
         } else {
@@ -658,6 +675,7 @@ public class BAPBridge {
                 ownership = new K2161RouteGuidanceOwnership(appConnectorNavi);
                 if (ownership.install()) {
                     Log.i(TAG, "Exact K2161 route-guidance ownership gate installed open");
+                    if (navStatusHiddenWanted) applyNavStatusHidden();
                 } else {
                     ownership = null;
                     Log.w(TAG, "K2161 ownership gate not ready");
@@ -670,6 +688,28 @@ public class BAPBridge {
             Log.i(TAG, "ClusterAccess init OK");
         } catch (Exception e) {
             Log.w(TAG, "ClusterAccess setup failed (non-fatal): " + e.getMessage());
+        }
+    }
+
+    /**
+     * Hide altitude, map scale and compass on the VC bar for the CarPlay session.
+     * Remembered so a gate installed later (see initClusterAccess callers) applies it too;
+     * dispose() releases it through ownership.restoreBestEffort().
+     */
+    public synchronized void setNavStatusHidden(boolean hidden) {
+        navStatusHiddenWanted = hidden;
+        if (ownership == null) {
+            initClusterAccess(); /* installs and applies when Navigation is ready */
+            return;
+        }
+        applyNavStatusHidden();
+    }
+
+    private void applyNavStatusHidden() {
+        try {
+            if (ownership != null) ownership.setNavStatusHidden(navStatusHiddenWanted);
+        } catch (Throwable t) {
+            Log.w(TAG, "NavStatus hide failed (non-fatal): " + t);
         }
     }
 
@@ -749,6 +789,7 @@ public class BAPBridge {
         if (!initialized) return false;
 
         try {
+            loadArrowMode();
             inApproachZone = false;
             lastFirstManeuverIdx = -1;
             lastFirstManeuverVer = -1;
@@ -772,6 +813,13 @@ public class BAPBridge {
             if (ownership == null || !ownership.setCarPlayRouteActive(true)) {
                 Log.w(TAG, "Route ownership not ready; no CarPlay BAP emitted");
                 return false;
+            }
+
+            /* The VC shows CurrentPosition only while TurnTo is empty. */
+            try {
+                appConnectorNavi.updateTurnToInfo("", "");
+            } catch (Throwable t) {
+                Log.w(TAG, "BAP FctID 20 clear failed during start: " + t);
             }
 
             /*
@@ -806,6 +854,7 @@ public class BAPBridge {
 
             /* Keep HUD active and configure whether VC may consume the shared RGI presentation. */
             configureVcPresentation();
+            applyHudMode();
 
             /* Sync(0) FctIDs: descriptor, distance, exitView */
             sendNoSymbol();                                                         /* FctID 23 */
@@ -814,6 +863,9 @@ public class BAPBridge {
 
             /* Non-sync FctIDs */
             traceBap("updateCurrentPositionInfo", "\"\"");
+            lastBarText = null;
+            lastBarRoad = null;
+            writeCapsule("", "");
             try {
                 appConnectorNavi.updateCurrentPositionInfo("");                       /* FctID 19 */
             } catch (Throwable t) {
@@ -858,6 +910,8 @@ public class BAPBridge {
             lastFirstManeuverIdx = -1;
             lastFirstManeuverVer = -1;
             latchedTurnToText = "";
+            lastBarText = null;
+            lastBarRoad = null;
             Log.d(TAG, "Stopped (lightweight, BAP kept alive)");
         } catch (Exception e) {
             Log.e(TAG, "onStop error", e);
@@ -887,6 +941,9 @@ public class BAPBridge {
             traceBap("updateManeuverState", "0");
             appConnectorNavi.updateManeuverState(0);
             traceBap("updateCurrentPositionInfo", "\"\"");
+            lastBarText = null;
+            lastBarRoad = null;
+            writeCapsule("", "");
             try { appConnectorNavi.updateCurrentPositionInfo(""); } catch (Throwable t) {}
             sendDistanceToDestinationRaw(0, false);
             traceBap("updateTimeToDestination", "0,0,-1");
@@ -897,6 +954,10 @@ public class BAPBridge {
             if (!VC_RGI_ENABLED
                     && hudDisplayContentForced) {
                 setHudDisplayContent(false);
+            }
+            if (hudSuppressed) {
+                hudSuppressed = false;
+                setHudDisplayContent(true);
             }
 
             /* Restore the real DSI rgActive value captured when CarPlay took ownership. */
@@ -914,6 +975,151 @@ public class BAPBridge {
             Log.i(TAG, "Shutdown (full teardown)");
         } catch (Exception e) {
             Log.e(TAG, "onShutdown error", e);
+        }
+    }
+
+    private void publishBar(RouteGuidance.State s) {
+        /* "Map" in the MMI option: the phone shows the time, the bar keeps the street. */
+        boolean timeOk = K3346NavBarText.timesOnBar(etaMode, callVisible, capsuleSlot)
+            && !K3346NavBarText.timeBogus(s.timeRemainingSeconds, s.distDestM);
+        K3346NavBarText.Capsule capsule = K3346NavBarText.capsule(
+            capsuleSlot,
+            capsuleDraw,
+            timeOk ? arrivalTextForBar(s) : "",
+            timeOk ? K3346NavBarText.remaining(s.timeRemainingSeconds) : "",
+            K3346NavBarText.distance(s.distDestM, isMetricDistanceUnits()),
+            lastBarStreet,
+            lastBarRoad);
+        String barText = limitUtf8(capsule.field, 96);
+        if (!barText.equals(lastBarText)) {
+            traceBap("updateCurrentPositionInfo", "\"" + barText + "\"");
+            appConnectorNavi.updateCurrentPositionInfo(barText);
+            lastBarText = barText;
+        }
+        writeCapsule(capsule.left, capsule.right);
+    }
+
+    private void writeCapsule(String left, String right) {
+        if (left.equals(lastCapsuleLeft) && right.equals(lastCapsuleRight)) {
+            return;
+        }
+        if (K3346CapsuleFile.writeText(K3346CapsuleFile.TEXT_PATH, left, right)) {
+            lastCapsuleLeft = left;
+            lastCapsuleRight = right;
+            Log.d(TAG, "Capsule left=\"" + left + "\" right=\"" + right + "\"");
+        } else {
+            Log.w(TAG, "Capsule text not written");
+        }
+    }
+
+    /* true when the layout changed.  A file caught half written changes nothing. */
+    private boolean pollCapsuleSlot() {
+        int read = K3346CapsuleFile.readSlot(K3346CapsuleFile.SLOT_PATH);
+        if (read == K3346CapsuleFile.SLOT_NOT_READY) {
+            return false;
+        }
+        int slot = (read == K3346CapsuleFile.SLOT_MISSING) ? K3346NavBarText.SLOT_NONE : read % 2;
+        boolean draw = read >= 2;
+        if (slot == capsuleSlot && draw == capsuleDraw) {
+            return false;
+        }
+        capsuleSlot = slot;
+        capsuleDraw = draw;
+        Log.d(TAG, "Capsule slot=" + slot + " draw=" + draw);
+        return true;
+    }
+
+    private boolean pollEtaMode() {
+        int read = K3346CapsuleFile.readEtaMode(K3346CapsuleFile.ETA_MODE_PATH);
+        if (read == K3346CapsuleFile.SLOT_NOT_READY) {
+            return false;
+        }
+        int mode = (read == K3346CapsuleFile.SLOT_MISSING) ? K3346CapsuleFile.ETA_CAPSULE : read;
+        if (mode == etaMode) {
+            return false;
+        }
+        etaMode = mode;
+        Log.d(TAG, "ETA mode=" + mode);
+        return true;
+    }
+
+    private boolean pollCallCard() {
+        int read = K3346CapsuleFile.readCallCard(K3346CapsuleFile.CALL_CARD_PATH);
+        if (read == K3346CapsuleFile.SLOT_NOT_READY) {
+            return false;
+        }
+        boolean visible = read == K3346CapsuleFile.CALL_VISIBLE;
+        if (visible == callVisible) {
+            return false;
+        }
+        callVisible = visible;
+        Log.d(TAG, "Call card visible=" + visible);
+        return true;
+    }
+
+    /* VIEW, the MMI option or a call on a parked car: no route update is coming to
+     * carry the new text. */
+    void refreshBarIfChanged(RouteGuidance.State s) {
+        if (!initialized) {
+            return;
+        }
+        boolean layout = pollCapsuleSlot();
+        boolean mode = pollEtaMode();
+        boolean call = pollCallCard();
+        if ((layout || mode || call) && lastBarRoad != null) {
+            publishBar(s);
+        }
+    }
+
+    /* The HMI row mirrors its value when the Connectivity factory comes up, which
+     * can be later than this session.  Same storage key: overrides K3346EtaRow. */
+    void syncEtaModeFromStorage() {
+        syncModeFile(K3346CapsuleFile.ETA_MODE_PATH, 1000, K3346CapsuleFile.ETA_BOTH);
+        syncModeFile(K3346CapsuleFile.CARD_MODE_PATH, 1001, K3346CapsuleFile.CARD_NONE);
+        syncModeFile(K3346CapsuleFile.ARROWS_MODE_PATH, 1002, 1);
+        syncModeFile(K3346CapsuleFile.MAP_MODE_PATH, 1003, 1);
+        syncModeFile(K3346CapsuleFile.HUD_MODE_PATH, 1004, 1);
+    }
+
+    /* Tile and factory route guidance on the VC go together; the change is a stop
+     * and a start of guidance, which only RouteGuidance can do. */
+    boolean arrowModeChanged() {
+        return K3346CapsuleFile.readOff(K3346CapsuleFile.ARROWS_MODE_PATH, arrowsOff) != arrowsOff;
+    }
+
+    private void loadArrowMode() {
+        arrowsOff = K3346CapsuleFile.readOff(K3346CapsuleFile.ARROWS_MODE_PATH, arrowsOff);
+        VC_RGI_ENABLED = K3346CapsuleFile.vcRgiEnabled(VC_POLICY, arrowsOff);
+        Log.i(TAG, "Arrows off=" + arrowsOff + " vcRgi=" + VC_RGI_ENABLED);
+    }
+
+    /*
+     * Not verified: no car with a HUD here.  The maneuver data is shared with the
+     * VC, so this DDP2 request is the only lever.  It is taken back at the end of
+     * guidance, so the factory navigation gets its HUD again.
+     */
+    void applyHudMode() {
+        boolean off = K3346CapsuleFile.readOff(K3346CapsuleFile.HUD_MODE_PATH, hudSuppressed);
+        if (off == hudSuppressed) {
+            return;
+        }
+        hudSuppressed = off;
+        Log.i(TAG, "HUD off=" + off);
+        setHudDisplayContent(!off);
+    }
+
+    private void syncModeFile(String path, int key, int max) {
+        if (K3346CapsuleFile.exists(path)) {
+            return;
+        }
+        try {
+            int mode = Navigation.getInstance().getEnv().getFramework()
+                .getStorageMgr().getInt(1008, key, 0);
+            if (mode >= 0 && mode <= max) {
+                K3346CapsuleFile.writeEtaMode(path, mode);
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "Option " + key + " not in storage yet: " + t);
         }
     }
 
@@ -1082,12 +1288,16 @@ public class BAPBridge {
                 }
             }
 
-            /* 4. Street text (FctID 19 - CurrentPositionInfo) */
+            /* 4. Bar text (FctID 19 - CurrentPositionInfo): arrival, driving time, street */
             if ((dirty & (RouteGuidance.State.DIRTY_CURRENT_ROAD |
                           RouteGuidance.State.DIRTY_MANEUVER_TEXT |
                           RouteGuidance.State.DIRTY_MANEUVER_LIST |
-                          RouteGuidance.State.DIRTY_MANEUVER_ICON)) != 0) {
+                          RouteGuidance.State.DIRTY_MANEUVER_ICON |
+                          RouteGuidance.State.DIRTY_TIME_REMAINING |
+                          RouteGuidance.State.DIRTY_ETA |
+                          RouteGuidance.State.DIRTY_DIST_DEST)) != 0) {
                 String road;
+                String street;
                 boolean turnTextMode = inApproachZone && !explicitClear && !shouldClearManeuver;
                 if (turnTextMode) {
                     int idx = firstIdx;
@@ -1107,15 +1317,21 @@ public class BAPBridge {
                     if (candidate.length() > 0) {
                         String arrow = directionArrow(s, idx);
                         latchedTurnToText = arrow + " " + candidate;
+                        latchedTurnToName = candidate;
                     }
                     road = latchedTurnToText;
+                    street = (latchedTurnToText.length() > 0) ? latchedTurnToName : "";
                 } else {
                     latchedTurnToText = "";
                     road = (s.currentRoad != null) ? s.currentRoad : "";
+                    street = road;
                 }
-                road = limitUtf8(road, 96);
-                traceBap("updateCurrentPositionInfo", "\"" + road + "\"");
-                appConnectorNavi.updateCurrentPositionInfo(road);
+                lastBarRoad = road;
+                lastBarStreet = street;
+                pollCapsuleSlot();
+                pollEtaMode();
+                pollCallCard();
+                publishBar(s);
             }
 
             /*
@@ -1188,19 +1404,9 @@ public class BAPBridge {
             /* 8. Time to destination (FctID 22) - via AppConnectorNavi */
             if ((dirty & (RouteGuidance.State.DIRTY_TIME_REMAINING |
                           RouteGuidance.State.DIRTY_ETA)) != 0) {
-                long eta = s.etaSeconds;
                 int timeInfoType = 1;
                 int timeFormat = getHuNavigationTimeFormat();
-                long timeVal;
-
-                if (eta >= 0) {
-                    timeVal = eta;
-                } else if (s.timeRemainingSeconds >= 0) {
-                    long nowMs = getUtcMillis();
-                    timeVal = (nowMs / 1000L) + s.timeRemainingSeconds;
-                } else {
-                    timeVal = -1;
-                }
+                long timeVal = arrivalUtcSeconds(s);
 
                 /* JVM default TZ is UTC on MHI2. AppConnectorNavi uses
                  * GregorianCalendar(Date(epoch*1000)) which would show UTC.
@@ -1775,6 +1981,32 @@ public class BAPBridge {
      */
     private static long convertUtcToLocalMs(long utcMs) {
         return utcMs;
+    }
+
+    private static long arrivalUtcSeconds(RouteGuidance.State s) {
+        if (s.etaSeconds >= 0) {
+            return s.etaSeconds;
+        }
+        if (s.timeRemainingSeconds >= 0) {
+            return (getUtcMillis() / 1000L) + s.timeRemainingSeconds;
+        }
+        return -1;
+    }
+
+    /* Without the HU's own UTC offset the arrival is left out: never show UTC as local. */
+    private static String arrivalTextForBar(RouteGuidance.State s) {
+        long utcSeconds = arrivalUtcSeconds(s);
+        if (utcSeconds < 0) {
+            return "";
+        }
+        try {
+            long localMs = Navigation.getInstance().getEnv().getFramework()
+                .convertUTCTimeToLocalTime(utcSeconds * 1000L);
+            return K3346NavBarText.arrival(localMs, getHuNavigationTimeFormat());
+        } catch (Throwable t) {
+            Log.w(TAG, "Bar arrival time unavailable: " + t);
+            return "";
+        }
     }
 
     private static String hexBytes(byte[] b) {

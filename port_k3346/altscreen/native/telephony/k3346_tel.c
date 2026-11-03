@@ -1,16 +1,18 @@
 /*
- * K3346 Etap 6: ostatnie polaczenia CarPlay na VC - patrz k3346_tel.h.
+ * K3346 Etap 6: ostatnie polaczenia i ulubione CarPlay na VC - patrz k3346_tel.h.
  *
  * Builder 0x4170 i parser 0x4171 przeniesione z luka-dev
  * hook/telephony/tel_hook.c (GPL-3.0, Copyright (c) 2026 LuKa (@LuKa_dev)):
  * zadanie bajt w bajt jak zweryfikowane w aucie xPaiiN (recents max 25 ->
  * iOS i tak tnie do 12 w CarPlay, favorites max 0 = domyslny limit), parser
  * scala liste wysylana w kilku wiadomosciach (count ustala dlugosc, wpis
- * trafia wg indeksu). Ulubione przychodza, ale sa ignorowane.
+ * trafia wg indeksu).
  *
- * Wynik: plik tekstowy dla Javy (K3346GatedPhoneService), zapis przez .tmp +
- * rename. Polecenia z Javy: plik "dial <numer>", czytany i kasowany w watku
- * sterownika (k3346_tel_tick) -> 0x415A InitiateCall.
+ * Wynik: po jednym pliku tekstowym na liste dla Javy (K3346GatedPhoneService),
+ * zapis przez .tmp + rename. Osobne pliki, bo wspolny moglby przekroczyc
+ * FILE_MAX - format zwrocilby 0 i zniknelyby obie listy. Polecenia z Javy: plik
+ * "dial <numer>", czytany i kasowany w watku sterownika (k3346_tel_tick) ->
+ * 0x415A InitiateCall.
  */
 #include "k3346_tel.h"
 
@@ -25,6 +27,9 @@
 
 #ifndef K3346_TEL_RECENTS_PATH
 #define K3346_TEL_RECENTS_PATH "/tmp/k3346-tel-recents.txt"
+#endif
+#ifndef K3346_TEL_FAVORITES_PATH
+#define K3346_TEL_FAVORITES_PATH "/tmp/k3346-tel-favorites.txt"
 #endif
 #ifndef K3346_TEL_CMD_PATH
 #define K3346_TEL_CMD_PATH "/tmp/k3346-tel-cmd"
@@ -118,6 +123,7 @@ static void parse_entry(const uint8_t *p, size_t len, k3346_tel_entry *e)
             case 0: if (t.value_len == 2) e->index = (uint16_t)be_n(t.value, 2); break;
             case 1: copy_str(e->number, &t); break;
             case 2: copy_str(e->name, &t); break;
+            case 5: if (t.value_len == 1) e->service = t.value[0]; break;
             case 6: if (t.value_len == 1) e->type = t.value[0]; break;
             case 7: if (t.value_len == 8) e->timestamp = be_n(t.value, 8); break;
             case 9: if (t.value_len == 1) e->occurrences = t.value[0]; break;
@@ -127,18 +133,31 @@ static void parse_entry(const uint8_t *p, size_t len, k3346_tel_entry *e)
     }
 }
 
-int k3346_tel_parse_list_update(const uint8_t *payload, size_t len, k3346_tel_list *upd)
+static void add_entry(k3346_tel_list *l, const iap2_tlv_t *t)
+{
+    if (l->n < K3346_TEL_LIST_MAX) parse_entry(t->value, t->value_len, &l->e[l->n++]);
+}
+
+static void set_count(k3346_tel_list *l, const iap2_tlv_t *t)
+{
+    if (t->value_len != 2) return;
+    l->count_set = 1;
+    l->count = (uint16_t)be_n(t->value, 2);
+}
+
+int k3346_tel_parse_list_update(const uint8_t *payload, size_t len, k3346_tel_lists *upd)
 {
     iap2_tlv_t t;
     size_t off = 0;
     memset(upd, 0, sizeof(*upd));
     if (payload == NULL) return 0;
     while (off < len && iap2_parse_tlv(payload + off, len - off, &t)) {
-        if (t.id == 1) {
-            if (upd->n < K3346_TEL_LIST_MAX) parse_entry(t.value, t.value_len, &upd->e[upd->n++]);
-        } else if (t.id == 2 && t.value_len == 2) {
-            upd->count_set = 1;
-            upd->count = (uint16_t)be_n(t.value, 2);
+        switch (t.id) {
+            case 1: add_entry(&upd->recents, &t); break;
+            case 2: set_count(&upd->recents, &t); break;
+            case 6: add_entry(&upd->favorites, &t); break;
+            case 7: set_count(&upd->favorites, &t); break;
+            default: break;     /* 0/5 dostepnosc: wynika z count */
         }
         off += t.len;
     }
@@ -175,6 +194,24 @@ size_t k3346_tel_format(const k3346_tel_list *l, char *out, size_t max)
     return off;
 }
 
+/* "K3346_TEL_FAVORITES v1\nn=N\n" + linie "i\tservice\tnumer\tnazwa\n"; numer jak w
+ * kontakcie (np. z myslnikami), filtrowanie i normalizacja po stronie Javy */
+size_t k3346_tel_format_favorites(const k3346_tel_list *l, char *out, size_t max)
+{
+    size_t i, off;
+    int w = snprintf(out, max, "K3346_TEL_FAVORITES v1\nn=%u\n", (unsigned)l->n);
+    if (w < 0 || (size_t)w >= max) return 0;
+    off = (size_t)w;
+    for (i = 0; i < l->n; i++) {
+        const k3346_tel_entry *e = &l->e[i];
+        w = snprintf(out + off, max - off, "%u\t%u\t%s\t%s\n", (unsigned)i,
+                     (unsigned)e->service, e->number, e->name);
+        if (w < 0 || (size_t)w >= max - off) return 0;
+        off += (size_t)w;
+    }
+    return off;
+}
+
 /* "dial <numer>"; numer tylko z 0-9 + * # (max 32) */
 int k3346_tel_parse_command(const char *text, char *number, size_t number_max)
 {
@@ -193,46 +230,54 @@ int k3346_tel_parse_command(const char *text, char *number, size_t number_max)
 /* ---------------- sesja ---------------- */
 
 static pthread_mutex_t tel_lock = PTHREAD_MUTEX_INITIALIZER;
-static k3346_tel_list tel_recents;
+static k3346_tel_list tel_recents, tel_favorites;
+static k3346_tel_lists tel_upd;     /* ok. 6 KB: nie na stosie watku mm-ipod; pod tel_lock */
 static int tel_ready;
 static uint64_t tel_ready_ms, tel_last_attempt_ms;
 static int tel_attempts, tel_lists_ok;
 static unsigned int tel_updates, tel_partials;
 static uint64_t tel_rereq_ms;   /* 0 = brak zaplanowanej ponownej prosby */
 static int tel_rereqs;
-static char tel_last_text[FILE_MAX];
+static char tel_last_text[FILE_MAX], tel_last_fav_text[FILE_MAX];
+static char tel_text[FILE_MAX];     /* pod tel_lock */
 
-static void write_recents_locked(void)
+static void write_list_locked(const char *path, const char *what, unsigned n, size_t len, char *last_text)
 {
-    char text[FILE_MAX];
     char tmp[256];
-    size_t len = k3346_tel_format(&tel_recents, text, sizeof(text));
     int fd;
-    if (len == 0 || strcmp(text, tel_last_text) == 0) return;
-    snprintf(tmp, sizeof(tmp), "%s.tmp", K3346_TEL_RECENTS_PATH);
+    if (len == 0 || strcmp(tel_text, last_text) == 0) return;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return;
-    if (write(fd, text, len) != (ssize_t)len) {
+    if (write(fd, tel_text, len) != (ssize_t)len) {
         close(fd);
         unlink(tmp);
         return;
     }
     close(fd);
-    if (rename(tmp, K3346_TEL_RECENTS_PATH) == 0) {
-        memcpy(tel_last_text, text, len + 1);
-        rgi_diag_log("TEL", "recents_written n=%u", (unsigned)tel_recents.n);
+    if (rename(tmp, path) == 0) {
+        memcpy(last_text, tel_text, len + 1);
+        rgi_diag_log("TEL", "%s_written n=%u", what, n);
         return;
     }
     /* /tmp na MMX = /dev/shmem: rename nie dziala (test 2026-10-21) -> zapis wprost;
      * Java czyta plik co 300 ms i porownuje tresc, niepelny odczyt poprawi nastepny */
     unlink(tmp);
-    fd = open(K3346_TEL_RECENTS_PATH, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return;
-    if (write(fd, text, len) == (ssize_t)len) {
-        memcpy(tel_last_text, text, len + 1);
-        rgi_diag_log("TEL", "recents_written n=%u mode=direct", (unsigned)tel_recents.n);
+    if (write(fd, tel_text, len) == (ssize_t)len) {
+        memcpy(last_text, tel_text, len + 1);
+        rgi_diag_log("TEL", "%s_written n=%u mode=direct", what, n);
     }
     close(fd);
+}
+
+static void write_lists_locked(void)
+{
+    size_t len = k3346_tel_format(&tel_recents, tel_text, sizeof(tel_text));
+    write_list_locked(K3346_TEL_RECENTS_PATH, "recents", (unsigned)tel_recents.n, len, tel_last_text);
+    len = k3346_tel_format_favorites(&tel_favorites, tel_text, sizeof(tel_text));
+    write_list_locked(K3346_TEL_FAVORITES_PATH, "favorites", (unsigned)tel_favorites.n, len, tel_last_fav_text);
 }
 
 void k3346_tel_session_reset(void)
@@ -244,7 +289,8 @@ void k3346_tel_session_reset(void)
     tel_rereq_ms = 0;
     tel_rereqs = 0;
     memset(&tel_recents, 0, sizeof(tel_recents));
-    write_recents_locked();     /* pusta lista: bez starej z innego telefonu */
+    memset(&tel_favorites, 0, sizeof(tel_favorites));
+    write_lists_locked();       /* puste listy: bez starych z innego telefonu */
     pthread_mutex_unlock(&tel_lock);
 }
 
@@ -252,7 +298,6 @@ void k3346_tel_observe(const uint8_t *transport, size_t n, uint64_t now_ms)
 {
     const uint8_t *f;
     uint16_t flen, msgid;
-    k3346_tel_list upd;
 
     if (transport == NULL || n < LINK_HEADER_LEN + CONTROL_HEADER_LEN) return;
     f = transport + LINK_HEADER_LEN;
@@ -275,14 +320,18 @@ void k3346_tel_observe(const uint8_t *transport, size_t n, uint64_t now_ms)
             ++tel_partials;
             rgi_diag_log("TEL", "list_update_partial len=%u have=%u partials=%u",
                          (unsigned)flen, (unsigned)(n - LINK_HEADER_LEN), tel_partials);
-        } else if (k3346_tel_parse_list_update(f + CONTROL_HEADER_LEN, flen - CONTROL_HEADER_LEN, &upd)) {
-            k3346_tel_merge(&tel_recents, &upd);
+        } else if (k3346_tel_parse_list_update(f + CONTROL_HEADER_LEN, flen - CONTROL_HEADER_LEN, &tel_upd)) {
+            k3346_tel_merge(&tel_recents, &tel_upd.recents);
+            k3346_tel_merge(&tel_favorites, &tel_upd.favorites);
             ++tel_updates;
             if (!tel_lists_ok) rgi_diag_log("TEL", "first_list_update");
             tel_lists_ok = 1;
-            rgi_diag_log("TEL", "list_update #%u entries=%u count=%d n=%u", tel_updates,
-                         (unsigned)upd.n, upd.count_set ? (int)upd.count : -1, (unsigned)tel_recents.n);
-            write_recents_locked();
+            rgi_diag_log("TEL", "list_update #%u entries=%u count=%d n=%u fav_entries=%u fav_count=%d fav_n=%u",
+                         tel_updates, (unsigned)tel_upd.recents.n,
+                         tel_upd.recents.count_set ? (int)tel_upd.recents.count : -1, (unsigned)tel_recents.n,
+                         (unsigned)tel_upd.favorites.n,
+                         tel_upd.favorites.count_set ? (int)tel_upd.favorites.count : -1, (unsigned)tel_favorites.n);
+            write_lists_locked();
             if (tel_recents.n == 0 && tel_rereq_ms == 0 && tel_rereqs < REREQ_MAX) {
                 tel_rereq_ms = now_ms + (tel_rereqs == 0 ? REREQ_EMPTY_FIRST_MS : REREQ_EMPTY_NEXT_MS);
                 rgi_diag_log("TEL", "lists_empty rerequest_in_ms=%u",

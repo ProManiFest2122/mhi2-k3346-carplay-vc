@@ -6,6 +6,27 @@ trasą z wieloma pasami. Paczka: `work\sd_etap7\`.
 
 ---
 
+## Tekst na pasku VC (2026-11-02, `1.0.3-rc7`, wyłączony od `rc8`)
+
+**Wynik `run-53`:** położenie trafione, 0 błędów GL, VIEW działa, ale tekst pod tłem paska jest za ciemny. Od `rc8`
+`capsule_text 0`, kod zostaje. Z MMI tego nie poprawimy.
+
+Pasek `NavStatus` rysuje VC **nad** naszym obrazem. Jego pole tekstowe ma stałe ok. 359 px pośrodku (RE Luki,
+`VC_LAYOUT_AND_FONTS.md`, u nas niezmierzone), a elementy po bokach przyjmują tylko liczbę z jednostką. Żeby przy małych
+zegarach pokazać godzinę i czas po lewej, a dystans po prawej, rysuje je nakładka: mapa z telefonu pod spodem i tak
+prześwituje przez pasek (etykieta `<ulica>` na zdjęciach). Dlatego ten tekst będzie ciemniejszy niż tekst VC.
+
+- **Co rysuje:** `composite_capsule()` w `platform_harman.c`, po `composite_tile()`, niezależnie od kafla manewru.
+  Tylko slot 0, bez blokady VIEW. Tekstura zmienia się tylko po zmianie tekstu.
+- **Czcionka:** `/mnt/app/eso/browser/fonts/AudiTypeDisplay-Normal_14.ttf` z firmware MMI, przez `stb_truetype.h`.
+  Paczka jej nie zawiera.
+- **Pliki w `/tmp`:** bez `rename()` (`EXDEV`, patrz `overlay_ready.h`). Czytelnik może złapać plik między obcięciem
+  a zapisem, więc tekst kończy się znacznikiem `END`, a niepełny plik zostawia poprzedni tekst.
+- **Brama:** gdy `mib2high-lvds-control.sh` zostaje na kontekście 77, zakłada `/tmp/vc-capsule-off`. Nakładka melduje
+  wtedy `draw=0`, a Java przenosi czas i dystans do pola VC.
+- **Do poprawy na karcie, bez przebudowy:** `capsule_left_x`, `capsule_right_x`, `capsule_y`, `capsule_h`,
+  `capsule_font_px`, `capsule_text`.
+
 ## Wynik wizyty 9 (2026-10-28, `run-32`…`run-35`) — etap zamknięty
 
 Użytkownik: „Wszystko działa tak jak powinno". Logi:
@@ -359,7 +380,8 @@ nic nigdzie to martwa scena; pełny wycinek przy alfie 255 znaczy, że prostoką
 
 **`context_recipe` zostaje `102 101 58`.** Zdjęcie bez nawigacji pokazuje, że na tych podkładkach
 siedzi fabryczna chrome mapy („85m", „<ulica>", „200m", „offroad"), więc wpisanie samego `58`
-kosztowałoby te elementy. Zielona karta („towards <ulica>") jest **po angielsku przy polskim
+kosztowałoby te elementy. **Korekta 2026-11-02:** błędny wniosek ze zdjęcia. `1.0.3-rc3` usunął wysokość
+i skalę samym BAP, więc ten pasek rysuje VC, nie warstwy 101/102. Zielona karta („towards <ulica>") jest **po angielsku przy polskim
 UI auta** → rysuje ją iPhone w strumieniu CarPlay (58), nie kombi.
 
 ---
@@ -850,8 +872,13 @@ docker run --rm -v "$(pwd -W)/work:/work" -v "$(pwd -W)/tools:/tools" \
 
 ## Etap 7d – karta rozmowy (po Etapie 7c)
 
-Mechanizm gotowy, layout ustalony ze zdjęć użytkownika (2026-10-26), brakuje renderowania tekstu
-(w rendererze Luki nie ma żadnego fontu — trzeba dorobić atlas glyphów).
+**Zrobione w `1.0.3-rc10` (2026-11-02), w aucie nietestowane.** Tekst rysuje `stb_truetype` z `rc7`, więc atlas glyphów
+nie był potrzebny. Karta (`overlay/call_card.h`) leży w obrazie mapy nad paskiem VC, więc nie jest przyciemniona jak boczne
+teksty kapsuły. To sam obraz: rozmowę obsługuje słuchawka na kierownicy i karta Telefon. Licznik czasu liczy nakładka.
+Na dużych zegarach karta zajmuje miejsce ramki ETA, więc na czas rozmowy iPhone dostaje URL bez `showETA`, a czas idzie do
+kapsuły (`k3346_eta_map_effective`, `timesOnBar`). Położenie i `call_card_ringing` są w `mib2high-overlay.conf`.
+
+Ustalenia z 2026-10-26, nadal aktualne:
 
 Ze zdjęć wynikły trzy rzeczy, które przesądzają o projekcie karty:
 - panel manewru ma **dwa miejsca**: wewnątrz prawego zegara (duże zegary) i jako pływająca karta

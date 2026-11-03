@@ -28,14 +28,41 @@ wired CarPlay.
 | 🎙️ | **Siri** on a short press of the voice button |
 | 👆 | MMI **touchpad as arrow keys** in CarPlay |
 
-## What next?
+## Current status
+
+**The version to download is 1.0.1**, from [Releases](../../releases/latest). The code in this repository is
+newer: it is the test version `1.0.3-rc17`, not released yet and with no date set. It passed all tests in a
+parked car and is now being tested while driving. To use what is below before the release, you have to
+[build it yourself](BUILDING.md).
+
+### Coming in 1.0.3
 
 | | Feature |
 |---|---|
-| 🔧 | BugFixs |
+| 🕘 | **Favorites** next to recent calls (tested on iOS 27; FaceTime entries and e-mail addresses are not shown) |
+| 🏁 | **Arrival time, driving time and distance** on the cockpit bar, on the map, or both |
+| 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change) |
+| 🟩 | **Map without the green maneuver card**, on both gauge layouts. Going back takes effect after unplugging and replugging the cable |
+| ➡️ | **Switch off** the arrow, the CarPlay map on the cockpit (the factory view comes back) or the HUD arrows. Switching off the HUD is untested: no car with a HUD here |
+| 🔧 | Fixes: the arrival-time box appears without pressing VIEW, the arrow shows up after replugging the cable |
+
+All of these options are in one place: MMI menu → Settings (last item) → Connection manager → push the
+rotary knob to the right → bottom of the list.
+
+### Later
+
+| | Feature |
+|---|---|
+| 🔧 | Bug fixes |
+| ➡️ | Turn arrows on the HUD |
 | 🎧 | CarPlay 5-speaker system support (Thanks yety-ua for your research) |
-| ➡️ | Turn arrows on HUD  |
-| 📞 | Own call card drawn on the CarPlay map (the stock VC popup disappears after a tab change) |
+
+### Not supported yet
+
+- **S4 Sport gauge layout**, also when it is only coded and not selected: problems with the map and a
+  stuttering HUD. When you press VIEW, the CarPlay map disappears, the factory map appears, and after a
+  moment the CarPlay map comes back.
+- **Wireless CarLink adapters:** many errors and unstable behaviour. Use the cable.
 
 ## Will it work in my car?
 
@@ -44,7 +71,7 @@ You need **all** of these:
 - Audi with **MHI2 (Harman)** and **Virtual Cockpit** (not MHI2Q / not MIB2 Standard),
 - firmware **`MHI2_ER_AUG22_K3346`**, **MU 1438** — shown in the green engineering menu or in the
   M.I.B. version screen,
-- an **iPhone with CarPlay** (wired),
+- an **iPhone with CarPlay** (wired; see [Not supported yet](#not-supported-yet) for wireless adapters and the S4 Sport layout),
 - [**M.I.B. – More Incredible Bash**](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) on an SD
   card, already working in your car (green menu → *m.i.b.* opens).
 - the M.I.B. **NavIgnore** patch ("dual navigation": *m.i.b. → navigation → NavActiveIgnore → Enable dual
@@ -168,7 +195,7 @@ expected, what happened, how many minutes before collecting, and a photo of the 
   which gauge layout is on screen.
 - **Waze** does not send route guidance data to the car: its map works on the cluster, but there are no
   arrows. Google Maps and Apple Maps do send it.
-- **HUD:** one user saw the HUD arrow lag in the *sports* gauge layout; in *classic* it was in sync.
+- **HUD:** one user saw the HUD arrow lag in the *sports* gauge layout; in *classic* it was in sync. See [Not supported yet](#not-supported-yet).
 
 **Use at your own risk.** No warranty of any kind. External power, a fresh M.I.B. backup and the
 original firmware should be at hand.

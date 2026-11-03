@@ -27,14 +27,40 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 | 🎙️ | **Siri** krótkim wciśnięciem przycisku głosowego |
 | 👆 | **Touchpad MMI jako strzałki** w CarPlay |
 
-## Co dalej?
+## Stan prac
 
-| | Funkcje |
+**Wersja do pobrania to 1.0.1**, z [Releases](../../releases/latest). Kod w tym repozytorium jest nowszy: to
+wersja testowa `1.0.3-rc17`, jeszcze niewydana i bez ustalonej daty. Przeszła wszystkie testy w aucie na
+postoju, a teraz jest sprawdzana w czasie jazdy. Żeby skorzystać z poniższych funkcji przed wydaniem, trzeba
+[zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
+
+### W wersji 1.0.3
+
+| | Funkcja |
 |---|---|
-| 🔧 | BugFixs |
+| 🕘 | **Ulubione** obok ostatnich połączeń (sprawdzone na iOS 27; pozycje FaceTime i adresy e-mail się nie pokazują) |
+| 🏁 | **Godzina przyjazdu, czas jazdy i dystans** na pasku w zegarach, na mapie albo w obu miejscach |
+| 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki) |
+| 🟩 | **Mapa bez zielonej karty manewru**, na obu układach zegarów. Powrót działa po odłączeniu i podłączeniu kabla |
+| ➡️ | **Wyłączanie** strzałki, mapy CarPlay na zegarach (wraca widok fabryczny) albo strzałek na HUD. Wyłączenia HUD nie sprawdziliśmy, bo nie mamy auta z HUD |
+| 🔧 | Poprawki: ramka z czasem dojazdu pojawia się bez naciskania VIEW, strzałka wraca po ponownym podłączeniu kabla |
+
+Wszystkie te opcje są w jednym miejscu: menu MMI → Ustawienia (ostatnia pozycja) → Manager połączeń →
+pokrętło w prawo → dół listy.
+
+### Później
+
+| | Funkcja |
+|---|---|
+| 🔧 | Poprawki błędów |
+| ➡️ | Strzałki skrętów na HUD |
 | 🎧 | CarPlay 5-głośnikowy MixUp (Dzięki yety-ua za prace) |
-| ➡️ | Strzałki skrętów na HUD'ie  |
-| 📞 | Własna karta połączenia na mapie VC (fabryczna znika po odebraniu połączenia na mapie VC) |
+
+### Na razie niewspierane
+
+- **Układ zegarów S4 Sport**, także gdy jest tylko zakodowany, a nie wybrany: problemy z mapą i zacinający
+  się HUD. Po naciśnięciu VIEW mapa CarPlay znika, pojawia się fabryczna, a po chwili wraca mapa CarPlay.
+- **Bezprzewodowe adaptery CarLink:** dużo błędów i niestabilne działanie. Używaj kabla.
 
 ## Czy zadziała w moim aucie?
 
@@ -43,7 +69,7 @@ Potrzebne jest **wszystko** z listy:
 - Audi z **MHI2 (Harman)** i **Virtual Cockpit** (nie MHI2Q, nie MIB2 Standard),
 - oprogramowanie **`MHI2_ER_AUG22_K3346`**, **MU 1438** — widać je w zielonym menu albo na ekranie
   wersji w M.I.B.,
-- **iPhone z CarPlay** (po kablu),
+- **iPhone z CarPlay** (po kablu; o adapterach bezprzewodowych i układzie S4 Sport: [Na razie niewspierane](#na-razie-niewspierane)),
 - [**M.I.B. – More Incredible Bash**](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) na karcie
   SD, już działające w Twoim aucie (zielone menu → *m.i.b.* się otwiera).
 - łatka M.I.B. **NavIgnore** („podwójna nawigacja”: *m.i.b. → navigation → NavActiveIgnore → Enable dual
@@ -164,7 +190,7 @@ oczekiwałeś, co się stało, ile minut przed zebraniem logów, ewentualnie zdj
   zegarów na ekranie.
 - **Waze** nie wysyła do auta danych prowadzenia: mapa na zegarach działa, ale strzałek nie ma. Google Maps
   i Mapy Apple je wysyłają.
-- **HUD:** jeden użytkownik widział opóźnioną strzałkę na HUD w układzie zegarów *sport*; w *classic* było równo.
+- **HUD:** jeden użytkownik widział opóźnioną strzałkę na HUD w układzie zegarów *sport*; w *classic* było równo. Zob. [Na razie niewspierane](#na-razie-niewspierane).
 
 **Na własne ryzyko.** Bez żadnej gwarancji. Zewnętrzne zasilanie, świeża kopia M.I.B. i oryginalne
 oprogramowanie powinny być pod ręką.

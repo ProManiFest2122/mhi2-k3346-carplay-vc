@@ -22,6 +22,9 @@ INSTALL
  5. Restart the MMI: hold together the big MMI knob + NAV/MAP + RADIO
     for about 10 seconds (A4/A5/Q5 B9; other models: button table in the
     M.I.B. wiki, https://wiki.mibsolution.one/en/MHI2).
+ 6. When CarPlay is back: engine off, wait until the gauges and the MMI
+    go dark (about 1 minute), engine on. An MMI restart does not restart
+    the Virtual Cockpit; this does.
     Connect the iPhone and start a route in CarPlay navigation.
 
 KEEP THIS CARD
@@ -33,7 +36,8 @@ UNINSTALL (and before every update)
  1. Unzip the -uninstall.zip into the root of the SAME card.
     It adds one empty file: mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK
  2. Run the script as in step 3. Wait for ROLLBACK_RESULT=PASS and
-    SAFE TO REMOVE SD, then restart the MMI.
+    SAFE TO REMOVE SD, then restart the MMI, then engine off and on as in
+    step 6 of the installation.
 To update: uninstall the old version, then install the new one.
 
 IF SOMETHING GOES WRONG
@@ -42,6 +46,9 @@ IF SOMETHING GOES WRONG
    Run the script again to retry, or uninstall.
  - ERROR VERSION_GATE: this is not firmware K3346 / MU1438.
    Nothing was changed. This mod is not for your unit.
+ - The arrow on the Virtual Cockpit without its dark background tile:
+   first collect the logs (below), then engine off, wait about 1 minute,
+   engine on. An MMI restart alone does not help.
  - A line containing "do not reboot": do NOT restart the MMI.
    Uninstall straight away (see above).
  - Logs for a bug report: run the script again (no extra file needed).
@@ -82,6 +89,9 @@ INSTALACJA
  5. Restart MMI: przytrzymaj jednoczesnie duze pokretlo MMI + NAV/MAP +
     RADIO przez okolo 10 sekund (A4/A5/Q5 B9; inne modele: tabela
     przyciskow w wiki M.I.B., https://wiki.mibsolution.one/en/MHI2).
+ 6. Gdy CarPlay wroci: wylacz silnik, odczekaj, az zgasna zegary i MMI
+    (okolo 1 minuty), wlacz silnik. Restart MMI nie restartuje Virtual
+    Cockpitu, a to tak.
     Podlacz iPhone'a i wlacz trase w nawigacji CarPlay.
 
 ZACHOWAJ TE KARTE
@@ -93,7 +103,8 @@ ODINSTALOWANIE (i przed kazda aktualizacja)
  1. Rozpakuj -uninstall.zip do katalogu glownego TEJ SAMEJ karty.
     Dodaje jeden pusty plik: mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK
  2. Uruchom skrypt jak w kroku 3. Czekaj na ROLLBACK_RESULT=PASS i
-    SAFE TO REMOVE SD, potem restart MMI.
+    SAFE TO REMOVE SD, potem restart MMI, a potem silnik wylacz/wlacz jak
+    w kroku 6 instalacji.
 Aktualizacja: odinstaluj stara wersje, potem zainstaluj nowa.
 
 GDY COS POJDZIE NIE TAK
@@ -102,6 +113,9 @@ GDY COS POJDZIE NIE TAK
    z ERROR. Uruchom skrypt jeszcze raz albo odinstaluj.
  - ERROR VERSION_GATE: to nie jest oprogramowanie K3346 / MU1438.
    Nic nie zostalo zmienione. Ten mod nie jest dla Twojego MMI.
+ - Strzalka na Virtual Cockpit bez ciemnego tla kafelka: najpierw zbierz
+   logi (nizej), potem wylacz silnik, odczekaj okolo 1 minuty, wlacz
+   silnik. Sam restart MMI nie pomaga.
  - Linia z "do not reboot": NIE restartuj MMI. Od razu odinstaluj (wyzej).
  - Logi do zgloszenia bledu: uruchom skrypt jeszcze raz (bez zadnego pliku).
    Zapisuja sie w mod/mib2high-carplay-rgi-v8s-simple/collected/.

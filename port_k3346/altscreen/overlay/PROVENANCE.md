@@ -32,6 +32,15 @@ w skopiowanych plikach są nietknięte.
 
 Końce linii zamienione na LF (konwencja `port_k3346`), treść bez zmian.
 
+**Wersja: `036cc7552eb8fd229c1160e858a1a7ead57c623f` (2026-11-01, `rc22`).** Przed `rc22` kopia
+była zgodna z jego `52c3002f` (rodzic `036cc755`); wcześniej numer commita nie był tu
+zapisany. Sprawdzone 2026-11-05: po usunięciu `\r` każdy plik w `upstream/` jest identyczny
+z `maneuver_render/` i `common/` tego commita, poza trzema plikami z tabeli niżej (`main.c`,
+`platform.h`, `render.c`). `036cc755` wciągnięty jego własnym diffem (`patch -p2`, bez konfliktów):
+ronda, wzniesienie U-turn, rogi cienia kontaktowego, pamięć przejść między manewrami, oraz
+połączenie z serwerem dopiero po starcie EGL/GL (`main.c`) z szybszym ponawianiem (`server.c`).
+Nowszych zmian w `maneuver_render/` u Luki do `33607f6f` (2026-11-05) nie ma.
+
 ### Zmiany w kodzie Luki — wszystkie, z powodem
 
 Każda idzie przez `platform.h`, czyli szew, który Luka sam zostawił między kodem rysującym

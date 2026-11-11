@@ -452,13 +452,40 @@ static void t_saved(void)
     check_int(overlay_layout_saved_read(path), OVERLAY_LAYOUT_UNKNOWN, "trailing bytes: unknown");
     remove(path);
     check_int(overlay_layout_saved_write("/nonexistent-dir/x", 1), -1, "unwritable reported");
+}
 
-    check_int(overlay_layout_effective(1, 0), 1, "a report wins over the saved slot");
-    check_int(overlay_layout_effective(0, 1), 0, "a report wins, other way round");
-    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, 0), 0, "no report: saved small");
-    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, 1), 1, "no report: saved big");
-    check_int(overlay_layout_effective(OVERLAY_LAYOUT_UNKNOWN, OVERLAY_LAYOUT_UNKNOWN),
-              OVERLAY_LAYOUT_UNKNOWN, "nothing known: unknown");
+static void test_view_size(void)
+{
+    const char *path = "ovl_view_size.tmp";
+    const int U = OVERLAY_LAYOUT_UNKNOWN;
+    FILE *f;
+
+    printf("the layout the stock HMI holds, between the report and the saved slot\n");
+    check_int(strcmp(OVERLAY_VIEW_SIZE_PATH, "/tmp/vc-view-size"), 0, "path the bundle writes");
+
+    remove(path);
+    check_int(overlay_layout_saved_read(path), U, "no file: unknown");
+    f = fopen(path, "wb"); fputs("1\n", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), 1, "the file holds the slot: big clocks");
+    f = fopen(path, "wb"); fputs("0\n", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), 0, "the file holds the slot: small clocks");
+    f = fopen(path, "wb"); fputs("1", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), U, "half written: unknown");
+    f = fopen(path, "wb"); fputs("7\n", f); fclose(f);
+    check_int(overlay_layout_saved_read(path), U, "other value: unknown");
+    remove(path);
+
+    check_int(overlay_layout_fallback(0, 1, 1), 0, "report over HMI and saved");
+    check_int(overlay_layout_fallback(1, 0, 0), 1, "report over HMI and saved, other way");
+    check_int(overlay_layout_fallback(1, U, 0), 1, "report over saved");
+    check_int(overlay_layout_fallback(1, 0, U), 1, "report over HMI");
+    check_int(overlay_layout_fallback(U, 0, 1), 0, "HMI over saved");
+    check_int(overlay_layout_fallback(U, 1, 0), 1, "HMI over saved, other way");
+    check_int(overlay_layout_fallback(U, U, 0), 0, "only saved: small");
+    check_int(overlay_layout_fallback(U, U, 1), 1, "only saved: big");
+    check_int(overlay_layout_fallback(U, 0, U), 0, "only the HMI: small");
+    check_int(overlay_layout_fallback(U, 1, U), 1, "only the HMI: big");
+    check_int(overlay_layout_fallback(U, U, U), U, "nothing known");
 }
 
 static void test_option_off(void)
@@ -484,9 +511,39 @@ static void test_option_off(void)
     remove(path);
 }
 
+/* The call card: smoked 0, light 1, off 2 (call_card.h). */
+static void test_option_read(void)
+{
+    const char *path = "/tmp/overlay_option_read_test";
+    FILE *f;
+
+    remove(path);
+    check_int(overlay_option_read(path, 2, 2), 0, "no file: the first value");
+    f = fopen(path, "w"); fputs("0\n", f); fclose(f);
+    check_int(overlay_option_read(path, 2, 2), 0, "0");
+    f = fopen(path, "w"); fputs("1\n", f); fclose(f);
+    check_int(overlay_option_read(path, 0, 2), 1, "1");
+    f = fopen(path, "w"); fputs("2\n", f); fclose(f);
+    check_int(overlay_option_read(path, 0, 2), 2, "2, the highest");
+    f = fopen(path, "w"); fputs("3\n", f); fclose(f);
+    check_int(overlay_option_read(path, 1, 2), 1, "past the highest keeps the old one");
+    check_int(overlay_option_read(path, 2, 3), 3, "within a wider range");
+    f = fopen(path, "w"); fputs("/\n", f); fclose(f);
+    check_int(overlay_option_read(path, 1, 2), 1, "below 0 keeps the old one");
+    f = fopen(path, "w"); fputs("2", f); fclose(f);
+    check_int(overlay_option_read(path, 1, 2), 1, "half written keeps the old one");
+    f = fopen(path, "w"); fputs("2x", f); fclose(f);
+    check_int(overlay_option_read(path, 0, 2), 0, "other byte for the newline keeps the old one");
+    f = fopen(path, "w"); fputs("2\n\n", f); fclose(f);
+    check_int(overlay_option_read(path, 0, 2), 0, "too long keeps the old one");
+    remove(path);
+}
+
 int main(void)
 {
+    test_view_size();
     test_option_off();
+    test_option_read();
     t_saved();
     snprintf(g_fmt, sizeof(g_fmt), "/tmp/ovl_ring_%ld_%%02d.log", (long)getpid());
 

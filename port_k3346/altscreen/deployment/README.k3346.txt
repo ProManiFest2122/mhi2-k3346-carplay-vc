@@ -108,7 +108,7 @@ albo z paskiem na krawedzi, podmien profil na wariant z alt-profiles/:
    -> payload/mib2high-lvds-profile.conf     (przed instalacja)
 albo juz w aucie edytuj /mnt/app/root/mib2high-lvds-profile.conf.
 Geometria jest czytana z pliku w czasie dzialania - NIE wymaga przebudowy.
-Wszystkie 4 widoki z viewareas.conf mieszcza sie i w 542, i w 540, wiec nie
+Wszystkie 5 widokow z viewareas.conf mieszcza sie i w 542, i w 540, wiec nie
 trzeba nic przeliczac.
 
 Format profile.conf: "szerokosc wysokosc fps features safe_x safe_y safe_w safe_h"

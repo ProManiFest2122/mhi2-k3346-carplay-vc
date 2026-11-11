@@ -51,6 +51,7 @@
 #include "overlay_fbo.h"
 #include "capsule_text.h"
 #include "call_card.h"
+#include "eta_pill.h"
 
 static EGLDisplay g_dpy     = EGL_NO_DISPLAY;
 static EGLSurface g_surface = EGL_NO_SURFACE;
@@ -79,6 +80,7 @@ static long g_layout_check_ms;
 static overlay_layout_reader_t g_layout_reader;
 static int  g_layout_reader_ready;
 static int  g_layout_saved = OVERLAY_LAYOUT_UNKNOWN;
+static int  g_layout_hmi = OVERLAY_LAYOUT_UNKNOWN;
 /* visible_top currently handed to the renderer; -1 = never set. */
 static int  g_visible_top_applied = -1;
 
@@ -250,6 +252,19 @@ static int  g_card_upload;
 static long g_card_check_ms;
 static long g_card_timer_start_ms;   /* when this call became active, 0 = not yet */
 static long g_card_shown_seconds = -1;
+static int  g_card_style;            /* CALL_CARD_STYLE_*, the MMI option */
+
+/* Our arrival-time box (eta_pill.h): its own strip and fonts, so it does not depend
+ * on the call card being on in the conf. */
+static capsule_font_t g_pill_bold_font, g_pill_font;
+static capsule_lines_t g_pill_lines;
+static int  g_pill_ok;
+static unsigned char *g_pill_rgba, *g_pill_scratch;
+static GLuint g_pill_tex;
+static int  g_pill_upload;
+static long g_pill_check_ms;
+static int  g_pill_mode;             /* the call card option as read: the look follows it */
+static int  g_pill_align = -1;
 
 static void capsule_init(void)
 {
@@ -294,6 +309,34 @@ static void call_card_init(void)
             g_cfg.call_card_x_big, g_cfg.call_card_y_big, g_cfg.call_card_ringing);
 }
 
+/* Java writes the pill's text only while ETA_PILL_OK_PATH exists, and keeps the times
+ * on the VC bar otherwise: a pill that cannot be drawn must not swallow them. */
+static void eta_pill_init(void)
+{
+    size_t n = (size_t)g_cfg.eta_pill_w * (size_t)g_cfg.eta_pill_h;
+
+    eta_pill_ok_write(ETA_PILL_OK_PATH, 0);
+    if (!g_cfg.eta_pill) {
+        fprintf(stderr, "platform_harman: eta pill off in the conf\n");
+        return;
+    }
+    g_pill_rgba = (unsigned char *)malloc(n * 4u);
+    g_pill_scratch = (unsigned char *)malloc(n);
+    if (!g_pill_rgba || !g_pill_scratch
+        || capsule_font_load(&g_pill_bold_font, g_cfg.call_card_font_bold, g_cfg.call_card_name_px) != 0
+        || capsule_font_load(&g_pill_font, g_cfg.call_card_font, g_cfg.call_card_status_px) != 0) {
+        fprintf(stderr, "platform_harman: eta pill font NOT loaded - the times stay on the VC bar\n");
+        return;
+    }
+    memset(g_pill_rgba, 0, n * 4u);
+    g_pill_ok = 1;
+    if (eta_pill_ok_write(ETA_PILL_OK_PATH, 1) != 0)
+        fprintf(stderr, "platform_harman: cannot write %s errno=%d\n", ETA_PILL_OK_PATH, errno);
+    fprintf(stderr, "platform_harman: eta pill %dx%d small (%d,%d) big (%d,%d) sport (%d,%d)\n",
+            g_cfg.eta_pill_w, g_cfg.eta_pill_h, g_cfg.eta_pill_x_small, g_cfg.eta_pill_y_small,
+            g_cfg.eta_pill_x_big, g_cfg.eta_pill_y_big, g_cfg.eta_pill_x_sport, g_cfg.eta_pill_y_sport);
+}
+
 /* ---------------------------------------------------------------------------
  * Which texture format this unit keeps alpha in.
  *
@@ -326,6 +369,8 @@ static int g_no_alpha_warned;     /* say it once, not thirty times a second */
 static int g_tile_degenerate;     /* set by the readback probe, see overlay_fbo.h */
 static int g_tile_off;            /* the MMI option, see capsule_poll() */
 #define K3346_ARROWS_MODE_PATH "/tmp/k3346-arrows-mode"
+static int g_sport;               /* the VC skin, see capsule_poll() */
+#define K3346_SKIN_PATH "/tmp/vc-skin"
 
 /* Solid white, nothing else: the only thing the alpha test draws. */
 static GLuint g_white_prog;
@@ -549,9 +594,20 @@ static int make_panel_target(void)
     return 0;
 }
 
+static void tile_origin(int slot, int *px, int *py)
+{
+    overlay_cfg_t view;
+
+    overlay_tile_view(&g_cfg, slot, g_sport, &view);
+    *px = view.x;
+    *py = view.y;
+    overlay_layout_origin(slot, view.x, view.y, view.x_alt, view.y_alt, px, py);
+}
+
 static void composite_tile(void)
 {
-    int px = g_cfg.x, py = g_cfg.y;
+    int px, py;
+    overlay_cfg_t view;
     float pos[8], uv[8];
 
     /* No surface means a recreate is in flight: drawing now would just pile up
@@ -560,10 +616,10 @@ static void composite_tile(void)
 
     /* Slot 1 (big clocks) is what px/py are seeded with, and an unknown slot
      * leaves them untouched, so the default survives a missing hook log. */
-    overlay_layout_origin(g_layout_slot, g_cfg.x, g_cfg.y,
-                          g_cfg.x_alt, g_cfg.y_alt, &px, &py);
+    tile_origin(g_layout_slot, &px, &py);
+    overlay_tile_view(&g_cfg, g_layout_slot, g_sport, &view);
     /* Both flips, the crop and the 1:1 texel mapping live in one tested place. */
-    overlay_blit_quad(&g_cfg, px, py, pos, uv);
+    overlay_blit_quad(&view, px, py, pos, uv);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, g_cfg.canvas_width, g_cfg.canvas_height);
@@ -731,25 +787,42 @@ static void composite_capsule(void)
 
 static int call_card_visible(void)
 {
-    if (!g_card_ok || !g_card.state) return 0;
+    if (!g_card_ok || !g_card.state || g_card_style == CALL_CARD_STYLE_OFF) return 0;
     return g_card.state != 'R' || g_cfg.call_card_ringing;
 }
 
 static void composite_call_card(void)
 {
     int small = g_layout_slot == 0;
+    int big_x = g_sport ? g_cfg.call_card_x_sport : g_cfg.call_card_x_big;
+    int big_y = g_sport ? g_cfg.call_card_y_sport : g_cfg.call_card_y_big;
 
     if (!call_card_visible() || !strip_can_draw()) return;
     composite_strip(&g_card_tex, &g_card_upload, g_card_rgba,
-                    small ? g_cfg.call_card_x_small : g_cfg.call_card_x_big,
-                    small ? g_cfg.call_card_y_small : g_cfg.call_card_y_big,
+                    small ? g_cfg.call_card_x_small : big_x,
+                    small ? g_cfg.call_card_y_small : big_y,
                     g_cfg.call_card_w, g_cfg.call_card_h);
+}
+
+static void composite_eta_pill(void)
+{
+    int small = g_layout_slot == 0;
+    int big_x = g_sport ? g_cfg.eta_pill_x_sport : g_cfg.eta_pill_x_big;
+    int big_y = g_sport ? g_cfg.eta_pill_y_sport : g_cfg.eta_pill_y_big;
+
+    if (!g_pill_ok || eta_pill_empty(&g_pill_lines) || !strip_can_draw()) return;
+    if (eta_pill_hidden_by_call(small, call_card_visible())) return;
+    composite_strip(&g_pill_tex, &g_pill_upload, g_pill_rgba,
+                    small ? g_cfg.eta_pill_x_small : big_x,
+                    small ? g_cfg.eta_pill_y_small : big_y,
+                    g_cfg.eta_pill_w, g_cfg.eta_pill_h);
 }
 
 static void composite_panel(void)
 {
     composite_tile();
     composite_capsule();
+    composite_eta_pill();
     composite_call_card();
 }
 
@@ -822,13 +895,19 @@ static void probe_drain_gl_errors(const char *when, int quiet)
 static void probe_panel(int quiet)
 {
     const int rw = g_cfg.render_width,  rh = g_cfg.render_height;
-    const int cx = g_cfg.crop_x,        cy = g_cfg.crop_y;
-    const int cw = g_cfg.width,         ch = g_cfg.height;
+    overlay_cfg_t view;
+    int cx, cy, cw, ch;
     long a_all = 0, a_crop = 0, rgb_all = 0, rgb_crop = 0;
     int amin = 255, amax = 0, best = -1;
     int best_x = -1, best_y = -1, best_r = 0, best_g = 0, best_b = 0;
     char row[PANEL_PROBE_COLS + 1];
     int x, y, r, c;
+
+    overlay_tile_view(&g_cfg, g_layout_slot, g_sport, &view);
+    cx = view.crop_x;
+    cy = view.crop_y;
+    cw = view.width;
+    ch = view.height;
 
     probe_drain_gl_errors("before the readback", quiet);
 
@@ -1201,6 +1280,7 @@ int platform_init(int width, int height)
     clamped = overlay_cfg_sanitize(&g_cfg);
     capsule_init();
     call_card_init();
+    eta_pill_init();
 
     if (!getenv("IPL_CONFIG_DIR"))
         putenv("IPL_CONFIG_DIR=/etc/eso/production");
@@ -1423,6 +1503,13 @@ static void capsule_poll(long now_ms, int *repaint)
     if (g_capsule_check_ms != 0 && (now_ms - g_capsule_check_ms) < CAPSULE_POLL_MS) return;
     g_capsule_check_ms = now_ms;
 
+    draw = overlay_option_off_read(K3346_SKIN_PATH, g_sport);
+    if (draw != g_sport) {
+        g_sport = draw;
+        fprintf(stderr, "platform_harman: skin %s\n", draw ? "sport" : "classic");
+        *repaint = 1;
+    }
+
     /* Same cadence as the bar text, nothing depends on it being faster. */
     draw = overlay_option_off_read(K3346_ARROWS_MODE_PATH, g_tile_off);
     if (draw != g_tile_off) {
@@ -1472,15 +1559,22 @@ static void call_card_poll(long now_ms, int *repaint)
 {
     call_card_t next;
     long seconds;
-    int changed;
+    int changed, style;
 
     if (!g_card_ok) return;
     if (g_card_check_ms != 0 && (now_ms - g_card_check_ms) < CAPSULE_POLL_MS) return;
     g_card_check_ms = now_ms;
 
+    /* The MMI option: a new look is drawn at once, also during a call.  The clock
+     * below keeps counting while the card is off. */
+    style = overlay_option_read(CALL_CARD_MODE_PATH, g_card_style, CALL_CARD_STYLE_MAX);
     if (!call_card_read_file(CALL_CARD_PATH, &next)) next = g_card;
     changed = next.state != g_card.state || strcmp(next.name, g_card.name)
-              || strcmp(next.label, g_card.label);
+              || strcmp(next.label, g_card.label) || style != g_card_style;
+    if (style != g_card_style) {
+        fprintf(stderr, "platform_harman: call card style %d -> %d\n", g_card_style, style);
+        g_card_style = style;
+    }
 
     /* Hold and back keep counting: it is the same call. */
     if (!next.state) g_card_timer_start_ms = 0;
@@ -1494,11 +1588,49 @@ static void call_card_poll(long now_ms, int *repaint)
     if (changed || (call_card_timed(next.state) && seconds != g_card_shown_seconds)) {
         g_card = next;
         g_card_shown_seconds = seconds;
-        call_card_render(&g_card_name_font, &g_card_status_font, &g_card, seconds,
+        call_card_render(&g_card_name_font, &g_card_status_font, &g_card, seconds, g_card_style,
                          g_card_scratch, g_card_rgba, g_cfg.call_card_w, g_cfg.call_card_h);
         g_card_upload = 1;
         *repaint = 1;
     }
+}
+
+/* Takes the arrival time from Java (BAPBridge.publishBar).  The look is the call card
+ * option's, the place in the strip the layout's.  Nothing here touches GL. */
+static void eta_pill_poll(long now_ms, int *repaint)
+{
+    capsule_lines_t next;
+    int mode, align, changed;
+
+    if (!g_pill_ok) return;
+    if (g_pill_check_ms != 0 && (now_ms - g_pill_check_ms) < CAPSULE_POLL_MS) return;
+    g_pill_check_ms = now_ms;
+
+    mode = overlay_option_read(CALL_CARD_MODE_PATH, g_pill_mode, CALL_CARD_STYLE_MAX);
+    align = eta_pill_align(g_layout_slot == 0, g_sport);
+    if (!capsule_read_file(ETA_PILL_PATH, &next)) next = g_pill_lines;
+    changed = strcmp(next.left, g_pill_lines.left) || strcmp(next.right, g_pill_lines.right);
+    if (changed && eta_pill_empty(&next) != eta_pill_empty(&g_pill_lines))
+        fprintf(stderr, "platform_harman: eta pill %s\n", eta_pill_empty(&next) ? "off" : "on");
+    if (!changed && eta_pill_style(mode) == eta_pill_style(g_pill_mode) && align == g_pill_align) {
+        g_pill_mode = mode;
+        return;
+    }
+    g_pill_lines = next;
+    g_pill_mode = mode;
+    g_pill_align = align;
+    eta_pill_render(&g_pill_bold_font, &g_pill_font, &g_pill_lines, g_pill_mode, g_pill_align,
+                    g_pill_scratch, g_pill_rgba, g_cfg.eta_pill_w, g_cfg.eta_pill_h);
+    g_pill_upload = 1;
+    *repaint = 1;
+}
+
+/* Where the slot in use came from, the same order as overlay_layout_fallback(). */
+static const char *layout_source(void)
+{
+    if (g_layout_reader.slot != OVERLAY_LAYOUT_UNKNOWN)
+        return overlay_layout_src_name(g_layout_reader.source);
+    return g_layout_hmi != OVERLAY_LAYOUT_UNKNOWN ? "viewsize" : "saved";
 }
 
 void platform_poll(void)
@@ -1529,7 +1661,10 @@ void platform_poll(void)
             fprintf(stderr, "platform_harman: cannot write %s errno=%d\n",
                     OVERLAY_LAYOUT_SAVED_PATH, errno);
     }
-    slot = overlay_layout_effective(slot, g_layout_saved);
+    /* Polled ten times a second, so the file only while it can still matter. */
+    g_layout_hmi = slot == OVERLAY_LAYOUT_UNKNOWN
+        ? overlay_layout_saved_read(OVERLAY_VIEW_SIZE_PATH) : OVERLAY_LAYOUT_UNKNOWN;
+    slot = overlay_layout_fallback(slot, g_layout_hmi, g_layout_saved);
     pending = g_layout_reader.view_pending;
 
     /* VIEW pressed: off the canvas until the cluster says where to go. */
@@ -1549,24 +1684,21 @@ void platform_poll(void)
                     " yet) - tile at the big-clocks origin\n",
                     OVERLAY_LAYOUT_RING_FMT);
         } else {
-            int px = g_cfg.x, py = g_cfg.y;
-            overlay_layout_origin(slot, g_cfg.x, g_cfg.y, g_cfg.x_alt,
-                                  g_cfg.y_alt, &px, &py);
+            int px, py;
+            tile_origin(slot, &px, &py);
             /* Applied from here on: composite_panel() reads the same slot
              * when it places the tile on the canvas. */
             fprintf(stderr, "platform_harman: layout slot=%d (%s clocks, %s)"
                     " panel at (%d,%d)\n", slot, slot == 1 ? "big" : "small",
-                    g_layout_reader.slot == OVERLAY_LAYOUT_UNKNOWN ? "saved"
-                        : overlay_layout_src_name(g_layout_reader.source), px, py);
+                    layout_source(), px, py);
         }
     }
 
     /* The report came - or never will.  Either way the tile comes back, and
      * the log says how long it was away, which is the number to watch. */
     if (g_view_hold && (!pending || now_ms - g_view_hold_ms >= VIEW_HOLD_MAX_MS)) {
-        int px = g_cfg.x, py = g_cfg.y;
-        overlay_layout_origin(g_layout_slot, g_cfg.x, g_cfg.y, g_cfg.x_alt,
-                              g_cfg.y_alt, &px, &py);
+        int px, py;
+        tile_origin(g_layout_slot, &px, &py);
         fprintf(stderr, "platform_harman: tile shown at (%d,%d) after %ld ms (%s)\n",
                 px, py, now_ms - g_view_hold_ms,
                 pending ? "timeout - no layout report" : "bap54");
@@ -1590,14 +1722,13 @@ void platform_poll(void)
                     " the HMI or the cluster reports it\n");
         }
         if (was && !g_layout_unknown_hold) {
-            int px = g_cfg.x, py = g_cfg.y;
-            overlay_layout_origin(g_layout_slot, g_cfg.x, g_cfg.y, g_cfg.x_alt,
-                                  g_cfg.y_alt, &px, &py);
+            int px, py;
+            tile_origin(g_layout_slot, &px, &py);
             fprintf(stderr, "platform_harman: tile shown at (%d,%d) after %ld ms (%s)\n",
                     px, py, started ? now_ms - started : 0L,
                     g_layout_slot == OVERLAY_LAYOUT_UNKNOWN
                         ? "timeout - default place"
-                        : overlay_layout_src_name(g_layout_reader.source));
+                        : layout_source());
             g_layout_unknown_logged = 0;
             repaint = 1;
         }
@@ -1610,19 +1741,28 @@ void platform_poll(void)
      * of 0 it equals Luka's own CR_POPUP_* framing, so nothing moves. */
     eff = (slot == 0) ? 0 : 1;
     top = eff ? g_cfg.visible_top_big : g_cfg.visible_top_small;
-    if (top != g_visible_top_applied) {
-        g_visible_top_applied = top;
-        render_set_visible_area(g_cfg.crop_x, g_cfg.crop_y + top,
-                                g_cfg.width, g_cfg.height - top);
-        if (top)
-            fprintf(stderr, "platform_harman: visible area %dx%d@(%d,%d) -"
-                    " top %d rows covered by the VC in this layout\n",
-                    g_cfg.width, g_cfg.height - top, g_cfg.crop_x,
-                    g_cfg.crop_y + top, top);
+    {
+        static int applied_sport_rect;
+        int sport_rect = eff && g_sport;
+        overlay_cfg_t view;
+
+        if (top != g_visible_top_applied || sport_rect != applied_sport_rect) {
+            g_visible_top_applied = top;
+            applied_sport_rect = sport_rect;
+            overlay_tile_view(&g_cfg, sport_rect ? 1 : 0, g_sport, &view);
+            render_set_visible_area(view.crop_x, view.crop_y + top,
+                                    view.width, view.height - top);
+            if (top || sport_rect)
+                fprintf(stderr, "platform_harman: visible area %dx%d@(%d,%d) -"
+                        " top %d rows covered by the VC in this layout\n",
+                        view.width, view.height - top, view.crop_x,
+                        view.crop_y + top, top);
+        }
     }
 
     capsule_poll(now_ms, &repaint);
     call_card_poll(now_ms, &repaint);
+    eta_pill_poll(now_ms, &repaint);
 
     /* Show the change now, not with whatever frame comes next. */
     if (repaint) represent_last_frame();
@@ -1646,6 +1786,13 @@ void platform_shutdown(void)
         capsule_font_free(&g_card_status_font);
     }
     g_card_ok = 0;
+    /* Java goes back to the VC bar for the times. */
+    eta_pill_ok_write(ETA_PILL_OK_PATH, 0);
+    if (g_pill_ok) {
+        capsule_font_free(&g_pill_bold_font);
+        capsule_font_free(&g_pill_font);
+    }
+    g_pill_ok = 0;
 
     if (g_dpy != EGL_NO_DISPLAY) {
         if (g_ctx != EGL_NO_CONTEXT) glFinish();

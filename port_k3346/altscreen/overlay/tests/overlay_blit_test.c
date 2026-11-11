@@ -40,6 +40,13 @@ static void check(int cond, const char *what)
     }
 }
 
+static void check_int(int got, int want, const char *what)
+{
+    if (got != want)
+        printf("  got %d, want %d\n", got, want);
+    check(got == want, what);
+}
+
 static void check_near(float got, float want, const char *what)
 {
     if (fabsf(got - want) < 1e-3f) {
@@ -233,8 +240,33 @@ static void t_corner_hatch(void)
     expect_one_to_one(&c, c.x, c.y, "corner hatch");
 }
 
+static void test_tile_view(void)
+{
+    overlay_cfg_t c, v;
+
+    overlay_cfg_defaults(&c);
+    overlay_tile_view(&c, 1, 1, &v);
+    check_int(v.x, 984, "sport big: x");
+    check_int(v.y, 139, "sport big: y");
+    check_int(v.crop_x, 0, "sport big: crop x");
+    check_int(v.crop_y, 0, "sport big: crop y");
+    check_int(v.width, 328, "sport big: width");
+    check_int(v.height, 180, "sport big: height");
+    check_int(v.x_alt, c.x_alt, "sport big: the rest of the config stays");
+    overlay_tile_view(&c, 0, 1, &v);
+    check_int(v.x, c.x, "sport small: classic rectangle");
+    check_int(v.width, 210, "sport small: classic width");
+    check_int(v.crop_x, 59, "sport small: classic crop");
+    overlay_tile_view(&c, 1, 0, &v);
+    check_int(v.x, 1055, "classic big: x");
+    check_int(v.height, 153, "classic big: height");
+    overlay_tile_view(&c, -1, 1, &v);
+    check_int(v.x, 1055, "unknown slot: classic");
+}
+
 int main(void)
 {
+    test_tile_view();
     t_shipped_geometry();
     t_one_to_one_both_layouts();
     t_view_moves_the_tile();

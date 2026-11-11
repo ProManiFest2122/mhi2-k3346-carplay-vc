@@ -82,6 +82,11 @@
  * known slot is kept here.  /tmp goes away with an MMI restart, and the session
  * script leaves this file alone.  A real report always wins over it. */
 #define OVERLAY_LAYOUT_SAVED_PATH "/tmp/vc-layout-last"
+/* The layout the stock HMI holds, as a slot in the format of the saved one, written by
+ * the bundle (BAPBridge.pollViewSize).  After a full MMI start nobody has said the
+ * layout yet and the saved slot is gone too (car run-61, run-63: the tile sat in the
+ * big-clocks place over small clocks). */
+#define OVERLAY_VIEW_SIZE_PATH "/tmp/vc-view-size"
 
 static int overlay_layout_saved_read(const char *path)
 {
@@ -113,6 +118,22 @@ static int overlay_option_off_read(const char *path, int previous)
     return buf[0] - '0';
 }
 
+/* An option with more than two values, "N\n" with 0 <= N <= max (the call card:
+ * smoked, light, off).  No file is 0, a half-written or odd one keeps the old value. */
+static int overlay_option_read(const char *path, int previous, int max)
+{
+    char buf[4];
+    size_t got;
+    FILE *f = fopen(path, "r");
+
+    if (!f) return 0;
+    got = fread(buf, 1, sizeof(buf), f);
+    fclose(f);
+    if (got != 2 || buf[1] != '\n' || buf[0] < '0' || buf[0] > '0' + max)
+        return previous;
+    return buf[0] - '0';
+}
+
 static int overlay_layout_saved_write(const char *path, int slot)
 {
     FILE *f = fopen(path, "w");
@@ -124,9 +145,13 @@ static int overlay_layout_saved_write(const char *path, int slot)
     return 0;
 }
 
-static int overlay_layout_effective(int reported, int saved)
+/* The HMI goes before the saved slot: it is live, and the saved one has missed any
+ * VIEW pressed without a session.  The saved one stays for a bundle that cannot read. */
+static int overlay_layout_fallback(int reported, int hmi, int saved)
 {
-    return reported != OVERLAY_LAYOUT_UNKNOWN ? reported : saved;
+    if (reported != OVERLAY_LAYOUT_UNKNOWN)
+        return reported;
+    return hmi != OVERLAY_LAYOUT_UNKNOWN ? hmi : saved;
 }
 
 static const char *overlay_layout_src_name(int src)

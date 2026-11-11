@@ -172,9 +172,19 @@ static long ink(const unsigned char *rgba, int w, int x0, int y0, int x1, int y1
     return total;
 }
 
+/* one pixel, premultiplied: the four bytes */
+static void check_px(const unsigned char *rgba, int w, int x, int y,
+                     int r, int g, int b, int a, const char *what)
+{
+    const unsigned char *px = rgba + (y * w + x) * 4;
+    char msg[160];
+    snprintf(msg, sizeof(msg), "%s (%d,%d,%d,%d)", what, px[0], px[1], px[2], px[3]);
+    check(px[0] == r && px[1] == g && px[2] == b && px[3] == a, msg);
+}
+
 static void t_render(void)
 {
-    enum { W = 320, H = 78, GUARD = 4096 };
+    enum { W = 320, H = 44, GUARD = 4096 };
     capsule_font_t name, status;
     call_card_t c;
     unsigned char *mem_rgba, *rgba, *mem_scratch, *scratch;
@@ -182,7 +192,7 @@ static void t_render(void)
     int i, bad = 0;
 
     printf("rasterising\n");
-    if (capsule_font_load(&name, FONT_BOLD, 28) != 0 || capsule_font_load(&status, FONT_NORMAL, 22) != 0) {
+    if (capsule_font_load(&name, FONT_BOLD, 24) != 0 || capsule_font_load(&status, FONT_NORMAL, 22) != 0) {
         printf("  SKIP: no fonts here\n");
         return;
     }
@@ -193,72 +203,105 @@ static void t_render(void)
     rgba = mem_rgba + GUARD;
     scratch = mem_scratch + GUARD;
 
+    check_int(CALL_CARD_STYLE_SMOKED, 0, "smoked is the default value of the option");
+    check_int(CALL_CARD_STYLE_LIGHT, 1, "light is 1");
+    check_int(CALL_CARD_STYLE_OFF, 2, "off is 2");
+    check_int(CALL_CARD_STYLE_MAX, 2, "three values");
+    check_str(CALL_CARD_MODE_PATH, "/tmp/k3346-callcard-mode", "the file K3346EtaRow writes");
+
     memset(&c, 0, sizeof(c));
     strcpy(c.name, "Anna Kowalska");
     strcpy(c.label, "Trwa rozmowa");
     c.state = 'A';
-    call_card_render(&name, &status, &c, 135, scratch, rgba, W, H);
+    call_card_render(&name, &status, &c, 135, CALL_CARD_STYLE_SMOKED, scratch, rgba, W, H);
 
-    /* glass: the corner is empty, the middle is the blue-black at alpha 0.84 */
-    check_int(rgba[3], 0, "corner transparent");
-    check_int(rgba[(H / 2 * W + W - 4) * 4 + 3], 214, "edge is the glass, alpha 0.84");
-    check_int(rgba[(H / 2 * W + W - 4) * 4 + 0], 17, "glass red premultiplied");
-    check_int(rgba[(H / 2 * W + W - 4) * 4 + 1], 25, "glass green premultiplied");
-    check_int(rgba[(H / 2 * W + W - 4) * 4 + 2], 35, "glass blue premultiplied");
-    /* premultiplied means no channel can exceed alpha */
+    /* smoked glass: the corners are empty, the right end is (84,92,106) at alpha 0.62 */
+    check_int(rgba[3], 0, "top left corner transparent");
+    check_int(rgba[((H - 1) * W + W - 1) * 4 + 3], 0, "bottom right corner transparent");
+    check_int(rgba[(2 * W + 4) * 4 + 3], 0, "a pill: round to half the height");
+    /* only a radius of half the height leaves this one out; 18 would fill it */
+    check_int(rgba[(4 * W + 7) * 4 + 3], 0, "a pill, not a rounded box");
+    check_int(rgba[(H / 2 * W + 1) * 4 + 3], 158, "the left end reaches the edge in the middle");
+    check_px(rgba, W, W - 6, H / 2, 52, 57, 66, 158, "smoked glass, premultiplied");
+    check_px(rgba, W, W / 2, 1, 52, 57, 66, 158, "the top edge is glass too");
     for (i = 0; i < W * H; i++) {
         const unsigned char *px = rgba + i * 4;
         if (px[0] > px[3] || px[1] > px[3] || px[2] > px[3]) bad++;
     }
     check_int(bad, 0, "every pixel premultiplied");
 
-    /* the dot takes the state colour: full green at its centre */
-    check_int(rgba[(25 * W + 24) * 4 + 1], 214, "active dot is green");
-    check_int(rgba[(25 * W + 24) * 4 + 0], 64, "active dot red part");
-    check_int(rgba[(25 * W + 24) * 4 + 3], 255, "dot is opaque");
+    /* the dot in the middle of the height, CarPlay's green */
+    check_px(rgba, W, 22, H / 2, 48, 209, 88, 255, "active dot is CarPlay green");
 
+    /* one line: the name and then the clock, both in the strip */
+    check(ink(rgba, W, 38, 0, 140, H) > 30000, "the name is drawn");
     {
-        static unsigned char other[W * H * 4];
-        call_card_t d = c;
-        int y, x, first = 0, second = 0;
-        strcpy(d.name, "Bartosz Nowak");
-        call_card_render(&name, &status, &d, 135, scratch, other, W, H);
+        static unsigned char a2[W * H * 4], b2[W * H * 4];
+        int x, y, left = 0, right = 0, edge = 38 + capsule_text_width(&name, "Anna Kowalska");
+        call_card_render(&name, &status, &c, 10, CALL_CARD_STYLE_SMOKED, scratch, a2, W, H);
+        call_card_render(&name, &status, &c, 11, CALL_CARD_STYLE_SMOKED, scratch, b2, W, H);
         for (y = 0; y < H; y++)
-            for (x = 0; x < W * 4; x++)
-                if (rgba[y * W * 4 + x] != other[y * W * 4 + x]) { if (y < 38) first++; else second++; }
-        check(first > 100, "the name is drawn on the first line");
-        check_int(second, 0, "the name stays off the second line");
+            for (x = 0; x < W; x++)
+                if (memcmp(a2 + (y * W + x) * 4, b2 + (y * W + x) * 4, 4)) { if (x < edge) left++; else right++; }
+        check(right > 20, "active: the clock ticks after the name");
+        check_int(left, 0, "the clock leaves the name alone");
+        c.state = 'R';
+        strcpy(c.label, "Dzwoni");
+        call_card_render(&name, &status, &c, 10, CALL_CARD_STYLE_SMOKED, scratch, a2, W, H);
+        call_card_render(&name, &status, &c, 11, CALL_CARD_STYLE_SMOKED, scratch, b2, W, H);
+        check(memcmp(a2, b2, sizeof(a2)) == 0, "ringing: no clock");
+        check(ink(a2, W, edge, 0, W, H) > ink(rgba, W, W - 8, 0, W, H), "ringing: the state after the name");
+        c.state = 'A';
+        strcpy(c.label, "Trwa rozmowa");
     }
-    check(ink(rgba, W, 42, 44, W - 20, 70) > 40000, "status drawn on the second line");
+
+    /* light glass: white at alpha 0.36, the same text and dot */
+    call_card_render(&name, &status, &c, 135, CALL_CARD_STYLE_LIGHT, scratch, rgba, W, H);
+    check_int(rgba[3], 0, "light: corner transparent");
+    check_px(rgba, W, W - 6, H / 2, 92, 92, 92, 92, "light glass, premultiplied");
+    check_px(rgba, W, 22, H / 2, 48, 209, 88, 255, "light: the dot is the same");
+    check(ink(rgba, W, 38, 0, 140, H) > 30000, "light: the name is drawn");
+
+    /* off: nothing at all, for every state */
+    {
+        const char states[] = "RDAH";
+        for (i = 0; i < 4; i++) {
+            c.state = states[i];
+            call_card_render(&name, &status, &c, 135, CALL_CARD_STYLE_OFF, scratch, rgba, W, H);
+            check(ink(rgba, W, 0, 0, W, H) == 0 && rgba[(H / 2 * W + W / 2) * 4 + 3] == 0,
+                  "off clears the strip");
+        }
+    }
 
     c.state = 'R';
-    call_card_render(&name, &status, &c, 0, scratch, rgba, W, H);
-    check_int(rgba[(25 * W + 24) * 4 + 0], 255, "ringing dot is orange");
-    check_int(rgba[(25 * W + 24) * 4 + 1], 164, "ringing dot green part");
+    call_card_render(&name, &status, &c, 0, CALL_CARD_STYLE_SMOKED, scratch, rgba, W, H);
+    check_px(rgba, W, 22, H / 2, 255, 159, 10, 255, "ringing dot is CarPlay orange");
     c.state = 'D';
-    call_card_render(&name, &status, &c, 0, scratch, rgba, W, H);
-    check_int(rgba[(25 * W + 24) * 4 + 0], 255, "dialing dot is orange");
+    call_card_render(&name, &status, &c, 0, CALL_CARD_STYLE_LIGHT, scratch, rgba, W, H);
+    check_px(rgba, W, 22, H / 2, 255, 159, 10, 255, "dialing dot is orange");
     c.state = 'H';
-    call_card_render(&name, &status, &c, 0, scratch, rgba, W, H);
-    check_int(rgba[(25 * W + 24) * 4 + 0], 150, "held dot is grey");
-
-    /* the clock changes the picture only where a clock belongs */
-    {
-        static unsigned char a[W * H * 4], b[W * H * 4];
-        c.state = 'A';
-        call_card_render(&name, &status, &c, 10, scratch, a, W, H);
-        call_card_render(&name, &status, &c, 11, scratch, b, W, H);
-        check(memcmp(a, b, sizeof(a)) != 0, "active: the clock ticks");
-        c.state = 'R';
-        call_card_render(&name, &status, &c, 10, scratch, a, W, H);
-        call_card_render(&name, &status, &c, 11, scratch, b, W, H);
-        check(memcmp(a, b, sizeof(a)) == 0, "ringing: no clock");
-    }
+    call_card_render(&name, &status, &c, 0, CALL_CARD_STYLE_SMOKED, scratch, rgba, W, H);
+    check_px(rgba, W, 22, H / 2, 152, 152, 157, 255, "held dot is CarPlay grey");
 
     /* no card: nothing at all, not an empty panel */
     memset(&c, 0, sizeof(c));
-    call_card_render(&name, &status, &c, 0, scratch, rgba, W, H);
-    check(ink(rgba, W, 0, 0, W, H) == 0, "no card clears the strip");
+    call_card_render(&name, &status, &c, 0, CALL_CARD_STYLE_SMOKED, scratch, rgba, W, H);
+    check(ink(rgba, W, 0, 0, W, H) == 0 && rgba[(H / 2 * W + W / 2) * 4 + 3] == 0, "no card clears the strip");
+
+    /* a long name gives way to the clock, which stays whole at the right end */
+    c.state = 'A';
+    strcpy(c.label, "Trwa rozmowa");
+    strcpy(c.name, "Aleksandra Wiśniewska-Nowakowska");
+    {
+        static unsigned char a2[W * H * 4], b2[W * H * 4];
+        int x, y, diff_right = 0;
+        call_card_render(&name, &status, &c, 3599, CALL_CARD_STYLE_SMOKED, scratch, a2, W, H);
+        call_card_render(&name, &status, &c, 3598, CALL_CARD_STYLE_SMOKED, scratch, b2, W, H);
+        for (y = 0; y < H; y++)
+            for (x = W - 30; x < W; x++)
+                if (memcmp(a2 + (y * W + x) * 4, b2 + (y * W + x) * 4, 4)) diff_right++;
+        check(diff_right > 0, "long name: the clock still drawn at the end");
+    }
 
     /* a name nobody chose: long, Polish, stuffed with bad bytes */
     call_card_fit(&name, "Anna", 100, shown, sizeof(shown));
@@ -281,10 +324,12 @@ static void t_render(void)
     check_str(shown, "\xE2\x80\xA6", "nothing fits: just the mark");
 
     memset(&c, 0, sizeof(c));
-    c.state = 'A';
+    c.state = 'H';
     memset(c.name, 'W', sizeof(c.name) - 1);
     memset(c.label, 'W', sizeof(c.label) - 1);
-    call_card_render(&name, &status, &c, 359999, scratch, rgba, W, H);
+    call_card_render(&name, &status, &c, 359999, CALL_CARD_STYLE_LIGHT, scratch, rgba, W, H);
+    c.state = 'R';
+    call_card_render(&name, &status, &c, 0, CALL_CARD_STYLE_SMOKED, scratch, rgba, W, H);
     for (i = 0, bad = 0; i < GUARD; i++) {
         if (mem_rgba[i] != 0xA5 || mem_rgba[GUARD + W * H * 4 + i] != 0xA5) bad++;
         if (mem_scratch[i] != 0xA5 || mem_scratch[GUARD + W * H + i] != 0xA5) bad++;
@@ -293,12 +338,13 @@ static void t_render(void)
 
     /* a strip smaller than the fonts stays inside too */
     {
-        enum { LOW_W = 120, LOW_H = 48, M = 4096 };
+        enum { LOW_W = 120, LOW_H = 20, M = 4096 };
         unsigned char *low = (unsigned char *)malloc((size_t)(LOW_W * LOW_H * 4 + 2 * M));
         memset(low, 0xA5, (size_t)(LOW_W * LOW_H * 4 + 2 * M));
         memset(mem_scratch, 0xA5, (size_t)(W * H + 2 * GUARD));
+        c.state = 'A';
         strcpy(c.name, "gjpW");
-        call_card_render(&name, &status, &c, 5, scratch, low + M, LOW_W, LOW_H);
+        call_card_render(&name, &status, &c, 5, CALL_CARD_STYLE_SMOKED, scratch, low + M, LOW_W, LOW_H);
         for (i = 0, bad = 0; i < M; i++)
             if (low[i] != 0xA5 || low[M + LOW_W * LOW_H * 4 + i] != 0xA5) bad++;
         check_int(bad, 0, "small strip: guard bands intact");

@@ -57,10 +57,56 @@ public final class K3346CapsuleFileTest {
         eq("karta", "/tmp/k3346-card-mode", K3346CapsuleFile.CARD_MODE_PATH);
         eq("karta: brak", "1", String.valueOf(K3346CapsuleFile.CARD_NONE));
         eq("bez wskazowek", "/tmp/k3346-no-rgi", K3346CapsuleFile.NO_RGI_PATH);
+        eq("karta: pelna", "0", String.valueOf(K3346CapsuleFile.CARD_FULL));
+        eq("Apple Maps", "/tmp/k3346-nav-apple", K3346CapsuleFile.NAV_APPLE_PATH);
 
+        eq("skin", "/tmp/vc-skin", K3346CapsuleFile.SKIN_PATH);
+        eq("view size", "/tmp/vc-view-size", K3346CapsuleFile.VIEW_SIZE_PATH);
+        eq("view size 1: duze zegary", 1, K3346CapsuleFile.viewSizeSlot(1));
+        eq("view size 2: male zegary", 0, K3346CapsuleFile.viewSizeSlot(2));
+        eq("view size 0: nic", -1, K3346CapsuleFile.viewSizeSlot(0));
+        eq("view size 3 (popup): nic", -1, K3346CapsuleFile.viewSizeSlot(3));
+        eq("view size -1: nic", -1, K3346CapsuleFile.viewSizeSlot(-1));
         eq("strzalka", "/tmp/k3346-arrows-mode", K3346CapsuleFile.ARROWS_MODE_PATH);
         eq("mapa", "/tmp/k3346-map-mode", K3346CapsuleFile.MAP_MODE_PATH);
         eq("hud", "/tmp/k3346-hud-mode", K3346CapsuleFile.HUD_MODE_PATH);
+
+        System.out.println("=== wlasna ramka czasu");
+        eq("plik ramki", "/tmp/vc-eta-pill", K3346CapsuleFile.ETA_PILL_PATH);
+        eq("plik gotowosci", "/tmp/vc-eta-pill-ok", K3346CapsuleFile.ETA_PILL_OK_PATH);
+        {
+            File pf = new File(dir, "pill");
+            eq("zapis", "true", String.valueOf(
+                K3346CapsuleFile.writeText(pf.getPath(), "06:43", "15 min \u00b7 12 km")));
+            eq("format jak kapsula", "06:43\n15 min \u00b7 12 km\nEND\n", read(pf));
+            eq("puste = brak ramki", "true", String.valueOf(K3346CapsuleFile.writeText(pf.getPath(), "", "")));
+            eq("puste linie", "\n\nEND\n", read(pf));
+            pf.delete();
+        }
+
+        System.out.println("=== karta rozmowy (opcja MMI)");
+        eq("plik opcji", "/tmp/k3346-callcard-mode", K3346CapsuleFile.CALLCARD_MODE_PATH);
+        eq("wyl to 2", 2, K3346CapsuleFile.CALLCARD_OFF);
+        {
+            File cm = new File(dir, "callcard");
+            cm.delete();
+            eq("brak pliku: przydymiona", 0, K3346CapsuleFile.readCallCardMode(cm.getPath(), 2));
+            put(cm, "1\n");
+            eq("jasna", 1, K3346CapsuleFile.readCallCardMode(cm.getPath(), 0));
+            put(cm, "2\n");
+            eq("wyl", 2, K3346CapsuleFile.readCallCardMode(cm.getPath(), 0));
+            put(cm, "0\n");
+            eq("przydymiona", 0, K3346CapsuleFile.readCallCardMode(cm.getPath(), 2));
+            put(cm, "2");
+            eq("niedopisany: poprzednia", 1, K3346CapsuleFile.readCallCardMode(cm.getPath(), 1));
+            put(cm, "3\n");
+            eq("spoza zakresu: poprzednia", 2, K3346CapsuleFile.readCallCardMode(cm.getPath(), 2));
+            cm.delete();
+        }
+        eq("rozmowa i przydymiona", "true", String.valueOf(K3346CapsuleFile.callCardShown(true, 0)));
+        eq("rozmowa i jasna", "true", String.valueOf(K3346CapsuleFile.callCardShown(true, 1)));
+        eq("rozmowa i wyl", "false", String.valueOf(K3346CapsuleFile.callCardShown(true, 2)));
+        eq("bez rozmowy", "false", String.valueOf(K3346CapsuleFile.callCardShown(false, 0)));
 
         System.out.println("=== wlacz/wylacz");
         eq("0", "0", String.valueOf(K3346CapsuleFile.parseOnOff("0\n")));

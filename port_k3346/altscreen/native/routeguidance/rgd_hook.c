@@ -10,6 +10,7 @@
 #ifdef K3346_OVERLAY_FEED
 #include "overlay_feed.h"
 #endif
+#include "nav_app.h"
 #include <time.h>
 
 DEFINE_LOG_MODULE(RGD);
@@ -231,7 +232,22 @@ static void rgd_update_cache_merge(const rgd_update_t* upd) {
     if (upd->present & RGD_UPD_LANE_SLOT) c->lane_guidance_slot = upd->lane_guidance_slot;
     if (upd->present & RGD_UPD_LANE_TOTAL) c->lane_guidance_total = upd->lane_guidance_total;
     if (upd->present & RGD_UPD_LANE_SHOWING) c->lane_guidance_showing = upd->lane_guidance_showing;
-    if (upd->present & RGD_UPD_SOURCE_NAME) memcpy(c->source_name, upd->source_name, sizeof(c->source_name));
+    if (upd->present & RGD_UPD_SOURCE_NAME) {
+        /* The CarPlay session gives Apple Maps its own area, nav_app.h.  Written on a
+         * change, and again when the file is gone: mib2high-lvds-control.sh removes it
+         * with the session (CAPSULE_FILES), and the name comes with every update. */
+        static int written = -1;
+        int apple = k3346_nav_is_apple(upd->source_name);
+
+        if (apple != written || access(K3346_NAV_APPLE_PATH, F_OK) != 0) {
+            int rc = k3346_nav_apple_write(K3346_NAV_APPLE_PATH, apple);
+            if (apple != written)
+                rgi_diag_log("NAV", "K3346_NAV_APP apple=%d name=%s rc=%d",
+                             apple, upd->source_name, rc);
+            written = rc == 0 ? apple : -1;
+        }
+        memcpy(c->source_name, upd->source_name, sizeof(c->source_name));
+    }
     if (upd->present & RGD_UPD_SOURCE_SUPPORTS_RG) c->source_supports_route_guidance = upd->source_supports_route_guidance;
 
     c->present |= upd->present;

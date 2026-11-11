@@ -366,6 +366,9 @@ Without this the new features do not switch on.
    **10 seconds**, until the MMI screen goes dark.
    (Other models: button table in the [M.I.B. wiki](https://wiki.mibsolution.one/en/MHI2).)
 2. Let go. The MMI starts again — this takes **1–2 minutes**. Wait until the screen works normally.
+3. **Switch the engine off**, wait until the cluster and the MMI go dark (about a minute), and switch it
+   on again. An MMI restart does not restart the cluster; without this the cluster can keep an old state
+   (for example the arrow without its dark tile) until the next drive.
 
 ### 5.2 Connect the iPhone
 

@@ -219,12 +219,12 @@ static void t_shipped_file(void)
     check_int(c.call_card, 1, "call card on");
     check_int(c.call_card_ringing, 1, "call card while ringing");
     check_int(c.call_card_w, 320, "call card 320 wide");
-    check_int(c.call_card_h, 78, "call card 78 high");
-    check_int(c.call_card_x_small, 735, "call card x, small clocks");
-    check_int(c.call_card_y_small, 300, "call card y, small clocks");
+    check_int(c.call_card_h, 44, "call card 44 high, the pill of rc28");
+    check_int(c.call_card_x_small, 772, "call card x, small clocks");
+    check_int(c.call_card_y_small, 334, "call card y, small clocks");
     check_int(c.call_card_x_big, 560, "call card x, big clocks");
-    check_int(c.call_card_y_big, 305, "call card y, big clocks");
-    check_int(c.call_card_name_px, 28, "name font");
+    check_int(c.call_card_y_big, 334, "call card y, big clocks");
+    check_int(c.call_card_name_px, 24, "name font");
     check_int(c.call_card_status_px, 22, "status font");
     check(!strcmp(c.call_card_font, OVERLAY_CFG_CAPSULE_FONT), "call card font");
     check(!strcmp(c.call_card_font_bold, OVERLAY_CFG_CALL_FONT_BOLD), "call card bold font");
@@ -375,9 +375,10 @@ static void t_canvas_from_card(void)
      * does not fit: a narrower canvas drags the tile back inside by itself. */
     p = write_tmp("ovl_canvas_narrow.conf", "canvas_width 1280\n");
     overlay_cfg_load(&c, p);
-    check_int(overlay_cfg_sanitize(&c), 1, "the measured x_alt no longer fits");
+    check_int(overlay_cfg_sanitize(&c), 2, "the measured x_alt and the Sport tile no longer fit");
     check_int(c.x_alt, 1070, "x_alt pulled to the last column that fits");
     check_int(c.x, 1055, "x still fits and is left alone");
+    check_int(c.x_sport, 1055, "Sport falls back to the classic tile");
 
     p = write_tmp("ovl_canvas_bad.conf",
         "canvas_width 4000\n"
@@ -598,6 +599,27 @@ static void t_call_card(void)
     printf("call card\n");
     overlay_cfg_defaults(&c);
     check_int(c.call_card, 1, "on by default");
+    /* the built-in values, for a card without the conf: the pill of rc28 */
+    check_int(c.call_card_w, 320, "default w");
+    check_int(c.call_card_h, 44, "default h");
+    check_int(c.call_card_x_small, 772, "default x small");
+    check_int(c.call_card_y_small, 334, "default y small");
+    check_int(c.call_card_x_big, 560, "default x big");
+    check_int(c.call_card_y_big, 334, "default y big");
+    check_int(c.call_card_x_sport, 110, "default x sport");
+    check_int(c.call_card_y_sport, 334, "default y sport");
+    check_int(c.call_card_name_px, 24, "default name px");
+    check_int(c.call_card_status_px, 22, "default status px");
+    /* rc30: right above the VC bar (from about y 384), and on the small gauges at the
+     * right end of the map, ending before the maneuver tile (x 1091) */
+    check(c.call_card_y_small + c.call_card_h <= 380 && c.call_card_y_small + c.call_card_h >= 374,
+          "small: the card ends just above the bar");
+    check(c.call_card_y_big + c.call_card_h <= 380, "big: the card ends above the bar");
+    /* rc31: the small speedometer's edge in this row is at about x 1106 (photos, +-6):
+     * close to it, never under it.  The card stands below the maneuver tile. */
+    check(c.call_card_x_small + c.call_card_w <= 1106 - 8, "small: clear of the speedometer");
+    check(c.call_card_x_small + c.call_card_w >= 1106 - 20, "small: close to the speedometer");
+    check_int(c.call_card_x_big + c.call_card_w / 2, 720, "big: centred between the gauges");
     check_int(overlay_cfg_sanitize(&c), 0, "defaults need no clamping");
 
     p = write_tmp("ovl_card.conf",
@@ -642,23 +664,23 @@ static void t_call_card(void)
     CARD_BAD(call_card_w, 119, "too narrow", 320);
     CARD_GOOD(call_card_w, 120, "narrowest allowed");
     CARD_BAD(call_card_w, 701, "too wide", 320);
-    CARD_BAD(call_card_h, 47, "too low", 78);
-    CARD_GOOD(call_card_h, 48, "lowest allowed");
-    CARD_BAD(call_card_h, 161, "too high", 78);
-    CARD_BAD(call_card_name_px, 9, "name font small", 28);
-    CARD_BAD(call_card_name_px, 61, "name font big", 28);
+    CARD_BAD(call_card_h, 31, "too low", 44);
+    CARD_GOOD(call_card_h, 32, "lowest allowed");
+    CARD_BAD(call_card_h, 161, "too high", 44);
+    CARD_BAD(call_card_name_px, 9, "name font small", 24);
+    CARD_BAD(call_card_name_px, 61, "name font big", 24);
     CARD_BAD(call_card_status_px, 9, "status font small", 22);
     CARD_BAD(call_card_status_px, 61, "status font big", 22);
-    CARD_BAD(call_card_x_small, -1, "x small negative", 735);
-    CARD_BAD(call_card_x_small, 1440 - 320 + 1, "x small off the canvas", 735);
+    CARD_BAD(call_card_x_small, -1, "x small negative", 772);
+    CARD_BAD(call_card_x_small, 1440 - 320 + 1, "x small off the canvas", 772);
     CARD_GOOD(call_card_x_small, 1440 - 320, "x small at the edge");
-    CARD_BAD(call_card_y_small, -1, "y small negative", 300);
-    CARD_BAD(call_card_y_small, 542 - 78 + 1, "y small off the canvas", 300);
-    CARD_GOOD(call_card_y_small, 542 - 78, "y small at the edge");
+    CARD_BAD(call_card_y_small, -1, "y small negative", 334);
+    CARD_BAD(call_card_y_small, 542 - 44 + 1, "y small off the canvas", 334);
+    CARD_GOOD(call_card_y_small, 542 - 44, "y small at the edge");
     CARD_BAD(call_card_x_big, -1, "x big negative", 560);
     CARD_BAD(call_card_x_big, 1440 - 320 + 1, "x big off the canvas", 560);
-    CARD_BAD(call_card_y_big, -1, "y big negative", 305);
-    CARD_BAD(call_card_y_big, 542 - 78 + 1, "y big off the canvas", 305);
+    CARD_BAD(call_card_y_big, -1, "y big negative", 334);
+    CARD_BAD(call_card_y_big, 542 - 44 + 1, "y big off the canvas", 334);
 
     overlay_cfg_defaults(&c);
     c.call_card = 5;
@@ -676,9 +698,173 @@ static void t_call_card(void)
     check_int(c.call_card, 0, "emergency canvas turns the card off");
 }
 
+static void t_eta_pill(void)
+{
+    overlay_cfg_t c;
+    const char *p;
+
+    printf("eta pill\n");
+    overlay_cfg_defaults(&c);
+    /* the built-in values, for a card without the conf */
+    check_int(c.eta_pill, 1, "on by default");
+    check_int(c.eta_pill_w, 400, "default w");
+    check_int(c.eta_pill_h, 44, "default h");
+    check_int(c.eta_pill_x_small, 348, "default x small");
+    check_int(c.eta_pill_y_small, 334, "default y small");
+    check_int(c.eta_pill_x_big, 520, "default x big");
+    check_int(c.eta_pill_y_big, 334, "default y big");
+    check_int(c.eta_pill_x_sport, 110, "default x sport");
+    check_int(c.eta_pill_y_sport, 334, "default y sport");
+    check_int(overlay_cfg_sanitize(&c), 0, "defaults need no clamping");
+    /* by the rev counter and clear of the call card on the small gauges; the same
+     * line and height as the call card, so the two read as a pair */
+    check(c.eta_pill_x_small + c.eta_pill_w <= c.call_card_x_small, "small: ends before the call card");
+    /* rc31: the rev counter's edge in this row is at about x 334 (photos, +-6): the
+     * pill starts clear of it, and as far from it as the call card ends before the
+     * speedometer.  The two gauges mirror each other about the middle of the canvas. */
+    check(c.eta_pill_x_small >= 334 + 8, "small: clear of the rev counter");
+    check(c.eta_pill_x_small <= 334 + 20, "small: close to the rev counter");
+    check_int(c.eta_pill_x_small + c.call_card_x_small + c.call_card_w, 1440,
+              "small: the same gap at both gauges");
+    check_int(c.eta_pill_y_small, c.call_card_y_small, "small: the line of the call card");
+    check_int(c.eta_pill_h, c.call_card_h, "as high as the call card");
+    check_int(c.eta_pill_y_big, c.call_card_y_big, "big: the line of the call card");
+    check_int(c.eta_pill_y_sport, c.call_card_y_sport, "sport: the line of the call card");
+    /* rc30: the view areas with a route end at y 334 (mib2high-lvds-viewareas.conf), so
+     * the pill starts where the phone's own things stop */
+    check_int(c.eta_pill_y_small, 334, "small: starts where the view areas end");
+    check_int(c.eta_pill_y_big, 334, "big: starts where the view areas end");
+    check(c.eta_pill_y_small + c.eta_pill_h <= 380, "small: ends above the bar");
+    /* the middle of the strip on the big gauges is the middle between them (x 720) */
+    check_int(c.eta_pill_x_big + c.eta_pill_w / 2, 720, "big: centred between the gauges");
+
+    p = write_tmp("ovl_pill.conf",
+        "eta_pill 0\n"
+        "eta_pill_w 360\n"
+        "eta_pill_h 40\n"
+        "eta_pill_x_small 300\n"
+        "eta_pill_y_small 330\n"
+        "eta_pill_x_big 540\n"
+        "eta_pill_y_big 300\n"
+        "eta_pill_x_sport 90\n"
+        "eta_pill_y_sport 310\n");
+    check_int(overlay_cfg_load(&c, p), 9, "9 keys applied");
+    check_int(overlay_cfg_sanitize(&c), 0, "a good pill needs no clamping");
+    check_int(c.eta_pill, 0, "off from the card");
+    check_int(c.eta_pill_w, 360, "w");
+    check_int(c.eta_pill_h, 40, "h");
+    check_int(c.eta_pill_x_small, 300, "x small");
+    check_int(c.eta_pill_y_small, 330, "y small");
+    check_int(c.eta_pill_x_big, 540, "x big");
+    check_int(c.eta_pill_y_big, 300, "y big");
+    check_int(c.eta_pill_x_sport, 90, "x sport");
+    check_int(c.eta_pill_y_sport, 310, "y sport");
+
+#define PILL_BAD(field, value, what, want) do {                          \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 1, what);                    \
+        check_int(c.field, (want), what " back to the default");         \
+    } while (0)
+#define PILL_GOOD(field, value, what) do {                               \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 0, what);                    \
+    } while (0)
+    PILL_BAD(eta_pill_w, 159, "too narrow", 400);
+    PILL_GOOD(eta_pill_w, 160, "narrowest allowed");
+    PILL_BAD(eta_pill_w, 701, "too wide", 400);
+    PILL_BAD(eta_pill_h, 31, "too low", 44);
+    PILL_GOOD(eta_pill_h, 32, "lowest allowed");
+    PILL_BAD(eta_pill_h, 161, "too high", 44);
+    PILL_BAD(eta_pill_x_small, -1, "x small negative", 348);
+    PILL_BAD(eta_pill_x_small, 1440 - 400 + 1, "x small off the canvas", 348);
+    PILL_GOOD(eta_pill_x_small, 1440 - 400, "x small at the edge");
+    PILL_BAD(eta_pill_y_small, -1, "y small negative", 334);
+    PILL_BAD(eta_pill_y_small, 542 - 44 + 1, "y small off the canvas", 334);
+    PILL_GOOD(eta_pill_y_small, 542 - 44, "y small at the edge");
+    PILL_BAD(eta_pill_x_big, -1, "x big negative", 520);
+    PILL_BAD(eta_pill_x_big, 1440 - 400 + 1, "x big off the canvas", 520);
+    PILL_BAD(eta_pill_y_big, -1, "y big negative", 334);
+    PILL_BAD(eta_pill_y_big, 542 - 44 + 1, "y big off the canvas", 334);
+    PILL_BAD(eta_pill_x_sport, -1, "x sport negative", 110);
+    PILL_BAD(eta_pill_x_sport, 1440 - 400 + 1, "x sport off the canvas", 110);
+    PILL_BAD(eta_pill_y_sport, -1, "y sport negative", 334);
+    PILL_BAD(eta_pill_y_sport, 542 - 44 + 1, "y sport off the canvas", 334);
+
+    overlay_cfg_defaults(&c);
+    c.eta_pill = 5;
+    overlay_cfg_sanitize(&c);
+    check_int(c.eta_pill, 1, "any non-zero is on");
+
+    /* The emergency small canvas has no room for the pill: none at all. */
+    overlay_cfg_defaults(&c);
+    c.canvas_width = 210;
+    c.canvas_height = 153;
+    c.x = c.y = c.x_alt = c.y_alt = 0;
+    overlay_cfg_sanitize(&c);
+    check_int(c.eta_pill, 0, "emergency canvas turns the pill off");
+}
+
+static void test_sport(void)
+{
+    overlay_cfg_t c;
+
+    overlay_cfg_defaults(&c);
+    check_int(overlay_cfg_sanitize(&c), 0, "sport defaults are valid");
+    check_int(c.x_sport, 984, "sport x");
+    check_int(c.y_sport, 139, "sport y");
+    check_int(c.width_sport, 328, "sport width");
+    check_int(c.height_sport, 180, "sport height");
+    check_int(c.crop_x_sport, 0, "sport crop x");
+    check_int(c.crop_y_sport, 0, "sport crop y");
+    check_int(c.call_card_x_sport, 110, "sport card x");
+    check_int(c.call_card_y_sport, 334, "sport card y");
+
+#define SPORT_BAD(field, val, what) do { \
+        overlay_cfg_defaults(&c); c.field = (val); overlay_cfg_sanitize(&c); \
+        check_int(c.x_sport, c.x, what ": whole rectangle back to classic"); \
+        check_int(c.width_sport, c.width, what ": width too"); \
+        check_int(c.crop_x_sport, c.crop_x, what ": crop too"); \
+    } while (0)
+    SPORT_BAD(width_sport, 15, "too narrow");
+    SPORT_BAD(height_sport, 15, "too low");
+    SPORT_BAD(crop_x_sport, -1, "crop x negative");
+    SPORT_BAD(crop_y_sport, -1, "crop y negative");
+    SPORT_BAD(width_sport, 329, "wider than the render");
+    SPORT_BAD(height_sport, 182, "taller than the render");
+    SPORT_BAD(x_sport, -1, "x negative");
+    SPORT_BAD(y_sport, -1, "y negative");
+    SPORT_BAD(x_sport, 1440 - 328 + 1, "off the canvas right");
+    SPORT_BAD(y_sport, 542 - 180 + 1, "off the canvas bottom");
+
+    overlay_cfg_defaults(&c);
+    c.height_sport = 181;
+    check_int(overlay_cfg_sanitize(&c), 0, "the whole render fits");
+    overlay_cfg_defaults(&c);
+    c.x_sport = 1440 - 328;
+    check_int(overlay_cfg_sanitize(&c), 0, "at the canvas edge");
+    check_int(c.x_sport, 1440 - 328, "at the canvas edge stays");
+
+    overlay_cfg_defaults(&c);
+    c.call_card_x_sport = -1;
+    overlay_cfg_sanitize(&c);
+    check_int(c.call_card_x_sport, 110, "sport card x negative");
+    overlay_cfg_defaults(&c);
+    c.call_card_x_sport = 1440 - 320 + 1;
+    overlay_cfg_sanitize(&c);
+    check_int(c.call_card_x_sport, 110, "sport card x off the canvas");
+    overlay_cfg_defaults(&c);
+    c.call_card_y_sport = 542 - 44 + 1;
+    overlay_cfg_sanitize(&c);
+    check_int(c.call_card_y_sport, 334, "sport card y off the canvas");
+}
+
 int main(void)
 {
+    test_sport();
     t_call_card();
+    t_eta_pill();
     t_capsule();
     t_defaults();
     t_visible_top();

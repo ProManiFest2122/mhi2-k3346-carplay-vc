@@ -5,6 +5,13 @@
 
 static altscreen_state *s;
 
+/* the area sent for a logical view: an app other than Apple Maps without the card has
+ * its own on the big gauges of Classic (rc30, view 8) */
+static int wire_of(int view)
+{
+    return view == 3 && g_card_mode == K3346_CARD_NONE && !g_nav_apple && !g_sport ? 8 : view;
+}
+
 static void put_file(const char *path, const char *text)
 {
     FILE *f = fopen(path, "w");
@@ -24,13 +31,24 @@ static void show_sequence(int view, const char *url)
 {
     int b = nsends;
 
-    step("showUI");
-    assert(!strcmp(sends[b].url, url));
-    idle();
-    ack(b, 0);
-    step("updateViewArea");
-    assert(sends[b + 1].view == view);
-    ack(b + 1, 0);
+    if (s->last_ui_slot >= 0 && s->last_ui_slot != view / 2) {
+        /* a layout change: the area first */
+        step("updateViewArea");
+        assert(sends[b].view == wire_of(view));
+        idle();
+        ack(b, 0);
+        step("showUI");
+        assert(!strcmp(sends[b + 1].url, url));
+        ack(b + 1, 0);
+    } else {
+        step("showUI");
+        assert(!strcmp(sends[b].url, url));
+        idle();
+        ack(b, 0);
+        step("updateViewArea");
+        assert(sends[b + 1].view == wire_of(view));
+        ack(b + 1, 0);
+    }
     step("forceKeyFrame");
     ack(b + 2, 0);
 }
@@ -40,7 +58,7 @@ static void view_only(int view)
     int b = nsends;
 
     step("updateViewArea");
-    assert(sends[b].view == view);
+    assert(sends[b].view == wire_of(view));
     ack(b, 0);
     step("forceKeyFrame");
     ack(b + 1, 0);
@@ -62,8 +80,8 @@ static void settled(void)
 #define URL_BIG "maps:/car/instrumentcluster?maneuverLayout=topAligned"
 #define URL_SMALL "maps:/car/instrumentcluster?maneuverLayout=leftAligned"
 #define URL_NONE_BIG "maps:/car/instrumentcluster/map"
-#define URL_NONE_SMALL "maps:/car/instrumentcluster/map?maneuverLayout=leftAligned"
-#define URL_NONE_BIG_ETA "maps:/car/instrumentcluster/map?showETA=yes"
+#define URL_NONE_SMALL "maps:/car/instrumentcluster/map"
+#define BAP54(v) "2#org.dsi.ifc.bap.DSIBAPListener#indication#118769|int:50|int:54|int:0|int:0|int:" v
 
 int main(void)
 {
@@ -73,8 +91,10 @@ int main(void)
     prepare();
     remove(K3346_CALL_CARD_PATH);
     remove(K3346_LAYOUT_SLOT_PATH);
+    remove(K3346_VIEW_SIZE_PATH);
     remove(K3346_CARD_MODE_PATH);
     remove(K3346_NO_RGI_PATH);
+    remove(K3346_SKIN_PATH);
     put_file(K3346_ETA_MODE_PATH, "0\n");
     g_bap54_layout_known = 1;
     g_layout_slot = 1;
@@ -136,21 +156,63 @@ int main(void)
     show_sequence(3, URL_NONE_BIG);
     settled();
 
-    /* the ETA value travels with the URL */
+    /* rc29: the ETA option is the overlay's (overlay/eta_pill.h).  For an app with
+     * route guidance it changes no URL, with or without the card. */
     s->layout_change_ms = 0;
     put_file(K3346_ETA_MODE_PATH, "1\n");
+    b = nsends;
     eta_mode_poll();
-    show_sequence(3, URL_NONE_BIG_ETA);
-    settled();
+    idle();
+    assert(nsends == b && s->ui_eta_on_map == 0);
     card("0\n");
-    show_sequence(3, "maps:/car/instrumentcluster?showETA=yes&maneuverLayout=topAligned");
+    show_sequence(3, URL_BIG);
     settled();
     card("1\n");
-    show_sequence(3, URL_NONE_BIG_ETA);
+    show_sequence(3, URL_NONE_BIG);
     settled();
-    put_file(K3346_ETA_MODE_PATH, "0\n");
+
+    /* the VC reports a new layout: the first tick sends, no wait of ours */
+    v8n_observe_gauge_bap54(BAP54("1"), 0);
+    show_sequence(1, URL_NONE_SMALL);
+    settled();
+    v8n_observe_gauge_bap54(BAP54("0"), 0);
+    show_sequence(3, URL_NONE_BIG);
+    settled();
+
+    /* "both": the same, the phone is not asked for a box */
+    put_file(K3346_ETA_MODE_PATH, "2\n");
+    settled();
+    press_view(0);
+    show_sequence(1, URL_NONE_SMALL);
+    settled();
+    press_view(1);
+    show_sequence(3, URL_NONE_BIG);
+    settled();
+
+    /* an app without route guidance: its card and the phone's box, in one showUI */
+    s->layout_change_ms = 0;
+    put_file(K3346_NO_RGI_PATH, "");
+    eta_mode_poll();
+    show_sequence(3, "maps:/car/instrumentcluster?showETA=yes&maneuverLayout=topAligned");
+    assert(s->ui_card == K3346_CARD_FULL && s->ui_eta_on_map == 1);
+    settled();
+    press_view(0);
+    show_sequence(1, "maps:/car/instrumentcluster?showETA=yes&maneuverLayout=leftAligned");
+    settled();
+    press_view(1);
+    show_sequence(3, "maps:/car/instrumentcluster?showETA=yes&maneuverLayout=topAligned");
+    settled();
+    remove(K3346_NO_RGI_PATH);
     eta_mode_poll();
     show_sequence(3, URL_NONE_BIG);
+    assert(s->ui_card == K3346_CARD_NONE && s->ui_eta_on_map == 0);
+    settled();
+
+    put_file(K3346_ETA_MODE_PATH, "0\n");
+    b = nsends;
+    eta_mode_poll();
+    idle();
+    assert(nsends == b);
     settled();
 
     /* an app without route guidance keeps its card; the choice comes back with one */
@@ -189,13 +251,13 @@ int main(void)
     for (b = 0; b < nsends; b++)
         assert(strcmp(sends[b].name, "stopUI") != 0);
 
-    /* the phone is told 4 areas */
+    /* the phone is told 9 areas */
     {
-        cf_ref request = make_view_request(3);
+        cf_ref request = make_view_request(3, 0, 0);
         mock_obj *params = (mock_obj *)fake_get(request, obj(3, "params"));
         mock_obj *adjacent = (mock_obj *)fake_get(params, obj(3, "adjacentViewAreas"));
 
-        assert(adjacent->count == 3);
+        assert(adjacent->count == 8);
     }
 
     puts("k3346 card OK");

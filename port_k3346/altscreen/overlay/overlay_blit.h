@@ -65,4 +65,19 @@ static void overlay_blit_quad(const overlay_cfg_t *c, int dst_x, int dst_y,
     pos[6] = x1; pos[7] = y1;   uv[6] = u1; uv[7] = v1;
 }
 
+/* The tile on the Sport skin: same drawing, another rectangle.  Only the big-gauges
+ * slot differs; the small-gauges tile is in the same place on both skins. */
+static void overlay_tile_view(const overlay_cfg_t *c, int slot, int sport, overlay_cfg_t *out)
+{
+    *out = *c;
+    if (slot != 1 || !sport)
+        return;
+    out->x = c->x_sport;
+    out->y = c->y_sport;
+    out->crop_x = c->crop_x_sport;
+    out->crop_y = c->crop_y_sport;
+    out->width = c->width_sport;
+    out->height = c->height_sport;
+}
+
 #endif /* K3346_OVERLAY_BLIT_H */

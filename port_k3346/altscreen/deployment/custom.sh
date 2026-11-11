@@ -280,7 +280,7 @@ if [ -f "$E5_INSTALLED" ] || [ -f "$E5_PENDING" ]; then tx_restore "$E5_BACKUP" 
 if [ -f "$E4_INSTALLED" ] || [ -f "$E4_PENDING" ]; then e4_restore || fail 'etap4 restore failed: do not reboot'; rm -f "$E4_INSTALLED" "$E4_PENDING" || fail 'cannot clear etap4 flags'; : > "$E4_ROLLEDBACK" || fail 'cannot mark etap4 rollback'; say 'ETAP4_ROLLBACK=PASS'; fi
 rm -f "$VCPOL_FILE" "$VCPOL_FILE".new.* || fail 'cannot remove VC policy file'
 rm -f "$TPAD_FILE" "$TPAD_FILE".new.* || fail 'cannot remove touchpad mode file'
-restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'SAFE TO REMOVE SD'; }
+restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'; say 'SAFE TO REMOVE SD'; }
 # ------------------------------------------------------------------------------
 # K3346 Etap 4: RGI w stock mm-ipod.
 #  - biblioteka TYLKO z RGI (bez AltScreen) -> /mnt/app/root/hooks/
@@ -772,6 +772,7 @@ say 'INSTALL_ALL_RESULT=PASS'
 navignore_report
 say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'
 say 'Then connect the iPhone and start CarPlay navigation.'
 say 'SAFE TO REMOVE SD'; }
 # Zapis polityki VC. Atomowo (plik tymczasowy + mv), zeby HMI nigdy nie
@@ -797,6 +798,7 @@ say "VC_POLICY_RESULT=PASS policy=$pol (logs of the previous route saved above)"
 for m in $VCPOL_MARKS; do [ ! -f "$MOD/$m" ] || say "NEXT_QUEUED=$m (run the script again during the next route)"; done
 say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'
 say 'SAFE TO REMOVE SD'; }
 # Tryb touchpada - ten sam schemat co set_vc_policy (logi, atomowy zapis, kolejka).
 set_touchpad(){ mode="$1"; mark="$2"; say "MODE=TOUCHPAD touchpad=$mode"; checkrw "$SD" || fail 'SD not writable'
@@ -814,6 +816,7 @@ say "TOUCHPAD_RESULT=PASS touchpad=$mode (logs of the current session saved abov
 for m in $TPAD_MARKS; do [ ! -f "$MOD/$m" ] || say "NEXT_QUEUED=$m (run the script again)"; done
 say 'Restart the MMI now: hold the big MMI knob + NAV/MAP + RADIO together for ~10 s'
 say '(A4/A5/Q5 B9; other models: button table in the M.I.B. wiki).'
+say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'
 say 'SAFE TO REMOVE SD'; }
 [ -d "$SD" ] || fail 'SD not mounted'; [ -d "$MOD" ] || fail 'package missing'
 # ROLLBACK ma pierwszenstwo NAD wymuszonym zbieraniem: zapomniany na karcie plik

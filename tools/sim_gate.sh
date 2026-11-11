@@ -40,6 +40,8 @@ setup_fakes(){
     {
         echo '#!/bin/sh'
         echo 'echo "dmdt $*" >> /tmp/sim_gate_dmdt.log'
+        # Renderer ma swoja sciezke bibliotek, dmdt potrzebuje /eso/lib.
+        echo '[ "${LD_LIBRARY_PATH:-}" = /eso/lib ] || echo "badld $*" >> /tmp/sim_gate_dmdt.log'
         echo 'case "${1:-}" in'
         echo '  gd|gs) exit 0 ;;'
         echo '  dc) if [ -f /tmp/sim_gate_dc_fails ]; then exit 1; fi'
@@ -57,8 +59,17 @@ setup_fakes(){
         echo 'exec "$@"'
     } > /mnt/app/armle/bin/on
 
-    # pidin milczy, wiec skrypt zawsze probuje startowac procesy
-    printf '#!/bin/sh\nexit 0\n' > /mnt/app/armle/bin/pidin
+    # pidin domyslnie milczy, wiec skrypt zawsze probuje startowac procesy. Plik
+    # /tmp/sim_gate_pidin.N to odpowiedz na N-te wywolanie w sesji.
+    {
+        echo '#!/bin/sh'
+        echo 'N=0'
+        echo '[ -f /tmp/sim_gate_pidin_calls ] && N=`cat /tmp/sim_gate_pidin_calls`'
+        echo 'N=$((N+1))'
+        echo 'echo "$N" > /tmp/sim_gate_pidin_calls'
+        echo '[ -f /tmp/sim_gate_pidin.$N ] && cat /tmp/sim_gate_pidin.$N'
+        echo 'exit 0'
+    } > /mnt/app/armle/bin/pidin
     printf '#!/bin/sh\nexit 0\n' > /mnt/app/armle/bin/slay
     printf '#!/bin/sh\nexit 0\n' > /mnt/app/armle/bin/sloginfo
 
@@ -72,6 +83,7 @@ setup_fakes(){
         echo '[ -f /tmp/sim_gate_sleeps ] && N=`cat /tmp/sim_gate_sleeps`'
         echo 'N=$((N+1))'
         echo 'echo "$N" > /tmp/sim_gate_sleeps'
+        echo '[ -f /tmp/k2161-altscreen-heartbeat ] && : > /tmp/sim_gate_hb_seen'
         # Spozniony meldunek. Liczymy TYLKO sekundy po "overlay start", czyli
         # dokladnie obroty petli czekania bramy - inne sleepy w skrypcie nie
         # moga przesunac tego przypadku.
@@ -149,7 +161,10 @@ reset_state(){
           /tmp/sim_gate_saw_off /tmp/sim_gate_stale_seen \
           /tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-layout-last \
           /tmp/k3346-no-rgi /tmp/k3346-map-mode /tmp/k3346-arrows-mode \
-          /tmp/sim_gate_plan /tmp/sim_gate_dc902_fails \
+          /tmp/sim_gate_plan /tmp/sim_gate_dc902_fails /tmp/sim_gate_hb_seen /tmp/vc-skin \
+          /tmp/mib2high-lvds-sessions /tmp/vc-view-size \
+          /tmp/sim_gate_pidin_calls /tmp/sim_gate_pidin.1 /tmp/sim_gate_pidin.2 \
+          /tmp/mib2high-vc-render.profile \
           /tmp/vc-overlay-ready /tmp/vc-overlay-ready.tmp \
           /tmp/mib2high-lvds-control.pid /tmp/k2161-altscreen-heartbeat \
           /tmp/mib2high-lvds-reacquire /mnt/app/root/vc_overlay
@@ -240,26 +255,68 @@ expect_seq(){
     else bad "$1: konteksty `ctx_seq`, oczekiwano $2"; fi
 }
 
+case_session_counter(){
+    echo "--- $SH: licznik sesji od startu (PR #12)"
+    reset_state; install_overlay ok
+    run_ctl
+    if grep -q 'session #1 since boot' "$CTLLOG" 2>/dev/null; then ok "pierwsza sesja = 1"
+    else bad "brak session #1"; fi
+    : > /tmp/mib2high-lvds-active
+    run_ctl
+    if grep -q 'session #2 since boot' "$CTLLOG" 2>/dev/null; then ok "ponowne podlaczenie = 2"
+    else bad "brak session #2"; fi
+    echo 1x > /tmp/mib2high-lvds-sessions
+    rm -f "$CTLLOG"
+    : > /tmp/mib2high-lvds-active
+    run_ctl
+    if grep -q 'session #1 since boot' "$CTLLOG" 2>/dev/null; then ok "smieci w pliku = od nowa"
+    else bad "smieci w pliku licznika"; fi
+    # Bez aktywnej sesji skrypt nic nie zaczal, wiec nie ma co liczyc.
+    reset_state; install_overlay ok
+    rm -f /tmp/mib2high-lvds-active
+    run_ctl
+    if [ -f /tmp/mib2high-lvds-sessions ]; then bad "licznik bez sesji"
+    else ok "bez sesji licznik stoi"; fi
+}
+
 case_map_options(){
     echo "--- $SH: opcje Mapa i Strzalka na VC"
     reset_state; install_overlay ok
+    echo 1 > /tmp/vc-skin
+    echo 1 > /tmp/vc-view-size
     run_ctl
     if grep -q 'dmdt dc 902 98 102 101 33' "$DMLOG" 2>/dev/null
     then ok "kontekst 902 w kolejnosci {98,102,101,33}"
     else bad "zla albo brakujaca deklaracja kontekstu 902"; fi
-    expect_seq "bez plikow opcji" "901 72 "
+    expect_seq "bez plikow opcji" "900 901 72 "
+    # Pierwszy showUI nastepnej sesji ma znac uklad, zanim bundle go odczyta.
+    if [ "`cat /tmp/vc-skin 2>/dev/null`" = "1" ]; then ok "skin przezyl koniec sesji"
+    else bad "skin zniknal z koncem sesji"; fi
+    if [ "`cat /tmp/vc-view-size 2>/dev/null`" = "1" ]; then ok "rozmiar widoku przezyl koniec sesji"
+    else bad "rozmiar widoku zniknal z koncem sesji"; fi
+    if grep -q badld "$DMLOG" 2>/dev/null
+    then bad "dmdt bez /eso/lib: `grep badld "$DMLOG" | head -1`"
+    else ok "dmdt zawsze z /eso/lib"; fi
+    if [ -f /tmp/sim_gate_hb_seen ]; then ok "heartbeat w trakcie sesji"
+    else bad "brak heartbeatu mimo deklaracji 900"; fi
+    # Co sekunde: 3 s migotania fabrycznej mapy z filmow #8-#10 nie moze wrocic.
+    if [ "`ctx_count 901`" -ge 8 ]; then ok "901 powtarzane co sekunde"
+    else bad "901 wyslane tylko `ctx_count 901` razy"; fi
+    if awk '/dmdt sc 4 900/ { s=NR } /dmdt dc 901/ { d=NR } END { exit !(s && d && s < d) }' "$DMLOG"
+    then ok "sama mapa przed nakladka"
+    else bad "sc 4 900 nie przed deklaracja 901"; fi
     if [ "`ctx_count 901`" -ge 3 ]; then ok "901 dalej powtarzane co kilka sekund"
     else bad "901 wyslane tylko `ctx_count 901` razy"; fi
 
     reset_state; install_overlay ok
     echo 0 > /tmp/k3346-map-mode; echo 0 > /tmp/k3346-arrows-mode
     run_ctl
-    expect_seq "obie Wl" "901 72 "
+    expect_seq "obie Wl" "900 901 72 "
 
     reset_state; install_overlay ok
     echo 0 > /tmp/k3346-map-mode; echo 1 > /tmp/k3346-arrows-mode
     run_ctl
-    expect_seq "mapa Wl, strzalka Wyl" "901 72 "
+    expect_seq "mapa Wl, strzalka Wyl" "900 901 72 "
 
     reset_state; install_overlay ok
     echo 1 > /tmp/k3346-map-mode
@@ -282,7 +339,7 @@ case_map_options(){
     { echo '10 /tmp/k3346-map-mode 1'; echo '15 /tmp/k3346-arrows-mode 1'
       echo '20 /tmp/k3346-map-mode'; echo '25 /tmp/k3346-arrows-mode'; } > /tmp/sim_gate_plan
     run_ctl
-    expect_seq "zmiany w trakcie sesji" "901 902 72 901 72 "
+    expect_seq "zmiany w trakcie sesji" "900 901 902 72 901 72 "
 
     reset_state; install_overlay ok
     : > /tmp/sim_gate_dc902_fails
@@ -293,7 +350,7 @@ case_map_options(){
     reset_state; install_overlay ok
     : > /tmp/sim_gate_dc902_fails
     run_ctl
-    expect_seq "902 odrzucony, mapa Wl" "901 72 "
+    expect_seq "902 odrzucony, mapa Wl" "900 901 72 "
 
     reset_state; install_overlay none
     echo 1 > /tmp/k3346-map-mode
@@ -303,7 +360,17 @@ case_map_options(){
     reset_state
     { echo '10 /tmp/k3346-map-mode 1'; echo '20 /tmp/k3346-map-mode'; } > /tmp/sim_gate_plan
     run_ctl
-    expect_seq "bez nakladki, mapa w trakcie" "77 72 77 72 "
+    expect_seq "bez nakladki, mapa w trakcie" "900 77 72 77 72 "
+
+    reset_state; install_overlay ok
+    : > /tmp/sim_gate_dc_fails
+    run_ctl
+    if grep -q 'dmdt sc 4 900' "$DMLOG" 2>/dev/null
+    then bad "sc 4 900 mimo odrzuconej deklaracji"
+    else ok "bez deklaracji 900 nie ma sc 4 900"; fi
+    if [ -f /tmp/sim_gate_hb_seen ]; then bad "heartbeat mimo odrzuconej deklaracji"
+    else ok "bez deklaracji 900 nie ma heartbeatu"; fi
+    rm -f /tmp/sim_gate_dc_fails
 }
 
 case_none_installed(){
@@ -385,11 +452,10 @@ case_stale_report(){
 case_late_report(){
     echo "--- $SH: meldunek dopiero w 8. sekundzie czekania"
     reset_state; install_overlay none
-    # 9, nie 8: miedzy "overlay start" a petla czekania skrypt spi jeszcze raz
-    # (deklaracja kontekstu 900), wiec 9. sekunda po starcie nakladki to 8. obrot
-    # petli bramy. Sprawdzone, nie zgadniete - dlatego asercja jest na dokladna
-    # liczbe, a nie na "cokolwiek wiekszego od 6".
-    echo 9 > /tmp/sim_gate_late
+    # Miedzy "overlay start" a petla czekania skrypt juz nie spi (rc20), wiec 8. sekunda
+    # po starcie nakladki to 8. obrot petli bramy. Asercja jest na dokladna liczbe, a nie
+    # na "cokolwiek wiekszego od 6": dodatkowy sleep opoznia mape i strzalke.
+    echo 8 > /tmp/sim_gate_late
     run_ctl
     GOT=`grep -o 'overlay ready after [0-9]*s' "$CTLLOG" 2>/dev/null || true`
     if [ "$GOT" = "overlay ready after 8s" ]
@@ -418,6 +484,81 @@ case_dc_fails(){
     expect_capsule_off "dmdt dc odmawia"
 }
 
+# Kolejnosc startu (rc20, run-73): pidin raz, nakladka przed mapa, sloginfo po mapie.
+line_of(){
+    grep -n "$1" "$CTLLOG" 2>/dev/null | head -1 | cut -d: -f1
+}
+expect_before(){
+    A=`line_of "$2"`; B=`line_of "$3"`
+    if [ -n "$A" ] && [ -n "$B" ] && [ "$A" -lt "$B" ]; then ok "$1"
+    else bad "$1 ('$2' w linii ${A:-brak}, '$3' w linii ${B:-brak})"; fi
+}
+pidin_calls(){
+    cat /tmp/sim_gate_pidin_calls 2>/dev/null || echo 0
+}
+case_start_order(){
+    echo "--- $SH: kolejnosc startu"
+    reset_state; install_overlay ok
+    run_ctl
+    if [ "`pidin_calls`" = "1" ]; then ok "pidin raz na sesje"
+    else bad "pidin `pidin_calls` razy, oczekiwano 1"; fi
+    expect_before "renderer przed nakladka" "renderer start" "overlay start"
+    expect_before "nakladka przed mapa" "overlay start" "cluster gate context=900"
+    expect_before "mapa przed sloginfo" "cluster gate context=900" "session active"
+    expect_before "sloginfo przed 901" "session active" "overlay ready after"
+    # Meldunek od razu: zadnego czekania miedzy startem nakladki a brama.
+    GOT=`grep -o 'overlay ready after [0-9]*s' "$CTLLOG" 2>/dev/null || true`
+    if [ "$GOT" = "overlay ready after 0s" ]; then ok "bez sleep przed brama"
+    else bad "brama: ${GOT:-nic}"; fi
+
+    # Profil zostal z poprzedniej sesji, a renderera nie ma.
+    echo "--- $SH: renderera nie ma, profil ten sam"
+    reset_state; install_overlay ok
+    echo "800 480 30" > /tmp/mib2high-vc-render.profile
+    run_ctl
+    if grep -q 'renderer start' "$CTLLOG" 2>/dev/null; then ok "renderer startuje"
+    else bad "brak startu renderera"; fi
+
+    echo "--- $SH: renderer i nakladka juz dzialaja"
+    reset_state; install_overlay none
+    echo "98 210 153" > /tmp/vc-overlay-ready
+    echo "800 480 30" > /tmp/mib2high-vc-render.profile
+    printf '1 /mnt/app/root/vc_render\n2 /mnt/app/root/vc_overlay\n' > /tmp/sim_gate_pidin.1
+    printf '2 /mnt/app/root/vc_overlay\n' > /tmp/sim_gate_pidin.2
+    run_ctl
+    if grep -q 'renderer already running' "$CTLLOG" 2>/dev/null; then ok "renderer zostaje"
+    else bad "renderer nie rozpoznany"; fi
+    if grep -q 'overlay already running' "$CTLLOG" 2>/dev/null; then ok "nakladka zostaje"
+    else bad "nakladka nie rozpoznana"; fi
+    if grep -q 'overlay start' "$CTLLOG" 2>/dev/null; then bad "druga nakladka"
+    else ok "bez drugiej nakladki"; fi
+    if [ "`pidin_calls`" = "2" ]; then ok "nakladka sprawdzona drugi raz"
+    else bad "pidin `pidin_calls` razy, oczekiwano 2"; fi
+
+    # Nakladka poprzedniej sesji konczy sie w tej chwili (cleanup): w pierwszym
+    # spojrzeniu jest, w drugim juz nie. Bez nowej VC zostalby bez strzalki.
+    echo "--- $SH: nakladka poprzedniej sesji w trakcie konczenia"
+    reset_state; install_overlay ok
+    echo "800 480 30" > /tmp/mib2high-vc-render.profile
+    printf '1 /mnt/app/root/vc_render\n2 /mnt/app/root/vc_overlay\n' > /tmp/sim_gate_pidin.1
+    run_ctl
+    if grep -q 'overlay start' "$CTLLOG" 2>/dev/null; then ok "nowa nakladka"
+    else bad "brak nowej nakladki"; fi
+    if [ "`work_ctx`" = "901" ]; then ok "kombi na 901"
+    else bad "kombi na `work_ctx`"; fi
+
+    echo "--- $SH: zmiana profilu renderera"
+    reset_state; install_overlay ok
+    echo "1 2 3" > /tmp/mib2high-vc-render.profile
+    printf '1 /mnt/app/root/vc_render\n' > /tmp/sim_gate_pidin.1
+    run_ctl
+    if grep -q 'renderer profile changed' "$CTLLOG" 2>/dev/null; then ok "profil wykryty"
+    else bad "profil nie wykryty"; fi
+    expect_before "po zmianie profilu nowy renderer" "renderer profile changed" "renderer start"
+    if [ "`pidin_calls`" = "1" ]; then ok "bez dodatkowego pidin"
+    else bad "pidin `pidin_calls` razy"; fi
+}
+
 case_cleanup(){
     echo "--- $SH: po sesji nie zostaje meldunek"
     reset_state; install_overlay ok
@@ -439,6 +580,8 @@ run_all(){
     case_dc_fails
     case_stale_capsule
     case_map_options
+    case_session_counter
+    case_start_order
     case_cleanup
 }
 

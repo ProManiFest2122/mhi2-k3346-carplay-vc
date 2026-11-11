@@ -17,6 +17,7 @@ import de.audi.atip.interapp.combi.bap.navi.data.CombiBAPNaviManeuverDescriptor;
 import de.audi.atip.log.LogChannel;
 import de.audi.atip.metrics.DateMetric;
 import de.audi.atip.metrics.Distance;
+import de.audi.atip.mmicombi.IViewSizeManager;
 import de.audi.tghu.navi.app.Navigation;
 import de.audi.tghu.navi.app.cluster.BAPDistanceFormatter;
 import de.audi.tghu.navi.app.cluster.ClusterService;
@@ -66,6 +67,11 @@ public class BAPBridge {
     private static boolean VC_RGI_ENABLED = !"off".equals(VC_POLICY);
     private boolean arrowsOff;
     private boolean hudSuppressed;
+    private int lastSkin = -1;
+    private boolean skinWarned;
+    private IViewSizeManager viewSizeManager;
+    private int lastViewSlot = -1;
+    private boolean viewSizeWarned;
 
     /* Only the rgi policy selects and holds favoredViewMode=RGI. */
     private static final boolean VC_SET_FAVORED = "rgi".equals(VC_POLICY);
@@ -105,7 +111,13 @@ public class BAPBridge {
     private int capsuleSlot = K3346NavBarText.SLOT_NONE;
     private boolean capsuleDraw = false;
     private int etaMode = K3346CapsuleFile.ETA_CAPSULE;
-    private boolean callVisible = false;
+    private boolean callVisible = false;   /* a call, and our card on (the MMI option) */
+    private boolean callRaw = false;
+    private int callCardMode = 0;
+    /* Our arrival-time box in the overlay: can it be drawn, and what it last got. */
+    private boolean pillReady = false;
+    private String lastPillLeft = null;
+    private String lastPillRight = null;
     private String lastCapsuleLeft = null;
     private String lastCapsuleRight = null;
     private final Object distanceToManeuverLock = new Object();
@@ -866,6 +878,7 @@ public class BAPBridge {
             lastBarText = null;
             lastBarRoad = null;
             writeCapsule("", "");
+            writePill("", "");
             try {
                 appConnectorNavi.updateCurrentPositionInfo("");                       /* FctID 19 */
             } catch (Throwable t) {
@@ -944,6 +957,7 @@ public class BAPBridge {
             lastBarText = null;
             lastBarRoad = null;
             writeCapsule("", "");
+            writePill("", "");
             try { appConnectorNavi.updateCurrentPositionInfo(""); } catch (Throwable t) {}
             sendDistanceToDestinationRaw(0, false);
             traceBap("updateTimeToDestination", "0,0,-1");
@@ -979,9 +993,14 @@ public class BAPBridge {
     }
 
     private void publishBar(RouteGuidance.State s) {
-        /* "Map" in the MMI option: the phone shows the time, the bar keeps the street. */
-        boolean timeOk = K3346NavBarText.timesOnBar(etaMode, callVisible, capsuleSlot)
-            && !K3346NavBarText.timeBogus(s.timeRemainingSeconds, s.distDestM);
+        /* "Map" in the MMI option: our box on the map shows the time, the bar keeps
+         * the street. */
+        boolean timeValid = !K3346NavBarText.timeBogus(s.timeRemainingSeconds, s.distDestM);
+        boolean timeOk = timeValid
+            && K3346NavBarText.timesOnBar(etaMode, callVisible, capsuleSlot, pillReady);
+        String[] pill = K3346NavBarText.etaPill(etaMode, pillReady, timeValid,
+            arrivalTextForBar(s), K3346NavBarText.remaining(s.timeRemainingSeconds),
+            K3346NavBarText.distance(s.distDestM, isMetricDistanceUnits()));
         K3346NavBarText.Capsule capsule = K3346NavBarText.capsule(
             capsuleSlot,
             capsuleDraw,
@@ -997,6 +1016,34 @@ public class BAPBridge {
             lastBarText = barText;
         }
         writeCapsule(capsule.left, capsule.right);
+        writePill(pill[0], pill[1]);
+    }
+
+    /* The session script removes the file between sessions, so a text that did not
+     * change is written again when the file is gone. */
+    private void writePill(String left, String right) {
+        boolean empty = left.length() == 0 && right.length() == 0;
+        if (left.equals(lastPillLeft) && right.equals(lastPillRight)
+                && (empty || K3346CapsuleFile.exists(K3346CapsuleFile.ETA_PILL_PATH))) {
+            return;
+        }
+        if (K3346CapsuleFile.writeText(K3346CapsuleFile.ETA_PILL_PATH, left, right)) {
+            lastPillLeft = left;
+            lastPillRight = right;
+            Log.d(TAG, "ETA pill " + (empty ? "off" : "on"));
+        } else {
+            Log.w(TAG, "ETA pill text not written");
+        }
+    }
+
+    private boolean pollPillReady() {
+        boolean ready = K3346CapsuleFile.exists(K3346CapsuleFile.ETA_PILL_OK_PATH);
+        if (ready == pillReady) {
+            return false;
+        }
+        pillReady = ready;
+        Log.d(TAG, "ETA pill ready=" + ready);
+        return true;
     }
 
     private void writeCapsule(String left, String right) {
@@ -1045,15 +1092,17 @@ public class BAPBridge {
 
     private boolean pollCallCard() {
         int read = K3346CapsuleFile.readCallCard(K3346CapsuleFile.CALL_CARD_PATH);
-        if (read == K3346CapsuleFile.SLOT_NOT_READY) {
-            return false;
+        if (read != K3346CapsuleFile.SLOT_NOT_READY) {
+            callRaw = read == K3346CapsuleFile.CALL_VISIBLE;
         }
-        boolean visible = read == K3346CapsuleFile.CALL_VISIBLE;
+        callCardMode = K3346CapsuleFile.readCallCardMode(K3346CapsuleFile.CALLCARD_MODE_PATH,
+            callCardMode);
+        boolean visible = K3346CapsuleFile.callCardShown(callRaw, callCardMode);
         if (visible == callVisible) {
             return false;
         }
         callVisible = visible;
-        Log.d(TAG, "Call card visible=" + visible);
+        Log.d(TAG, "Call card visible=" + visible + " mode=" + callCardMode);
         return true;
     }
 
@@ -1066,7 +1115,11 @@ public class BAPBridge {
         boolean layout = pollCapsuleSlot();
         boolean mode = pollEtaMode();
         boolean call = pollCallCard();
-        if ((layout || mode || call) && lastBarRoad != null) {
+        boolean pill = pollPillReady();
+        /* a new session of the map: its script removed the text of the box */
+        boolean gone = lastPillLeft != null && lastPillLeft.length() > 0
+            && !K3346CapsuleFile.exists(K3346CapsuleFile.ETA_PILL_PATH);
+        if ((layout || mode || call || pill || gone) && lastBarRoad != null) {
             publishBar(s);
         }
     }
@@ -1079,6 +1132,7 @@ public class BAPBridge {
         syncModeFile(K3346CapsuleFile.ARROWS_MODE_PATH, 1002, 1);
         syncModeFile(K3346CapsuleFile.MAP_MODE_PATH, 1003, 1);
         syncModeFile(K3346CapsuleFile.HUD_MODE_PATH, 1004, 1);
+        syncModeFile(K3346CapsuleFile.CALLCARD_MODE_PATH, 1005, 2);
     }
 
     /* Tile and factory route guidance on the VC go together; the change is a stop
@@ -1106,6 +1160,62 @@ public class BAPBridge {
         hudSuppressed = off;
         Log.i(TAG, "HUD off=" + off);
         setHudDisplayContent(!off);
+    }
+
+    /* The value DisplayManagerEvo itself chooses its assets by (RE luka-dev): 1 Sport,
+     * 0 Classic.  Anything else keeps what we have.  The file is written again if it
+     * went missing, so a value is never lost to a cleanup. */
+    void pollSkin() {
+        try {
+            int skin = Navigation.getInstance().getEnv().getFramework()
+                .getLastmodeHandler().getLastmodeStorage().getSkin();
+            if (skin != 0 && skin != 1) {
+                return;
+            }
+            if (skin != lastSkin || !K3346CapsuleFile.exists(K3346CapsuleFile.SKIN_PATH)) {
+                if (K3346CapsuleFile.writeEtaMode(K3346CapsuleFile.SKIN_PATH, skin)) {
+                    lastSkin = skin;
+                    Log.i(TAG, "VC skin=" + skin);
+                }
+            }
+        } catch (Throwable t) {
+            if (!skinWarned) {
+                skinWarned = true;
+                Log.w(TAG, "VC skin not readable: " + t);
+            }
+        }
+    }
+
+    /* After a full MMI start nobody reports the gauge layout until VIEW, but the stock
+     * HMI draws its own map for it.  Before the HMI has heard from the VC it holds its
+     * default, small gauges; the file follows when that changes. */
+    void pollViewSize() {
+        try {
+            if (viewSizeManager == null) {
+                viewSizeManager = V8MFactoryTrace.viewSizeManager(
+                    Navigation.getInstance().getClusterService());
+                if (viewSizeManager == null) {
+                    return;
+                }
+            }
+            int size = viewSizeManager.getCurrentViewSize();
+            int slot = K3346CapsuleFile.viewSizeSlot(size);
+            if (slot < 0) {
+                return;
+            }
+            if (slot != lastViewSlot || !K3346CapsuleFile.exists(K3346CapsuleFile.VIEW_SIZE_PATH)) {
+                if (K3346CapsuleFile.writeEtaMode(K3346CapsuleFile.VIEW_SIZE_PATH, slot)) {
+                    lastViewSlot = slot;
+                    Log.i(TAG, "VC view size=" + size + " slot=" + slot
+                        + " init=" + viewSizeManager.isViewSizeInitialized());
+                }
+            }
+        } catch (Throwable t) {
+            if (!viewSizeWarned) {
+                viewSizeWarned = true;
+                Log.w(TAG, "VC view size not readable: " + t);
+            }
+        }
     }
 
     private void syncModeFile(String path, int key, int max) {

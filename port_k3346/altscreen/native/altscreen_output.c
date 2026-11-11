@@ -429,8 +429,12 @@ int altscreen_start_session(void *screen_session, void *delegate_context)
                   screen_session);
         return -1;
     }
-    if (!begin_output_scope())
+    if (!begin_output_scope()) {
+        LOG_ERROR(ALTSCREEN_OUTPUT_MODULE,
+                  "session start refused screen=%p reason=output_scope_busy",
+                  screen_session);
         return -1;
+    }
 
     LOG_INFO(ALTSCREEN_OUTPUT_MODULE,
              "session start screen=%p output_scope=1 delegate=%p",
@@ -439,7 +443,7 @@ int altscreen_start_session(void *screen_session, void *delegate_context)
     rc = g_real_screen_start(screen_session, delegate_context);
     end_output_scope();
 
-    LOG_INFO(ALTSCREEN_OUTPUT_MODULE,
+    LOG_WARN(ALTSCREEN_OUTPUT_MODULE,
              "session start return screen=%p rc=%d patches=%u",
              screen_session, rc, altscreen_output_patch_count());
     return rc;
@@ -994,7 +998,7 @@ int NvSSVideoOpen(void *out_handle, void *config)
     if (!spawn_control())
         set_marker(ALTSCREEN_ACTIVE_MARKER, 0);
 
-    LOG_INFO(ALTSCREEN_OUTPUT_MODULE,
+    LOG_WARN(ALTSCREEN_OUTPUT_MODULE,
              "NvSS stub open handle=%p stock_layer=%u forward=127.0.0.1:%u no_nvss_in_dio_manager=1 patches=%u",
              (void *)&g_stub_token,
              (unsigned int)cfg[NVSS_OUTPUT_CONFIG_OFFSET],
@@ -1117,7 +1121,7 @@ int NvSSVideoClose(void *handle)
     set_marker(ALTSCREEN_ACTIVE_MARKER, 0);
     set_marker(ALTSCREEN_REACQUIRE_MARKER, 0);
 
-    LOG_INFO(ALTSCREEN_OUTPUT_MODULE,
+    LOG_WARN(ALTSCREEN_OUTPUT_MODULE,
              "NvSS stub close handle=%p no_real_nvss_close=1 lifecycle_stop=1",
              handle);
     return 0;

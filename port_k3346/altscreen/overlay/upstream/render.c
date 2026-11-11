@@ -1607,7 +1607,7 @@ void render_end_frame(void) {
     glBindFramebuffer(GL_FRAMEBUFFER, g_default_fbo);
     glViewport(0, 0, g_win_w, g_win_h);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     use_flat_program(1.0f);  /* fullscreen blit passthrough */
@@ -1899,7 +1899,13 @@ void render_pop_mask_transform(void) {
     memcpy(g_mvp_ortho_2d, g_mvp_ortho_2d_saved, sizeof(g_mvp_ortho_2d));
 }
 
-void render_begin_outline_mask(void) { begin_mask(FBO_ROAD); }
+static int g_active_road_fbo = FBO_ROAD;
+
+void render_select_road_fbo(int idx) {
+    g_active_road_fbo = (idx == 1) ? 1 : 0;
+}
+
+void render_begin_outline_mask(void) { begin_mask(g_active_road_fbo); }
 void render_end_outline_mask(void)   { end_mask(); }
 
 void render_begin_route_mask(void) {
@@ -1920,7 +1926,7 @@ static void composite_road_layer(void) {
     const material_preset_t *preset = material_preset(RENDER_MAT_ROAD_ASPHALT);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_fbo_texs[FBO_ROAD]);
+    glBindTexture(GL_TEXTURE_2D, g_fbo_texs[g_active_road_fbo]);
     glUniform1i(g_uni_tex, 0);
     glUniform1f(g_uni_tex_mode, 7.0f);
 
@@ -1932,7 +1938,7 @@ static void composite_road_layer(void) {
 
     glUniformMatrix4fv(g_uni_mvp, 1, GL_FALSE, g_mvp_current);
 
-    float gx = g_mask_half_w * 3.0f, gz = g_mask_half_h * 3.0f;
+    float gx = g_mask_half_w, gz = g_mask_half_h;
 
     vb_reset();
     vb_v(-gx, 0.0f, -gz,  0, 1, 0);
@@ -1968,7 +1974,7 @@ void render_composite(void) {
      * was actually rendered; otherwise skip the pass instead of reading an
      * uninitialized texture. */
     if (g_route_mask_ready) {
-        float gx = g_mask_half_w * 3.0f, gz = g_mask_half_h * 3.0f;
+        float gx = g_mask_half_w, gz = g_mask_half_h;
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, g_fbo_texs[FBO_ROUTE]);
         use_shadow_program(9.0f);

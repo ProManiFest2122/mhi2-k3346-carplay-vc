@@ -20,8 +20,22 @@ public final class K3346NavBarTextTest {
         }
     }
 
+    /* nakladka rysuje wlasna ramke czasu */
     private static void times(String name, int mode, boolean call, int slot, boolean want) {
-        eq(name, String.valueOf(want), String.valueOf(K3346NavBarText.timesOnBar(mode, call, slot)));
+        eq(name, String.valueOf(want), String.valueOf(K3346NavBarText.timesOnBar(mode, call, slot, true)));
+    }
+
+    /* nakladka nie moze narysowac ramki: czas nie moze zniknac */
+    private static void noPill(String name, int mode, boolean call, int slot, boolean want) {
+        eq(name, String.valueOf(want), String.valueOf(K3346NavBarText.timesOnBar(mode, call, slot, false)));
+    }
+
+    private static void pill(String name, int mode, boolean ready, boolean valid, String arrival,
+                             String remaining, String distance, String wantLeft, String wantRight) {
+        String[] p = K3346NavBarText.etaPill(mode, ready, valid, arrival, remaining, distance);
+        eq(name + ": dwie linie", "2", String.valueOf(p.length));
+        eq(name + ": godzina", wantLeft, p[0]);
+        eq(name + ": reszta", wantRight, p[1]);
     }
 
     private static void capsule(String name, int slot, boolean draw, String arrival,
@@ -98,6 +112,28 @@ public final class K3346NavBarTextTest {
         times("Obie, male, rozmowa", 2, true, 0, true);
         times("Obie, duze, rozmowa", 2, true, 1, true);
         times("Mapa, uklad nieznany, rozmowa", 1, true, -1, false);
+        /* rc29: bez ramki z nakladki czas jest na pasku w kazdym trybie */
+        noPill("bez ramki, Mapa, male", 1, false, 0, true);
+        noPill("bez ramki, Mapa, duze", 1, false, 1, true);
+        noPill("bez ramki, Mapa, uklad nieznany", 1, false, -1, true);
+        noPill("bez ramki, Kapsula, male", 0, false, 0, true);
+        noPill("bez ramki, Obie, duze, rozmowa", 2, true, 1, true);
+
+        System.out.println("=== wlasna ramka czasu (overlay/eta_pill.h)");
+        pill("Mapa", 1, true, true, "06:43", "15 min", "12 km", "06:43", "15 min · 12 km");
+        pill("Obie", 2, true, true, "06:43", "15 min", "12 km", "06:43", "15 min · 12 km");
+        pill("Kapsula: bez ramki", 0, true, true, "06:43", "15 min", "12 km", "", "");
+        pill("nakladka nie rysuje", 1, false, true, "06:43", "15 min", "12 km", "", "");
+        pill("czas niewiarygodny", 1, true, false, "06:43", "0 min", "12 km", "", "");
+        pill("brak godziny", 1, true, true, "", "15 min", "12 km", "", "");
+        pill("godzina null", 1, true, true, null, "15 min", "12 km", "", "");
+        pill("godzina ze spacji", 2, true, true, "  ", "15 min", "12 km", "", "");
+        pill("bez dystansu", 1, true, true, "06:43", "15 min", "", "06:43", "15 min");
+        pill("bez czasu jazdy", 1, true, true, "06:43", "", "12 km", "06:43", "12 km");
+        pill("sama godzina", 1, true, true, "06:43", "", "", "06:43", "");
+        pill("ponad godzine", 2, true, true, "13:05", "1 h 05", "123 km", "13:05", "1 h 05 · 123 km");
+        pill("12 h", 1, true, true, " 1:30 PM ", "15 min", "0.6 mi", "1:30 PM", "15 min · 0.6 mi");
+        pill("tryb spoza zakresu", 3, true, true, "06:43", "15 min", "12 km", "", "");
 
         System.out.println("=== dystans km");
         eq("brak", "", K3346NavBarText.distance(-1, true));

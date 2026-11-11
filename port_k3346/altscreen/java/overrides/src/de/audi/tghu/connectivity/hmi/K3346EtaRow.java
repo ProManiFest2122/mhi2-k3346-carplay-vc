@@ -39,6 +39,7 @@ final class K3346EtaRow {
     static final int ARROWS_MODEL_ID = 2500394;
     static final int MAP_MODEL_ID = 2500395;
     static final int HUD_MODEL_ID = 2500396;
+    static final int CALL_MODEL_ID = 2500397;
     private static final int TEMPLATE_MODEL = 4188;   /* "Recognition period", a combo box */
 
     /* Past the stock table (976 entries). */
@@ -54,6 +55,9 @@ final class K3346EtaRow {
     static final int TEXT_HUD_LABEL = 2509922;
     static final int TEXT_ON = 2509923;
     static final int TEXT_OFF = 2509924;
+    static final int TEXT_CALL_LABEL = 2509925;
+    static final int TEXT_CALL_SMOKED = 2509926;
+    static final int TEXT_CALL_LIGHT = 2509927;
 
     static final int NAMESPACE = 1008;   /* IStorageAccess.Namespace.TERMINALMODE */
     static final int KEY = 1000;         /* stock keys here: 1..3 */
@@ -61,6 +65,7 @@ final class K3346EtaRow {
     static final int ARROWS_KEY = 1002;
     static final int MAP_KEY = 1003;
     static final int HUD_KEY = 1004;
+    static final int CALL_KEY = 1005;
     static final int MODE_DEFAULT = 0;
 
     /* The internal ids are focus-restore keys, unique in the menu. */
@@ -76,7 +81,11 @@ final class K3346EtaRow {
         ON_OFF, "/tmp/k3346-map-mode");
     static final Row HUD = new Row(HUD_MODEL_ID, 2509914, HUD_KEY, TEXT_HUD_LABEL,
         ON_OFF, "/tmp/k3346-hud-mode");
-    private static final Row[] ROWS = {ETA, CARD, ARROWS, MAP, HUD};
+    /* The call card on the map (overlay/call_card.h): smoked or light glass, or none.
+     * Off also gives the big gauges their ETA box back during a call. */
+    static final Row CALL = new Row(CALL_MODEL_ID, 2509915, CALL_KEY, TEXT_CALL_LABEL,
+        new int[] {TEXT_CALL_SMOKED, TEXT_CALL_LIGHT, TEXT_OFF}, "/tmp/k3346-callcard-mode");
+    private static final Row[] ROWS = {ETA, CARD, ARROWS, MAP, HUD, CALL};
 
     private static volatile IFrameworkAccess framework;
 
@@ -109,7 +118,8 @@ final class K3346EtaRow {
             ROWS[i].boot();
         }
         K3346Diag.log("K3346_ETA_ROW boot mode=" + ETA.readStored() + " card=" + CARD.readStored()
-            + " arrows=" + ARROWS.readStored() + " map=" + MAP.readStored() + " hud=" + HUD.readStored());
+            + " arrows=" + ARROWS.readStored() + " map=" + MAP.readStored() + " hud=" + HUD.readStored()
+            + " call=" + CALL.readStored());
     }
 
     /* null for an id that is not ours. */
@@ -127,6 +137,9 @@ final class K3346EtaRow {
             case TEXT_HUD_LABEL:   return polish ? "HUD CarPlay" : "CarPlay HUD";
             case TEXT_ON:          return polish ? "Wł." : "On";
             case TEXT_OFF:         return polish ? "Wył." : "Off";
+            case TEXT_CALL_LABEL:  return polish ? "Karta rozmowy na VC" : "Call card on VC";
+            case TEXT_CALL_SMOKED: return polish ? "Przydymiona" : "Smoked";
+            case TEXT_CALL_LIGHT:  return polish ? "Jasna" : "Light";
             default:               return null;
         }
     }

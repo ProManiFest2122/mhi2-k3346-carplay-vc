@@ -31,10 +31,16 @@
  *   capsule_left_x 372 / capsule_right_x 1068 / capsule_y 397 / capsule_h 36
  *   capsule_font_px 24
  *   capsule_font /path/to/font.ttf   # text value, like call_card_font*
- *   call_card 1 / call_card_ringing 1 / call_card_w 320 / call_card_h 78
- *   call_card_x_small 735 / call_card_y_small 300 / call_card_x_big 560 / call_card_y_big 305
- *   call_card_name_px 28 / call_card_status_px 22
+ *   call_card 1 / call_card_ringing 1 / call_card_w 320 / call_card_h 44
+ *   x_sport 984 / y_sport 139 / crop_x_sport 0 / crop_y_sport 0 / width_sport 328 /
+ *     height_sport 180   # the big-gauges tile on the Sport skin (stock Layout constants)
+ *   call_card_x_sport 110 / call_card_y_sport 334   # the card, left of its rev counter
+ *   call_card_x_small 772 / call_card_y_small 334 / call_card_x_big 560 / call_card_y_big 334
+ *   call_card_name_px 24 / call_card_status_px 22
  *   call_card_font /path / call_card_font_bold /path
+ *   eta_pill 1 / eta_pill_w 400 / eta_pill_h 44   # our arrival-time box, eta_pill.h
+ *   eta_pill_x_small 348 / eta_pill_y_small 334 / eta_pill_x_big 520 / eta_pill_y_big 334
+ *   eta_pill_x_sport 110 / eta_pill_y_sport 334   # fonts and sizes: those of call_card_*
  *
  * THREE RECTANGLES, and mixing two of them up cost a car visit on 2026-10-27:
  *
@@ -104,6 +110,10 @@ typedef struct {
      * measurements were swapped that day as well - see overlay_layout.h. */
     int x, y;              /* slot 1 - big clocks: inside the right gauge */
     int x_alt, y_alt;      /* slot 0 - small clocks: top right of the map */
+    /* Slot 1 on the Sport skin: LayoutMIB2HighB9Sport constants 58/59 and 122-125
+     * in our own lsd.jar, the panel in the tube is larger than Classic's. */
+    int x_sport, y_sport, crop_x_sport, crop_y_sport, width_sport, height_sport;
+    int call_card_x_sport, call_card_y_sport;
     /* How many rows at the TOP of the crop the VC covers in each layout, if
      * any.  0 = the whole crop is visible (Luka's default framing).  Anything
      * else is handed to render_set_visible_area(), the same call
@@ -124,6 +134,11 @@ typedef struct {
     int call_card_x_small, call_card_y_small, call_card_x_big, call_card_y_big;
     int call_card_name_px, call_card_status_px;
     char call_card_font[160], call_card_font_bold[160];
+    /* Our arrival-time box on the map (eta_pill.h): one strip per layout, the pill
+     * as wide as its text.  The fonts and their sizes are the call card's. */
+    int eta_pill, eta_pill_w, eta_pill_h;
+    int eta_pill_x_small, eta_pill_y_small, eta_pill_x_big, eta_pill_y_big;
+    int eta_pill_x_sport, eta_pill_y_sport;
     char source[160];      /* which file the values came from, for the log */
 } overlay_cfg_t;
 
@@ -167,6 +182,14 @@ static void overlay_cfg_defaults(overlay_cfg_t *c)
     c->y             = 207;
     c->x_alt         = 1091;   /* small clocks */
     c->y_alt         = 110;
+    c->x_sport       = 984;
+    c->y_sport       = 139;
+    c->crop_x_sport  = 0;
+    c->crop_y_sport  = 0;
+    c->width_sport   = 328;
+    c->height_sport  = 180;
+    c->call_card_x_sport = 110;
+    c->call_card_y_sport = 334;
     c->visible_top_big   = 0;
     c->visible_top_small = 0;
     /* Off: under the bar's base the text was too dark to read (run-53). */
@@ -179,15 +202,33 @@ static void overlay_cfg_defaults(overlay_cfg_t *c)
     snprintf(c->capsule_font, sizeof(c->capsule_font), "%s", OVERLAY_CFG_CAPSULE_FONT);
     c->call_card         = 1;
     c->call_card_ringing = 1;
+    /* The pill of rc28 (call_card.h).  Since rc30 right above the VC bar (y 334..378,
+     * the bar from about 384: car, rc29, IMG_0783..0788), in the line of our ETA box;
+     * on the small gauges at the right end of the map.  rc31: the gauges mirror each
+     * other about x 720 and in this row their edges are at about x 334 and 1106 (car,
+     * rc29 and rc30 photos, +-6 px); the ETA box and this card keep the same 14 px
+     * from them, so eta_pill_x_small + call_card_x_small + call_card_w is 1440. */
     c->call_card_w       = 320;
-    c->call_card_h       = 78;
-    c->call_card_x_small = 735;
-    c->call_card_y_small = 300;
+    c->call_card_h       = 44;
+    c->call_card_x_small = 772;
+    c->call_card_y_small = 334;
     c->call_card_x_big   = 560;
-    c->call_card_y_big   = 305;
-    c->call_card_name_px = 28;
+    c->call_card_y_big   = 334;
+    c->call_card_name_px = 24;
     c->call_card_status_px = 22;
     snprintf(c->call_card_font, sizeof(c->call_card_font), "%s", OVERLAY_CFG_CAPSULE_FONT);
+    /* By the rev counter on the small gauges, in the line of the call card; between
+     * the two big gauges, where the call card goes during a call.  Right above the VC
+     * bar: the view areas end at this y, so the phone's car marker stays above. */
+    c->eta_pill         = 1;
+    c->eta_pill_w       = 400;
+    c->eta_pill_h       = 44;
+    c->eta_pill_x_small = 348;
+    c->eta_pill_y_small = 334;
+    c->eta_pill_x_big   = 520;
+    c->eta_pill_y_big   = 334;
+    c->eta_pill_x_sport = 110;
+    c->eta_pill_y_sport = 334;
     snprintf(c->call_card_font_bold, sizeof(c->call_card_font_bold), "%s", OVERLAY_CFG_CALL_FONT_BOLD);
     snprintf(c->source, sizeof(c->source), "(built-in defaults)");
 }
@@ -212,6 +253,14 @@ static int overlay_cfg_apply(overlay_cfg_t *c, const char *key, long v)
     else if (!strcmp(key, "x"))             c->x             = (int)v;
     else if (!strcmp(key, "y"))             c->y             = (int)v;
     else if (!strcmp(key, "x_alt"))         c->x_alt         = (int)v;
+    else if (!strcmp(key, "x_sport"))       c->x_sport       = (int)v;
+    else if (!strcmp(key, "y_sport"))       c->y_sport       = (int)v;
+    else if (!strcmp(key, "crop_x_sport"))  c->crop_x_sport  = (int)v;
+    else if (!strcmp(key, "crop_y_sport"))  c->crop_y_sport  = (int)v;
+    else if (!strcmp(key, "width_sport"))   c->width_sport   = (int)v;
+    else if (!strcmp(key, "height_sport"))  c->height_sport  = (int)v;
+    else if (!strcmp(key, "call_card_x_sport")) c->call_card_x_sport = (int)v;
+    else if (!strcmp(key, "call_card_y_sport")) c->call_card_y_sport = (int)v;
     else if (!strcmp(key, "y_alt"))         c->y_alt         = (int)v;
     else if (!strcmp(key, "visible_top_big"))   c->visible_top_big   = (int)v;
     else if (!strcmp(key, "visible_top_small")) c->visible_top_small = (int)v;
@@ -231,6 +280,15 @@ static int overlay_cfg_apply(overlay_cfg_t *c, const char *key, long v)
     else if (!strcmp(key, "call_card_y_big"))     c->call_card_y_big     = (int)v;
     else if (!strcmp(key, "call_card_name_px"))   c->call_card_name_px   = (int)v;
     else if (!strcmp(key, "call_card_status_px")) c->call_card_status_px = (int)v;
+    else if (!strcmp(key, "eta_pill"))            c->eta_pill            = (int)v;
+    else if (!strcmp(key, "eta_pill_w"))          c->eta_pill_w          = (int)v;
+    else if (!strcmp(key, "eta_pill_h"))          c->eta_pill_h          = (int)v;
+    else if (!strcmp(key, "eta_pill_x_small"))    c->eta_pill_x_small    = (int)v;
+    else if (!strcmp(key, "eta_pill_y_small"))    c->eta_pill_y_small    = (int)v;
+    else if (!strcmp(key, "eta_pill_x_big"))      c->eta_pill_x_big      = (int)v;
+    else if (!strcmp(key, "eta_pill_y_big"))      c->eta_pill_y_big      = (int)v;
+    else if (!strcmp(key, "eta_pill_x_sport"))    c->eta_pill_x_sport    = (int)v;
+    else if (!strcmp(key, "eta_pill_y_sport"))    c->eta_pill_y_sport    = (int)v;
     else return 0;
     return 1;
 }
@@ -335,6 +393,22 @@ static int overlay_cfg_sanitize(overlay_cfg_t *c)
         if (c->x_alt < 0 || c->x_alt > max_x) { c->x_alt = 1091 > max_x ? max_x : 1091; fixed++; }
         if (c->y_alt < 0 || c->y_alt > max_y) { c->y_alt = 110  > max_y ? max_y : 110;  fixed++; }
     }
+    /* All or nothing: half a Sport rectangle is not a rectangle anyone measured, so
+     * a bad value falls back to the Classic one, which is known to be valid here. */
+    if (c->width_sport < 16 || c->height_sport < 16 || c->crop_x_sport < 0 || c->crop_y_sport < 0
+        || c->crop_x_sport + c->width_sport > c->render_width
+        || c->crop_y_sport + c->height_sport > c->render_height
+        || c->x_sport < 0 || c->y_sport < 0
+        || c->x_sport + c->width_sport > c->canvas_width
+        || c->y_sport + c->height_sport > c->canvas_height) {
+        c->x_sport = c->x;
+        c->y_sport = c->y;
+        c->crop_x_sport = c->crop_x;
+        c->crop_y_sport = c->crop_y;
+        c->width_sport = c->width;
+        c->height_sport = c->height;
+        fixed++;
+    }
     /* At least 16 rows must stay visible, or there is nothing to frame into. */
     if (c->visible_top_big < 0 || c->visible_top_big > c->height - 16)
         { c->visible_top_big = 0; fixed++; }
@@ -360,17 +434,22 @@ static int overlay_cfg_sanitize(overlay_cfg_t *c)
     c->capsule_text = c->capsule_text ? 1 : 0;
     /* Same rule for the call card: inside the window, or not drawn. */
     if (c->call_card_w < 120 || c->call_card_w > 700) { c->call_card_w = 320; fixed++; }
-    if (c->call_card_h < 48 || c->call_card_h > 160)  { c->call_card_h = 78;  fixed++; }
-    if (c->call_card_name_px < 10 || c->call_card_name_px > 60)     { c->call_card_name_px = 28;   fixed++; }
+    /* 32: the pill of rc28 is 44 high, one line of text */
+    if (c->call_card_h < 32 || c->call_card_h > 160)  { c->call_card_h = 44;  fixed++; }
+    if (c->call_card_name_px < 10 || c->call_card_name_px > 60)     { c->call_card_name_px = 24;   fixed++; }
     if (c->call_card_status_px < 10 || c->call_card_status_px > 60) { c->call_card_status_px = 22; fixed++; }
     if (c->call_card_x_small < 0 || c->call_card_x_small + c->call_card_w > c->canvas_width)
-        { c->call_card_x_small = 735; fixed++; }
+        { c->call_card_x_small = 772; fixed++; }
     if (c->call_card_y_small < 0 || c->call_card_y_small + c->call_card_h > c->canvas_height)
-        { c->call_card_y_small = 300; fixed++; }
+        { c->call_card_y_small = 334; fixed++; }
     if (c->call_card_x_big < 0 || c->call_card_x_big + c->call_card_w > c->canvas_width)
         { c->call_card_x_big = 560; fixed++; }
     if (c->call_card_y_big < 0 || c->call_card_y_big + c->call_card_h > c->canvas_height)
-        { c->call_card_y_big = 305; fixed++; }
+        { c->call_card_y_big = 334; fixed++; }
+    if (c->call_card_x_sport < 0 || c->call_card_x_sport + c->call_card_w > c->canvas_width)
+        { c->call_card_x_sport = 110; fixed++; }
+    if (c->call_card_y_sport < 0 || c->call_card_y_sport + c->call_card_h > c->canvas_height)
+        { c->call_card_y_sport = 334; fixed++; }
     /* Only a small canvas (the emergency canvas_width 210) gets here. */
     if (c->call_card_x_small + c->call_card_w > c->canvas_width
         || c->call_card_y_small + c->call_card_h > c->canvas_height
@@ -378,6 +457,30 @@ static int overlay_cfg_sanitize(overlay_cfg_t *c)
         || c->call_card_y_big + c->call_card_h > c->canvas_height)
         c->call_card = 0;
     c->call_card = c->call_card ? 1 : 0;
+    /* The same rule for our arrival-time box. */
+    if (c->eta_pill_w < 160 || c->eta_pill_w > 700) { c->eta_pill_w = 400; fixed++; }
+    if (c->eta_pill_h < 32 || c->eta_pill_h > 160)  { c->eta_pill_h = 44;  fixed++; }
+    if (c->eta_pill_x_small < 0 || c->eta_pill_x_small + c->eta_pill_w > c->canvas_width)
+        { c->eta_pill_x_small = 348; fixed++; }
+    if (c->eta_pill_y_small < 0 || c->eta_pill_y_small + c->eta_pill_h > c->canvas_height)
+        { c->eta_pill_y_small = 334; fixed++; }
+    if (c->eta_pill_x_big < 0 || c->eta_pill_x_big + c->eta_pill_w > c->canvas_width)
+        { c->eta_pill_x_big = 520; fixed++; }
+    if (c->eta_pill_y_big < 0 || c->eta_pill_y_big + c->eta_pill_h > c->canvas_height)
+        { c->eta_pill_y_big = 334; fixed++; }
+    if (c->eta_pill_x_sport < 0 || c->eta_pill_x_sport + c->eta_pill_w > c->canvas_width)
+        { c->eta_pill_x_sport = 110; fixed++; }
+    if (c->eta_pill_y_sport < 0 || c->eta_pill_y_sport + c->eta_pill_h > c->canvas_height)
+        { c->eta_pill_y_sport = 334; fixed++; }
+    /* Only a small canvas (the emergency canvas_width 210) gets here. */
+    if (c->eta_pill_x_small + c->eta_pill_w > c->canvas_width
+        || c->eta_pill_y_small + c->eta_pill_h > c->canvas_height
+        || c->eta_pill_x_big + c->eta_pill_w > c->canvas_width
+        || c->eta_pill_y_big + c->eta_pill_h > c->canvas_height
+        || c->eta_pill_x_sport + c->eta_pill_w > c->canvas_width
+        || c->eta_pill_y_sport + c->eta_pill_h > c->canvas_height)
+        c->eta_pill = 0;
+    c->eta_pill = c->eta_pill ? 1 : 0;
     c->call_card_ringing = c->call_card_ringing ? 1 : 0;
     c->alpha   = c->alpha   ? 1 : 0;
     c->managed = c->managed ? 1 : 0;

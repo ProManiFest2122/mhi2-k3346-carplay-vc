@@ -32,23 +32,30 @@ wired CarPlay.
 ## Current status
 
 **The version to download is 1.0.1**, from [Releases](../../releases/latest). The code in this repository is
-newer: it is the test version `1.0.3-rc17`, not released yet and with no date set. It passed all tests in a
-parked car and is now being tested while driving. To use what is below before the release, you have to
-[build it yourself](BUILDING.md).
+newer: it is the test version of **2.0**, not released yet and with no date set. It passed the tests in the
+car. To use what is below before the release, you have to [build it yourself](BUILDING.md).
 
-### Coming in 1.0.3
+### Coming in 2.0
 
-| | Feature |
+| | New |
 |---|---|
 | 🕘 | **Favorites** next to recent calls (tested on iOS 27; FaceTime entries and e-mail addresses are not shown) |
-| 🏁 | **Arrival time, driving time and distance** on the cockpit bar, on the map, or both |
-| 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change) |
-| 🟩 | **Map without the green maneuver card**, on both gauge layouts. Going back takes effect after unplugging and replugging the cable |
+| 🏁 | **Our own arrival-time box** on the cockpit map, by the gauges: arrival time, time left and distance, always complete, with Apple Maps and Google Maps, on both gauge layouts. Or the same on the cockpit bar, or in both places |
+| 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change): **smoked** or **light** glass, or **off**. The arrival-time box takes the same look |
+| 🟩 | **Map without the phone's maneuver card**, on both gauge layouts |
 | ➡️ | **Switch off** the arrow, the CarPlay map on the cockpit (the factory view comes back) or the HUD arrows. Switching off the HUD is untested: no car with a HUD here |
-| 🔧 | Fixes: the arrival-time box appears without pressing VIEW, the arrow shows up after replugging the cable |
+
+| | Fixed |
+|---|---|
+| 🔧 | The map no longer blinks when you press **VIEW** |
+| 🔧 | The arrival-time box is no longer cut short or left out by the phone (before: arrival time only, or no distance, depending on the app, the gauge layout and the maneuver card) |
+| 🔧 | The car marker and the street name of the map stay above the arrival-time box; the box and the call card keep the same gap from the gauges |
+| 🔧 | The arrival-time box appears without pressing VIEW, the arrow shows up after replugging the cable |
+| 🔧 | Install guide: after the MMI restart, switch the engine off for a minute. An MMI restart does not restart the cockpit |
 
 All of these options are in one place: MMI menu → Settings (last item) → Connection manager → push the
-rotary knob to the right → bottom of the list.
+rotary knob to the right → bottom of the list: **CarPlay arrival time**, **CarPlay maneuver card**,
+**Arrow on VC**, **Map on VC**, **CarPlay HUD**, **Call card on VC**.
 
 ### Later
 
@@ -94,8 +101,9 @@ You need **all** of these:
 3. Green menu → **m.i.b.** → **advanced settings** → **run individual script**.
 4. Wait for **`INSTALL_ALL_RESULT=PASS`** and then **`SAFE TO REMOVE SD`** (a few minutes).
    Do not switch the ignition off before that.
-5. **Restart the MMI** ([how](#how-to-restart-the-mmi)). Connect the iPhone and start a
-   route in CarPlay navigation.
+5. **Restart the MMI** ([how](#how-to-restart-the-mmi)). When CarPlay is back, **switch the engine off**,
+   wait until the cluster and the MMI go dark (about a minute) and switch it on again: an MMI restart does
+   not restart the cluster. Connect the iPhone and start a route in CarPlay navigation.
 
 > **Keep this SD card.** The installer saves the original car files on it
 > (`mod/mib2high-carplay-rgi-v8s-simple/backup/`) and uninstalling needs them. Also copy the whole
@@ -208,6 +216,7 @@ How it works, building from source, per-stage install markers and the rescue car
 
 ## Credits
 
+* **Gooliver2** – session counter in the control log and the reconnect analysis in PR #12.
 * **edzenis** – [mib2high-carplay-altscreen-rgi](https://github.com/edzenis/mib2high-carplay-altscreen-rgi),
   the base of this port (MHI2 Harman, K2161 / Q7 4M).
 * **LuKa (@LuKa_dev)** – [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi): RGI parser and

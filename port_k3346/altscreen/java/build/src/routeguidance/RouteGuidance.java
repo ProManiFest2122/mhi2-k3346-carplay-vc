@@ -339,6 +339,11 @@ public class RouteGuidance implements CarplayBus.Listener {
         while (capsuleWatcher == me) {
             try {
                 Thread.sleep(CAPSULE_WATCH_MS);
+                BAPBridge skinBridge = bap;
+                if (skinBridge != null) {
+                    skinBridge.pollSkin();   /* with or without a route; storage: not under the lock */
+                    skinBridge.pollViewSize();
+                }
                 synchronized (frameLock) {
                     if (running && rgActive && bap != null) {
                         if (bap.arrowModeChanged()) {
@@ -435,7 +440,9 @@ public class RouteGuidance implements CarplayBus.Listener {
 
         /* Check for disconnect */
         if (state.disconnectReason != null) {
-            if (bap != null) { bap.onStop(); bap.onShutdown(); }
+            /* Nothing to stop unless guiding.  This frame comes right before the first
+             * maneuvers of a route, and the stop took 1.35 s from them (car run-70). */
+            if (bap != null && rgActive) { bap.onStop(); bap.onShutdown(); }
             rgActive = false;
             hasRouteUpdate = false;
             state.reset();

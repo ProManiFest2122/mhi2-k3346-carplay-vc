@@ -19,6 +19,7 @@
 #include "gauge_bap54.h"
 #include "gauge_layout_urls.h"
 #include "eta_mode.h"
+#include "nav_app.h"
 #include "framework/logging.h"
 
 #define ALTSCREEN_SESSION_MODULE "AltScreenSession"
@@ -26,7 +27,7 @@
 #define ALTSCREEN_TIMEOUT_SECS 10
 #define ALTSCREEN_PRIMARY_SYNC_WAIT_MS 3000
 #define ALTSCREEN_PRIMARY_SYNC_POLL_US 10000
-#define ALTSCREEN_VIEW_COUNT 4
+#define ALTSCREEN_VIEW_COUNT 9
 #define ALTSCREEN_VIEW_REACQUIRE_DELAY_MS 150ULL
 #define ALTSCREEN_CONTROL_ACK_TIMEOUT_MS 2500ULL
 #define ALTSCREEN_CONTROL_IDLE 0
@@ -167,8 +168,14 @@ typedef struct {
     int pending_view;
     int ui_eta_on_map;           /* what the last showUI of this session asked for */
     int eta_force_show;
+    uint64_t eta_delay_ms;       /* the box after layout_change_ms; 0 = K3346_ETA_AFTER_LAYOUT_MS */
+    int control_view_first;      /* layout change: updateViewArea goes before showUI */
     int ui_card;                 /* what the last showUI of this session used */
+    int ui_sport;
+    int ui_apple;                /* k3346_apple_area of the last updateViewArea */
     uint64_t layout_change_ms;   /* last showUI that changed the layout */
+    uint64_t last_show_ms;       /* last showUI sent, K3346_SHOW_MIN_INTERVAL_MS */
+    int show_hold_logged;
     int pending_view_from_gauge; /* 1=gauge update; v8S changes alignment only on slot transition */
     uint64_t view_due_ms;
     int control_inflight; /* Commands currently inside SendCommand, not async callbacks. */
@@ -619,10 +626,37 @@ static cf_ref clone_response_with_reference_features(cf_ref stock_response)
     return response;
 }
 
+/* One line per SETUP: is the map stream asked for, and does the sender offer the
+ * features list.  #10: over a wireless adapter the stream never came. */
+static void log_setup_summary(void *receiver, cf_ref request)
+{
+    cf_ref streams = dict_get(request, "streams");
+    cf_index i, n = is_array(streams) ? g_api.array_count(streams) : 0;
+    int has_alt = 0, ok = 0, others = 0;
+
+    for (i = 0; i < n; ++i) {
+        cf_ref desc = (cf_ref)g_api.array_value(streams, i);
+        if (is_dict(desc) &&
+            dict_get_i64(desc, "type", &ok) == AIRPLAY_STREAM_TYPE_ALT_SCREEN && ok)
+            has_alt = 1;
+    }
+    /* others > 0: this session found the previous one still here (#7, #11). */
+    pthread_mutex_lock(&g_lock);
+    for (i = 0; i < ALTSCREEN_MAX_STATES; ++i)
+        if (g_states[i].active && g_states[i].receiver != receiver)
+            ++others;
+    pthread_mutex_unlock(&g_lock);
+    LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SETUP streams=%ld map=%d features=%d others=%d",
+             (long)n, has_alt, dict_get(request, "features") != NULL, others);
+}
+
 static void log_setup_request(void *receiver, cf_ref request)
 {
     cf_ref streams;
     cf_index i, n;
+
+    if (is_dict(request))
+        log_setup_summary(receiver, request);
 
     if (!is_dict(request)) {
         LOG_INFO(ALTSCREEN_SESSION_MODULE,
@@ -1113,12 +1147,15 @@ fail:
 }
 
 static int g_card_mode = K3346_CARD_FULL;   /* written by the view control worker */
+static int g_sport;                         /* same */
+static int g_nav_apple;                     /* same, nav_app.h */
 
-static cf_ref make_view_request(int view)
+static cf_ref make_view_request(int logical_view, int sport, int apple_area)
 {
     cf_ref request = NULL;
     cf_ref params = NULL;
     cf_ref adjacent = NULL;
+    int view = k3346_wire_view(logical_view, sport, apple_area);
     int i;
 
     if (view < 0 || view >= ALTSCREEN_VIEW_COUNT)
@@ -1199,7 +1236,7 @@ static os_status send_view_event(void *receiver, int view)
 
     if (receiver == NULL || g_api.send_command == NULL)
         return -1;
-    request = make_view_request(view);
+    request = make_view_request(view, g_sport, k3346_apple_area(g_nav_apple, g_card_mode));
     if (request == NULL)
         return -1;
     rc = g_api.send_command(receiver, request, NULL, NULL);
@@ -1338,7 +1375,9 @@ static void v8n_observe_gauge_bap54(const char *line, int buffered)
                 continue;
             state->pending_view = route_view_for_state(state);
             state->pending_view_from_gauge = 1;
-            state->view_due_ms = now_ms() + ALTSCREEN_VIEW_REACQUIRE_DELAY_MS;
+            /* At once: the clocks have already moved and the map follows them by
+             * 0.5 to 0.75 s (film 2026-11-04).  Bursts share one pending slot anyway. */
+            state->view_due_ms = now_ms();
             ++queued;
         }
     }
@@ -1528,9 +1567,11 @@ static void v8s_control_completion(os_status status, cf_ref response, void *opaq
             if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
                 state->last_ui_slot = ctx->view / 2;
             if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
-                state->control_stage = ALTSCREEN_CONTROL_VIEW;
+                state->control_stage = state->control_view_first
+                    ? ALTSCREEN_CONTROL_KEYFRAME : ALTSCREEN_CONTROL_VIEW;
             else if (ctx->stage == ALTSCREEN_CONTROL_VIEW)
-                state->control_stage = ALTSCREEN_CONTROL_KEYFRAME;
+                state->control_stage = state->control_view_first
+                    ? ALTSCREEN_CONTROL_SHOW : ALTSCREEN_CONTROL_KEYFRAME;
             else {
                 state->current_view = ctx->view;
                 state->control_stage = ALTSCREEN_CONTROL_IDLE;
@@ -1550,6 +1591,10 @@ static void v8s_control_completion(os_status status, cf_ref response, void *opaq
     pthread_mutex_unlock(&g_lock);
     if (ctx->stage == ALTSCREEN_CONTROL_SHOW)
         LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SHOWUI_ACK view=%d status=%d valid=%d",
+                 ctx->view, (int)status, accepted);
+    /* The collected logs have WRN only, and the area is half of where the box ends up. */
+    if (ctx->stage == ALTSCREEN_CONTROL_VIEW)
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_VIEWAREA_ACK view=%d status=%d valid=%d",
                  ctx->view, (int)status, accepted);
     LOG_INFO(ALTSCREEN_SESSION_MODULE,
              "V8S_CONTROL_ACK receiver=%p token=%llu stage=%d view=%d "
@@ -1588,19 +1633,31 @@ static void v8s_control_dispatch_failed(void *receiver, uint64_t generation,
 static int g_eta_mode = K3346_ETA_CAPSULE;
 static int g_call_visible;
 static int g_card_stored = K3346_CARD_FULL;
+static int g_no_rgi;   /* the app sends no route guidance: it keeps the phone's ETA box */
 
 static int eta_on_map_locked(void)
 {
-    return k3346_eta_map_effective(g_eta_mode, g_call_visible, g_layout_slot);
+    return k3346_eta_map_effective(g_eta_mode, g_call_visible, g_layout_slot, g_no_rgi);
 }
 
 static int eta_for_state_locked(const altscreen_state *state, uint64_t now)
 {
-    return k3346_eta_held(eta_on_map_locked(), state->ui_eta_on_map, state->layout_change_ms, now);
+    return k3346_eta_held(eta_on_map_locked(), state->ui_eta_on_map, state->layout_change_ms,
+                          state->eta_delay_ms != 0 ? state->eta_delay_ms : K3346_ETA_AFTER_LAYOUT_MS,
+                          now);
+}
+
+/* Does this view take a showUI, or only a ViewArea? */
+static int show_needed_locked(const altscreen_state *state, int view, uint64_t now)
+{
+    return state->last_ui_slot != view / 2 ||
+           state->ui_eta_on_map != eta_for_state_locked(state, now) ||
+           state->eta_force_show;
 }
 
 static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token,
-                             int stage, int view, int eta_on_map, int card)
+                             int stage, int view, int eta_on_map, int card, int sport,
+                             int apple_area)
 {
     control_completion_context *ctx;
     cf_ref request = NULL;
@@ -1610,7 +1667,7 @@ static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token
         url = altscreen_gauge_url_for_view(view, eta_on_map, card == K3346_CARD_NONE);
         request = make_event_request("showUI", url);
     } else if (stage == ALTSCREEN_CONTROL_VIEW) {
-        request = make_view_request(view);
+        request = make_view_request(view, sport, apple_area);
     } else if (stage == ALTSCREEN_CONTROL_KEYFRAME) {
         request = make_event_request("forceKeyFrame", NULL);
     }
@@ -1628,6 +1685,9 @@ static void v8s_control_send(void *receiver, uint64_t generation, uint64_t token
     if (stage == ALTSCREEN_CONTROL_SHOW)
         LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SHOWUI view=%d eta=%d rc=%d url=%s",
                  view, eta_on_map, (int)rc, url);
+    if (stage == ALTSCREEN_CONTROL_VIEW)
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_VIEWAREA view=%d wire=%d apple=%d rc=%d",
+                 view, k3346_wire_view(view, sport, apple_area), apple_area, (int)rc);
     if (request != NULL) g_api.release(request);
     if (ctx != NULL) free(ctx);
     pthread_mutex_lock(&g_lock);
@@ -1652,7 +1712,7 @@ static void v8s_control_tick(void)
         uint64_t generation = 0, token = 0;
         altscreen_state *picked = NULL;
         int view = -1, stage = ALTSCREEN_CONTROL_IDLE;
-        int zoom = 0, i, eta_on_map = 0, card = K3346_CARD_FULL;
+        int zoom = 0, i, eta_on_map = 0, card = K3346_CARD_FULL, sport = 0, apple_area = 0;
         uint64_t now = now_ms();
         int active = access(ALTSCREEN_ACTIVE_MARKER, F_OK) == 0;
 
@@ -1676,9 +1736,20 @@ static void v8s_control_tick(void)
             }
             if (state->control_awaiting_ack) continue;
 
+            /* Not the next showUI too soon after the last.  The latest value stays
+             * pending, and a sequence already under way may finish. */
+            int held = state->pending_view >= 0 && state->view_due_ms <= now &&
+                       k3346_show_held(state->last_show_ms, now) &&
+                       show_needed_locked(state, state->pending_view, now);
+            if (held && !state->show_hold_logged)
+                LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SHOW_HELD view=%d since_last_ms=%llu",
+                         state->pending_view,
+                         (unsigned long long)(now - state->last_show_ms));
+            state->show_hold_logged = held;
+
             /* One latest-value slot per session: VIEW bursts replace stale
              * pending requests, including ones arriving during an async ack. */
-            if (state->pending_view >= 0 && state->view_due_ms <= now) {
+            if (state->pending_view >= 0 && state->view_due_ms <= now && !held) {
                 int desired = state->pending_view;
                 int old_target = state->control_target_view;
                 state->control_target_view = desired;
@@ -1686,12 +1757,17 @@ static void v8s_control_tick(void)
                 state->pending_view = -1;
                 state->pending_view_from_gauge = 0;
                 state->view_due_ms = 0;
-                if (state->last_ui_slot >= 0 && state->last_ui_slot != desired / 2)
+                /* In a running session the phone gets the new area first.  It lays the
+                 * box out for the area it has: showUI first left it wrong or gone when
+                 * the area then changed (films of run-80).  Same order as luka-dev. */
+                state->control_view_first =
+                    state->last_ui_slot >= 0 && state->last_ui_slot != desired / 2;
+                if (state->control_view_first)
                     state->layout_change_ms = now;
-                state->control_stage = (state->last_ui_slot != desired / 2 ||
-                                        state->ui_eta_on_map != eta_for_state_locked(state, now) ||
-                                        state->eta_force_show)
-                    ? ALTSCREEN_CONTROL_SHOW : ALTSCREEN_CONTROL_VIEW;
+                state->control_stage = state->control_view_first
+                    ? ALTSCREEN_CONTROL_VIEW
+                    : show_needed_locked(state, desired, now)
+                        ? ALTSCREEN_CONTROL_SHOW : ALTSCREEN_CONTROL_VIEW;
                 state->eta_force_show = 0;
                 if (old_target != desired)
                     LOG_INFO(ALTSCREEN_SESSION_MODULE,
@@ -1700,7 +1776,7 @@ static void v8s_control_tick(void)
                              old_target, desired,
                              state->control_target_from_gauge ? "gauge" : "route",
                              state->control_stage);
-            } else if (state->pending_view >= 0) {
+            } else if (state->pending_view >= 0 && !held) {
                 /* Don't dispatch obsolete steps while another VIEW settles. */
                 continue;
             }
@@ -1711,12 +1787,23 @@ static void v8s_control_tick(void)
             generation = state->control_generation;
             view = state->control_target_view;
             stage = state->control_stage;
-            eta_on_map = eta_for_state_locked(state, now);
             card = g_card_mode;
+            sport = g_sport;
+            apple_area = k3346_apple_area(g_nav_apple, card);
+            /* The showUI of a layout change carries the box at once (only an app
+             * without route guidance has one, k3346_eta_map_effective). */
+            eta_on_map = stage == ALTSCREEN_CONTROL_SHOW && state->control_view_first
+                ? eta_on_map_locked() : eta_for_state_locked(state, now);
+            if (stage == ALTSCREEN_CONTROL_SHOW && state->control_view_first)
+                state->eta_delay_ms = K3346_ETA_AFTER_LAYOUT_MS;
             if (stage == ALTSCREEN_CONTROL_SHOW) {
+                state->last_show_ms = now;
                 state->ui_eta_on_map = eta_on_map;
                 state->ui_card = card;
+                state->ui_sport = sport;
             }
+            if (stage == ALTSCREEN_CONTROL_VIEW)
+                state->ui_apple = apple_area;
             token = ++g_control_request_serial;
             state->control_token = token;
             state->control_awaiting_ack = 1;
@@ -1746,22 +1833,41 @@ static void v8s_control_tick(void)
             pthread_mutex_unlock(&g_lock);
         }
         if (receiver != NULL && stage != ALTSCREEN_CONTROL_IDLE)
-            v8s_control_send(receiver, generation, token, stage, view, eta_on_map, card);
+            v8s_control_send(receiver, generation, token, stage, view, eta_on_map, card, sport,
+                             apple_area);
+}
+
+/* A call takes the ETA box off the big gauges only while our call card is shown:
+ * the MMI option can switch the card off (K3346_CALLCARD_MODE_PATH). */
+static int call_card_shown_read(void)
+{
+    static int call_raw, callcard_mode;
+    call_raw = k3346_call_visible_read(K3346_CALL_CARD_PATH, call_raw);
+    callcard_mode = k3346_eta_mode_read(K3346_CALLCARD_MODE_PATH, callcard_mode);
+    return k3346_call_card_shown(call_raw, callcard_mode);
 }
 
 /* The option or a call changed what the map should show: the phone gets a new URL
- * for the same view.  A VIEW press needs nothing from
- * here: its own showUI already carries the value for the new layout, so only a
- * session that really shows something else is queued. */
+ * for the same view.  A VIEW press needs nothing from here, except with the card: its
+ * own showUI goes without the box, and the box comes from here once the wait is over.
+ * Only a session that really shows something else is queued. */
 static void eta_mode_poll(void)
 {
     static int last_on_map = -1;
     int mode = k3346_eta_mode_read(K3346_ETA_MODE_PATH, g_eta_mode);
-    int call = k3346_call_visible_read(K3346_CALL_CARD_PATH, g_call_visible);
+    int call = call_card_shown_read();
     int overlay_slot = k3346_layout_slot_read(K3346_LAYOUT_SLOT_PATH);
+    int hmi_slot = k3346_view_size_read(K3346_VIEW_SIZE_PATH);
+    int early_slot = k3346_layout_early(overlay_slot, hmi_slot);
     int card_stored = k3346_card_mode_read(K3346_CARD_MODE_PATH, g_card_stored);
     int no_rgi = access(K3346_NO_RGI_PATH, F_OK) == 0;
     int card = k3346_card_effective(card_stored, no_rgi);
+    int sport = k3346_skin_read(K3346_SKIN_PATH, g_sport);
+    int apple = k3346_nav_apple_read(K3346_NAV_APPLE_PATH, g_nav_apple);
+    int apple_area = k3346_apple_area(apple, card);
+    static int last_sport;
+    static int last_apple_area = -1;
+    int area_queued = 0;
     int on_map, i, queued = 0, layout_taken = 0, card_queued = 0;
     static int last_card = -1;
     static int last_wait;
@@ -1772,10 +1878,13 @@ static void eta_mode_poll(void)
     g_eta_mode = mode;
     g_call_visible = call;
     g_card_stored = card_stored;
+    g_no_rgi = no_rgi;
     g_card_mode = card;
+    g_sport = sport;
+    g_nav_apple = apple;
     /* Only until the VC speaks: its FctID 54 is the authority. */
-    if (!g_bap54_layout_known && overlay_slot >= 0 && overlay_slot != g_layout_slot) {
-        g_layout_slot = overlay_slot;
+    if (!g_bap54_layout_known && early_slot >= 0 && early_slot != g_layout_slot) {
+        g_layout_slot = early_slot;
         layout_taken = 1;
     }
     on_map = eta_on_map_locked();
@@ -1793,14 +1902,34 @@ static void eta_mode_poll(void)
         }
         if (state->pending_view >= 0 || state->control_stage != ALTSCREEN_CONTROL_IDLE)
             continue;
+        /* A new skin moves the area, so it counts as a change of layout for the box. */
+        if (state->last_ui_slot == 1 && state->ui_sport != sport) {
+            state->layout_change_ms = now;
+            state->eta_delay_ms = K3346_ETA_AFTER_LAYOUT_MS;
+        }
         /* This showUI carries the ETA value as well. */
-        if (state->last_ui_slot >= 0 && state->ui_card != card) {
+        if (state->last_ui_slot >= 0 &&
+            (state->ui_card != card || (state->last_ui_slot == 1 && state->ui_sport != sport))) {
             state->eta_force_show = 1;
             state->pending_view = route_view_for_state(state);
             state->pending_view_from_gauge = 1;
             state->view_due_ms = now;
             ++card_queued;
             continue;
+        }
+        /* Apple Maps has its own areas with a route (views 5 to 7).  The area alone, as
+         * at the start of a route: the phone lays its box out again for it (rc22,
+         * run-90).  The URL stays the same. */
+        if (state->last_ui_slot >= 0) {
+            int view = route_view_for_state(state);
+            if (k3346_wire_view(view, sport, state->ui_apple) !=
+                k3346_wire_view(view, sport, apple_area)) {
+                state->pending_view = view;
+                state->pending_view_from_gauge = 1;
+                state->view_due_ms = now;
+                ++area_queued;
+                continue;
+            }
         }
         if (eta_for_state_locked(state, now) != on_map)
             waiting = 1;
@@ -1812,6 +1941,15 @@ static void eta_mode_poll(void)
         ++queued;
     }
     pthread_mutex_unlock(&g_lock);
+    if (sport != last_sport) {
+        last_sport = sport;
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_SKIN sport=%d", sport);
+    }
+    if (apple_area != last_apple_area || area_queued) {
+        last_apple_area = apple_area;
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_NAV_APPLE apple=%d area=%d queued=%d",
+                 apple, apple_area, area_queued);
+    }
     if (card != last_card) {
         last_card = card;
         LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_CARD mode=%d stored=%d no_rgi=%d queued=%d",
@@ -1822,8 +1960,8 @@ static void eta_mode_poll(void)
         LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_ETA_WAIT on=%d", waiting);
     }
     if (layout_taken)
-        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_LAYOUT_FROM_OVERLAY slot=%d queued=%d",
-                 overlay_slot, queued);
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_LAYOUT_EARLY slot=%d overlay=%d hmi=%d queued=%d",
+                 early_slot, overlay_slot, hmi_slot, queued);
     if (on_map != last_on_map) {
         last_on_map = on_map;
         LOG_WARN(ALTSCREEN_SESSION_MODULE,
@@ -2204,6 +2342,7 @@ static void cleanup_altscreen(void *receiver)
     int show_sent;
     int waiting_on_accept;
     int wake_ok = 1;
+    uint64_t started = now_ms();
 
     pthread_mutex_lock(&g_lock);
     state = find_state_receiver_locked(receiver);
@@ -2224,6 +2363,12 @@ static void cleanup_altscreen(void *receiver)
     if (accepted_fd >= 0)
         (void)shutdown(accepted_fd, SHUT_RDWR);
     pthread_mutex_unlock(&g_lock);
+
+    /* The log survives a stuck dio_manager until the reset: begin without done
+     * says this is where it stopped, and join says at which wait. */
+    LOG_WARN(ALTSCREEN_SESSION_MODULE,
+             "K3346_CLEANUP begin receiver=%p worker=%d accepted=%d started=%d",
+             receiver, worker_started, accepted_fd >= 0, screen_started);
 
     if (show_sent)
         (void)send_event(receiver, "stopUI", NULL);
@@ -2246,8 +2391,10 @@ static void cleanup_altscreen(void *receiver)
         }
     }
 
-    if (worker_started && !pthread_equal(worker, pthread_self()))
+    if (worker_started && !pthread_equal(worker, pthread_self())) {
+        LOG_WARN(ALTSCREEN_SESSION_MODULE, "K3346_CLEANUP join receiver=%p", receiver);
         (void)pthread_join(worker, NULL);
+    }
 
     /* A queued view update may still be finishing on the control worker.
      * Stop scheduling above, then give that bounded operation time to exit
@@ -2280,9 +2427,9 @@ static void cleanup_altscreen(void *receiver)
     memset(state, 0, sizeof(*state));
     pthread_mutex_unlock(&g_lock);
 
-    LOG_INFO(ALTSCREEN_SESSION_MODULE,
-             "cleanup receiver=%p route_stop=%d wake_ok=%d",
-             receiver, show_sent, wake_ok);
+    LOG_WARN(ALTSCREEN_SESSION_MODULE,
+             "K3346_CLEANUP done receiver=%p ms=%lu route_stop=%d wake_ok=%d",
+             receiver, (unsigned long)(now_ms() - started), show_sent, wake_ok);
 }
 
 os_status AirPlayReceiverSessionSetup(void *receiver,
@@ -2393,7 +2540,7 @@ void AirPlayReceiverSessionTearDown(void *receiver,
     full_session = request == NULL;
     classify_teardown_request(request, &has_alt, &has_main, &other_streams);
 
-    LOG_INFO(ALTSCREEN_SESSION_MODULE,
+    LOG_WARN(ALTSCREEN_SESSION_MODULE,
              "TEARDOWN receiver=%p request=%s reason=%d alt111=%d main110=%d other=%d private111_decoupled=1",
              receiver, full_session ? "NULL" : "dict", reason,
              has_alt, has_main, other_streams);

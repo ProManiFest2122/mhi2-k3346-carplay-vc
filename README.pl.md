@@ -31,23 +31,30 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 ## Stan prac
 
 **Wersja do pobrania to 1.0.1**, z [Releases](../../releases/latest). Kod w tym repozytorium jest nowszy: to
-wersja testowa `1.0.3-rc17`, jeszcze niewydana i bez ustalonej daty. Przeszła wszystkie testy w aucie na
-postoju, a teraz jest sprawdzana w czasie jazdy. Żeby skorzystać z poniższych funkcji przed wydaniem, trzeba
-[zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
+wersja testowa **2.0**, jeszcze niewydana i bez ustalonej daty. Przeszła testy w aucie. Żeby skorzystać
+z poniższych funkcji przed wydaniem, trzeba [zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
 
-### W wersji 1.0.3
+### W wersji 2.0
 
-| | Funkcja |
+| | Nowe |
 |---|---|
 | 🕘 | **Ulubione** obok ostatnich połączeń (sprawdzone na iOS 27; pozycje FaceTime i adresy e-mail się nie pokazują) |
-| 🏁 | **Godzina przyjazdu, czas jazdy i dystans** na pasku w zegarach, na mapie albo w obu miejscach |
-| 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki) |
-| 🟩 | **Mapa bez zielonej karty manewru**, na obu układach zegarów. Powrót działa po odłączeniu i podłączeniu kabla |
+| 🏁 | **Własna ramka z czasem dojazdu** na mapie zegarów, przy zegarach: godzina przyjazdu, pozostały czas i dystans, zawsze w całości, w Mapach Apple i Google Maps, na obu układach zegarów. Albo to samo na pasku w zegarach, albo w obu miejscach |
+| 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki): szkło **przydymione** albo **jasne**, albo **wyłączona**. Ramka czasu ma ten sam wygląd |
+| 🟩 | **Mapa bez karty manewru telefonu**, na obu układach zegarów |
 | ➡️ | **Wyłączanie** strzałki, mapy CarPlay na zegarach (wraca widok fabryczny) albo strzałek na HUD. Wyłączenia HUD nie sprawdziliśmy, bo nie mamy auta z HUD |
-| 🔧 | Poprawki: ramka z czasem dojazdu pojawia się bez naciskania VIEW, strzałka wraca po ponownym podłączeniu kabla |
+
+| | Poprawione |
+|---|---|
+| 🔧 | Mapa nie miga po naciśnięciu **VIEW** |
+| 🔧 | Ramka z czasem dojazdu nie jest już ucinana ani pomijana przez telefon (wcześniej sama godzina albo brak dystansu, zależnie od aplikacji, układu zegarów i karty manewru) |
+| 🔧 | Znacznik auta i nazwa ulicy na mapie stoją nad ramką czasu; ramka i karta rozmowy mają taki sam odstęp od zegarów |
+| 🔧 | Ramka z czasem dojazdu pojawia się bez naciskania VIEW, strzałka wraca po ponownym podłączeniu kabla |
+| 🔧 | Instrukcja instalacji: po restarcie MMI wyłącz silnik na minutę. Restart MMI nie restartuje zegarów |
 
 Wszystkie te opcje są w jednym miejscu: menu MMI → Ustawienia (ostatnia pozycja) → Manager połączeń →
-pokrętło w prawo → dół listy.
+pokrętło w prawo → dół listy: **Czas dojazdu CarPlay**, **Karta manewru CarPlay**, **Strzałka na VC**,
+**Mapa na VC**, **HUD CarPlay**, **Karta rozmowy na VC**.
 
 ### Później
 
@@ -93,8 +100,9 @@ Potrzebne jest **wszystko** z listy:
 3. Zielone menu → **m.i.b.** → **advanced settings** → **run individual script**.
 4. Czekaj na **`INSTALL_ALL_RESULT=PASS`**, a potem **`SAFE TO REMOVE SD`** (kilka minut).
    Nie wyłączaj zapłonu wcześniej.
-5. **Restart MMI** ([jak](#jak-zrestartować-mmi)). Podłącz iPhone'a i włącz trasę
-   w nawigacji CarPlay.
+5. **Restart MMI** ([jak](#jak-zrestartować-mmi)). Gdy CarPlay wróci, **wyłącz silnik**, odczekaj, aż
+   zgasną zegary i MMI (ok. minuty), i włącz go z powrotem: restart MMI nie restartuje zegarów. Podłącz
+   iPhone'a i włącz trasę w nawigacji CarPlay.
 
 > **Zachowaj tę kartę.** Instalator zapisuje na niej oryginalne pliki auta
 > (`mod/mib2high-carplay-rgi-v8s-simple/backup/`), a odinstalowanie ich potrzebuje. Skopiuj też cały
@@ -204,6 +212,7 @@ Jak to działa, budowanie ze źródeł, znaczniki pojedynczych etapów i karta r
 
 ## Podziękowania
 
+* **Gooliver2** – licznik sesji w logu sterowania i analiza ponownego podłączania w PR #12.
 * **edzenis** – [mib2high-carplay-altscreen-rgi](https://github.com/edzenis/mib2high-carplay-altscreen-rgi),
   baza tego portu (MHI2 Harman, K2161 / Q7 4M).
 * **LuKa (@LuKa_dev)** – [mib2q-carplay-rgi](https://github.com/luka-dev/mib2q-carplay-rgi): parser i szyna

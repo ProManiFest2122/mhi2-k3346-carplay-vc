@@ -22,6 +22,7 @@ final class K3346NavBarText {
     static final int SLOT_SMALL = 0;
     static final int SLOT_BIG = 1;
     private static final int ETA_MAP = 1;   /* K3346CapsuleFile.ETA_MAP */
+    private static final int ETA_BOTH = 2;  /* K3346CapsuleFile.ETA_BOTH */
 
     static final class Capsule {
         final String field;
@@ -78,10 +79,25 @@ final class K3346NavBarText {
         return (minutes / 60L) + " h " + (rest < 10L ? "0" : "") + rest;
     }
 
-    /* With big clocks the call card takes the place of the ETA box, so the time moves
-     * here for the length of the call. Same table: native/eta_mode.h. */
-    static boolean timesOnBar(int etaMode, boolean callVisible, int slot) {
-        return etaMode != ETA_MAP || (callVisible && slot == SLOT_BIG);
+    /* "Map" in the MMI option: the time is in our own box on the map (etaPill), and
+     * the bar keeps the street.  With big clocks the call card takes the place of that
+     * box, so the time moves here for the length of the call.  And while the overlay
+     * cannot draw the box (pillReady), the time must not vanish: it is here. */
+    static boolean timesOnBar(int etaMode, boolean callVisible, int slot, boolean pillReady) {
+        return etaMode != ETA_MAP || (callVisible && slot == SLOT_BIG) || !pillReady;
+    }
+
+    /* What the overlay's arrival-time box shows (overlay/eta_pill.h): the arrival time,
+     * and the time left with the distance.  Two empty strings for no box: the option
+     * says "Bar", the overlay cannot draw, or there is no usable time yet. */
+    static String[] etaPill(int etaMode, boolean pillReady, boolean timeValid,
+                            String arrival, String remaining, String distance) {
+        boolean onMap = etaMode == ETA_MAP || etaMode == ETA_BOTH;
+        String time = arrival == null ? "" : arrival.trim();
+        if (!onMap || !pillReady || !timeValid || time.length() == 0) {
+            return new String[] {"", ""};
+        }
+        return new String[] {time, compose(remaining, distance, "")};
     }
 
     /* iOS sends 0 before it has a route time (run-52, distance not known yet).

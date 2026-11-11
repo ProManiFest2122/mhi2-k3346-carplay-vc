@@ -1,7 +1,14 @@
 /* Host simulation compiles the EXACT production session source. The CF and
  * AirPlay shims below never replace the QNX binary; they exercise its state
  * machine and actual callback ordering without access to a real iPhone. */
+#ifndef ENABLE_LOGGING
 #define ENABLE_LOGGING 0
+#endif
+/* These tests are about the sequence of commands.  test_k3346_show_limit.c is about the
+ * time between them. */
+#ifndef K3346_REAL_SHOW_LIMIT
+#define K3346_SHOW_MIN_INTERVAL_MS 0ULL
+#endif
 #include "../native/altscreen_session.c"
 #include <assert.h>
 
@@ -49,7 +56,7 @@ static struct {
     void *ctx;
     char name[64],url[420];
     int view;
-} sends[128];
+} sends[512];
 static int nsends, transport_rc;
 static os_status mock_send(void*recv,cf_ref req,void(*cb)(os_status,cf_ref,void*),void*ctx){
     mock_obj *name=(mock_obj*)fake_get(req,obj(3,"type"));
@@ -57,7 +64,7 @@ static os_status mock_send(void*recv,cf_ref req,void(*cb)(os_status,cf_ref,void*
     mock_obj *url=params?(mock_obj*)fake_get(params,obj(3,"url")):NULL;
     mock_obj *view=params?(mock_obj*)fake_get(params,obj(3,"viewAreaIndex")):NULL;
     int idx=nsends++;(void)recv;
-    assert(idx<128);assert(name);
+    assert(idx<512);assert(name);
     snprintf(sends[idx].name,sizeof(sends[idx].name),"%s",name->value);
     if(url)snprintf(sends[idx].url,sizeof(sends[idx].url),"%s",url->value);
     sends[idx].view=view?atoi(view->value):-1;
@@ -96,6 +103,8 @@ static void prepare(void){
     g_api.release=fake_release;
     g_api.send_command=mock_send;
     g_api.ready=1;
+    remove(K3346_NAV_APPLE_PATH);
+    remove(K3346_CALLCARD_MODE_PATH);
 }
 int main(void){
     altscreen_state *s;int b;
@@ -118,30 +127,53 @@ int main(void){
     s->route_active=0;queue_route_view_for_receiver(s->receiver,0);
     step("updateViewArea");assert(sends[3].view==0);ack(3,0);
     step("forceKeyFrame");ack(4,0);idle();
-    /* Big gauges: one topAligned show, ack then matching view then IDR. */
+    /* Big gauges: the area first, then one topAligned show, then IDR. */
     s->route_active=1;
     g_layout_slot=1;queue_route_view_for_receiver(s->receiver,0);
-    step("showUI");assert(strstr(sends[5].url,"topAligned"));idle();
-    ack(5,0);step("updateViewArea");assert(sends[6].view==3);
-    ack(6,0);step("forceKeyFrame");ack(7,0);idle();
-    /* Rapid VIEW changes DURING pending showUI: newest wins. */
+    step("updateViewArea");assert(sends[5].view==3);idle();
+    ack(5,0);step("showUI");assert(strstr(sends[6].url,"topAligned"));idle();
+    ack(6,0);assert(s->last_ui_slot==1);step("forceKeyFrame");ack(7,0);idle();
+    /* VIEW back before its showUI went out: newest wins, only the area returns. */
     g_layout_slot=0;queue_route_view_for_receiver(s->receiver,0);
-    step("showUI");assert(strstr(sends[8].url,"leftAligned"));
+    step("updateViewArea");assert(sends[8].view==1);
     g_layout_slot=1;queue_route_view_for_receiver(s->receiver,0);
     idle();ack(8,0);
-    step("showUI");assert(strstr(sends[9].url,"topAligned"));
-    ack(9,0);step("updateViewArea");assert(sends[10].view==3);
-    ack(10,0);step("forceKeyFrame");ack(11,0);idle();
+    step("updateViewArea");assert(sends[9].view==3);
+    ack(9,0);step("forceKeyFrame");ack(10,0);idle();
+    assert(s->last_ui_slot==1&&s->current_view==3);
+    /* VIEW during a pending showUI of a layout change: that one finishes first. */
+    g_layout_slot=0;queue_route_view_for_receiver(s->receiver,0);
+    step("updateViewArea");b=nsends-1;ack(b,0);
+    step("showUI");assert(strstr(sends[b+1].url,"leftAligned"));
+    g_layout_slot=1;queue_route_view_for_receiver(s->receiver,0);
+    idle();ack(b+1,0);
+    step("updateViewArea");assert(sends[b+2].view==3);ack(b+2,0);
+    step("showUI");assert(strstr(sends[b+3].url,"topAligned"));ack(b+3,0);
+    step("forceKeyFrame");ack(b+4,0);idle();
+    assert(s->last_ui_slot==1&&s->current_view==3);
     /* Command refusal: no dependent step may be sent. */
     s->route_active=0;queue_route_view_for_receiver(s->receiver,0);
     transport_rc=-1; b=nsends;v8s_control_tick();assert(nsends==b+1);
     assert(!strcmp(sends[b].name,"updateViewArea"));idle();
     assert(s->control_stage==ALTSCREEN_CONTROL_IDLE);
     transport_rc=0;
-    /* Failed AirPlay completion: abort the sequence. */
+    /* A refused area on a layout change: no showUI, and the next try is the same. */
     g_layout_slot=0;queue_route_view_for_receiver(s->receiver,0);
+    step("updateViewArea");b=nsends-1;ack(b,-42);idle();
+    assert(nsends==b+1&&s->last_ui_slot==1);
+    assert(s->control_stage==ALTSCREEN_CONTROL_IDLE);
+    queue_route_view_for_receiver(s->receiver,0);
+    step("updateViewArea");b=nsends-1;
+    /* The same, with no answer at all. */
+    s->control_deadline_ms=now_ms()-1;
+    idle();assert(nsends==b+1&&s->last_ui_slot==1);
+    assert(s->control_stage==ALTSCREEN_CONTROL_IDLE);
+    ack(b,0);idle();assert(nsends==b+1);
+    /* Failed AirPlay completion: abort the sequence. */
+    queue_route_view_for_receiver(s->receiver,0);
+    step("updateViewArea");b=nsends-1;ack(b,0);
     step("showUI");b=nsends-1;ack(b,-42);idle();
-    assert(s->last_ui_slot==-1);
+    assert(nsends==b+1&&s->last_ui_slot==-1);
     /* Timeout invalidates request token, late reply cannot change state. */
     queue_route_view_for_receiver(s->receiver,0);
     step("showUI");b=nsends-1;

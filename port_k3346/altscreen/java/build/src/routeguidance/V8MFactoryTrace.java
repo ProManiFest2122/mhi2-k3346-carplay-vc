@@ -127,6 +127,12 @@ final class V8MFactoryTrace {
         } catch (Throwable t) { line("SNAPSHOT_FAILED " + point + " " + t.getClass().getName()); }
     }
 
+    /* The same object the snapshots read; null while the cluster part is not up. */
+    static IViewSizeManager viewSizeManager(ClusterService cluster) {
+        Object manager = field(field(cluster,"combiBAPListener"),"viewSizeManagerFPK");
+        return manager instanceof IViewSizeManager ? (IViewSizeManager)manager : null;
+    }
+
     private static int arrayCount(Object o) {
         if (o == null || !o.getClass().isArray()) return -1;
         return Array.getLength(o);

@@ -202,6 +202,35 @@ static bool q_dequeue_nolock(frame_t* out) {
     return true;
 }
 
+/* Drop what a sync snapshot is about to replace: queued frames of a type whose newest
+ * value is in the sticky cache.  The writer would send them after the snapshot, oldest
+ * first, and take the receiver back in time.  With the phone on a route before the hook
+ * connected, Java stopped the guidance it had just started and went through the whole
+ * start again (car run-73: 50.7 s to 58.0 s).  Other frames stay, in order. */
+static int q_drop_covered_nolock(void) {
+    int count = g_ring_count;
+    int kept = 0;
+    int i;
+
+    for (i = 0; i < count; i++) {
+        frame_t* f = &g_ring[(g_ring_head + i) % SEND_QUEUE_CAPACITY];
+        type_slot_t* s = slot_for(f->type);
+
+        if (s && s->has_last && ((f->flags & BUS_FLAG_STICKY) || s->sticky)) {
+            frame_dispose(f);
+            continue;
+        }
+        if (kept != i) {
+            g_ring[(g_ring_head + kept) % SEND_QUEUE_CAPACITY] = *f;
+            f->payload = NULL;           /* moved */
+        }
+        kept++;
+    }
+    g_ring_count = kept;
+    g_ring_tail = (g_ring_head + kept) % SEND_QUEUE_CAPACITY;
+    return count - kept;
+}
+
 /* ============================================================
  * IO: write full frame to fd, big-endian header
  * ============================================================ */
@@ -376,7 +405,8 @@ hook_result_t bus_send(uint16_t type, uint8_t flags,
  * without holding it - so concurrent bus_send() from iAP2
  * callbacks is not blocked by slow network I/O here.
  * ============================================================ */
-static void send_sync_snapshot(int fd) {
+static void send_sync_snapshot(int fd, bool drop_covered) {
+    int      dropped = 0;
     frame_t  begin = { EVT_SYNC_BEGIN, 0, 0, 0, NULL };
     frame_t  end   = { EVT_SYNC_END,   0, 0, 0, NULL };
     frame_t* snapshot = NULL;
@@ -385,6 +415,7 @@ static void send_sync_snapshot(int fd) {
 
     pthread_mutex_lock(&g_lock);
     begin.seq = g_tx_seq++;
+    if (drop_covered) dropped = q_drop_covered_nolock();
 
     /* Count first, then allocate & copy. */
     for (i = 0; i < MAX_TYPES; i++) if (g_types[i].has_last) snapshot_count++;
@@ -408,6 +439,7 @@ static void send_sync_snapshot(int fd) {
     end.seq = g_tx_seq++;                            /* after the replay frames → begin < replay < end */
     pthread_mutex_unlock(&g_lock);
 
+    if (dropped > 0) LOG_WARN(LOG_MODULE, "snapshot replaces %d queued frames", dropped);
     LOG_INFO(LOG_MODULE, "sending snapshot fd=%d count=%d", fd, snapshot_count);
     send_frame(fd, &begin);
     for (i = 0; i < snapshot_count; i++) {
@@ -555,7 +587,7 @@ static int read_frame(int fd) {
     if (type == CMD_SYNC_REQ) {
         LOG_INFO(LOG_MODULE, "sync snapshot requested fd=%d", fd);
         if (payload) free(payload);
-        send_sync_snapshot(fd);
+        send_sync_snapshot(fd, false);
         return 0;
     }
 
@@ -651,7 +683,7 @@ static void* connector_main(void* arg) {
         }
         LOG_INFO(LOG_MODULE, "direct HELLO sent fd=%d", fd);
 
-        send_sync_snapshot(fd);
+        send_sync_snapshot(fd, true);
 
         /* Replace any stale fd (shouldn't exist but defensive). */
         pthread_mutex_lock(&g_lock);

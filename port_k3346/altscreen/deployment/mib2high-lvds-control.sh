@@ -16,11 +16,12 @@ OVERLAY_CONF=/mnt/app/root/mib2high-overlay.conf
 OVERLAY_READY=/tmp/vc-overlay-ready
 # overlay/capsule_text.h: text for the VC bar, its layout report, and "our layer
 # is not on the VC" for the overlay.
-CAPSULE_FILES="/tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-call-card /tmp/k3346-no-rgi"
+CAPSULE_FILES="/tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-call-card /tmp/k3346-no-rgi /tmp/k3346-nav-apple /tmp/vc-eta-pill /tmp/vc-eta-pill-ok"
 # The MMI options, K3346EtaRow: "1" = off. Kept across sessions.
 MAP_MODE=/tmp/k3346-map-mode
 ARROWS_MODE=/tmp/k3346-arrows-mode
 DMDT=/eso/bin/apps/dmdt
+SESSIONS=/tmp/mib2high-lvds-sessions
 
 log() { echo "`date 2>/dev/null` [lvds-control] $*" >> "$LOG"; }
 
@@ -50,6 +51,16 @@ cleanup() {
 trap 'cleanup' 0 1 2 15
 
 [ -e "$ACTIVE" ] || { rm -f "$HEARTBEAT" 2>/dev/null || true; exit 0; }
+
+# Session counter by Gooliver2 (PR #12). /tmp starts empty at every boot, so a
+# number above 1 in the log means a reconnect (#7, #11).
+SESSION_NO=`cat "$SESSIONS" 2>/dev/null || true`
+case "${SESSION_NO:-}" in
+    ''|*[!0-9]*) SESSION_NO=0 ;;
+esac
+SESSION_NO=$((SESSION_NO + 1))
+echo "$SESSION_NO" > "$SESSIONS" 2>/dev/null || true
+log "session #$SESSION_NO since boot"
 
 # v8l diagnostics only: read-only bounded /tmp rings for known factory
 # DSITracer appenders. Launch output and process status are collected separately.
@@ -85,13 +96,21 @@ export LD_LIBRARY_PATH=/mnt/app/armle/lib:/mnt/app/armle/usr/lib:/mnt/app/root/l
 
 SIG="$W $H $FPS"
 OLD_SIG=`cat /tmp/mib2high-vc-render.profile 2>/dev/null || true`
-if pidin 2>/dev/null | grep vc_render >/dev/null && [ "$OLD_SIG" != "$SIG" ]; then
+# pidin is slow right after boot, and the map and the arrow wait for it: look once.
+# With three calls it was 4 s from the first frame to the renderer (run-73).
+PROCS=`pidin 2>/dev/null | grep vc_ || true`
+case "$PROCS" in
+    *vc_render*) RENDERER_UP=1 ;;
+    *) RENDERER_UP=0 ;;
+esac
+if [ "$RENDERER_UP" -eq 1 ] && [ "$OLD_SIG" != "$SIG" ]; then
     log "renderer profile changed old='$OLD_SIG' new='$SIG'; restarting"
     slay vc_render >/dev/null 2>&1 || true
     sleep 1
+    RENDERER_UP=0
 fi
 
-if ! pidin 2>/dev/null | grep vc_render >/dev/null; then
+if [ "$RENDERER_UP" -eq 0 ]; then
     echo "$SIG" > /tmp/mib2high-vc-render.profile
     on -p 25 "$RENDERER" --out 1 --layer 58 --w "$W" --h "$H" --fps "$FPS" --ts wall >> /tmp/vc_render-launch.log 2>&1 &
     log "renderer start out=1 layer=58 ${W}x${H}@${FPS}"
@@ -100,12 +119,9 @@ else
     log "renderer already running profile='$OLD_SIG'"
 fi
 
-NAV0=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`
-REACQ_DONE=0
-[ "$NAV0" -ge 2 ] && REACQ_DONE=1
-log "session active nav_ready_count=$NAV0 profile_features=$FEATURES"
-
 # --- Etap 7: cluster overlay (maneuver arrow + lanes) -----------------------
+# Before the map and sloginfo, not after them: it needs about a second to report a
+# window, and those take that long anyway.  The wait below stays the only gate.
 # Separate process, separate displayable, drawn OVER the CarPlay map.  vc_render
 # is untouched: if anything here fails we fall back to context 77 and the map
 # keeps working exactly as it does today.
@@ -113,7 +129,13 @@ OVERLAY_CTX=77
 # Map off with the arrow on: our tile over the factory map, when the overlay is up.
 NOMAP_CTX=72
 if [ -x "$OVERLAY" ]; then
-    if ! pidin 2>/dev/null | grep vc_overlay >/dev/null; then
+    # An overlay in the first look may be the last session's on its way out (cleanup
+    # above), and starting none would leave the VC without one.  So ask again, only then.
+    OVERLAY_UP=0
+    case "$PROCS" in
+        *vc_overlay*) pidin 2>/dev/null | grep vc_overlay >/dev/null && OVERLAY_UP=1 ;;
+    esac
+    if [ "$OVERLAY_UP" -eq 0 ]; then
         # Drop any report left behind by an overlay that was killed rather than
         # shut down, so the gate below can only ever trust a fresh one.
         rm -f "$OVERLAY_READY" "$OVERLAY_READY.tmp" $CAPSULE_FILES 2>/dev/null || true
@@ -125,7 +147,6 @@ if [ -x "$OVERLAY" ]; then
         ( cd /mnt/app/root 2>/dev/null || true
           on -p 25 "$OVERLAY" >> /tmp/vc_overlay-launch.log 2>&1 & )
         log "overlay start"
-        sleep 1
     else
         log "overlay already running"
     fi
@@ -133,16 +154,26 @@ else
     log "overlay not installed: $OVERLAY"
 fi
 
-export LD_LIBRARY_PATH=/eso/lib
+# The map on its own, before the overlay is up: the factory map has been showing
+# until now, and the overlay can take seconds more.  Not with the map switched off.
 GATE_CONTEXT_OK=0
-if IPL_CONFIG_DIR=/etc/eso/production "$DMDT" dc 900 58 >> "$LOG" 2>&1; then
+if LD_LIBRARY_PATH=/eso/lib IPL_CONFIG_DIR=/etc/eso/production "$DMDT" dc 900 58 >> "$LOG" 2>&1; then
     GATE_CONTEXT_OK=1
     log "cluster gate context=900 displayable=58 declared"
+    if [ "`cat "$MAP_MODE" 2>/dev/null`" != "1" ]; then
+        LD_LIBRARY_PATH=/eso/lib IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 900 >> "$LOG" 2>&1 || true
+    fi
 else
     rm -f "$HEARTBEAT" 2>/dev/null || true
     log "cluster gate context declaration failed; HMI redirection stays disabled"
 fi
 
+NAV0=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`
+REACQ_DONE=0
+[ "$NAV0" -ge 2 ] && REACQ_DONE=1
+log "session active nav_ready_count=$NAV0 profile_features=$FEATURES"
+
+export LD_LIBRARY_PATH=/eso/lib
 # Only take the overlay context once the overlay really has a window.
 #
 # Etap 7a asked `dmdt gd` for that proof and got zero bytes back, and the reason
@@ -229,7 +260,6 @@ if [ -x "$OVERLAY" ]; then
     fi
 fi
 
-GATE_TICK=0
 LAST_CTX=''
 while [ -e "$ACTIVE" ]; do
     if [ "$GATE_CONTEXT_OK" -eq 1 ]; then
@@ -240,17 +270,14 @@ while [ -e "$ACTIVE" ]; do
         WANT_CTX=72
         [ "`cat "$ARROWS_MODE" 2>/dev/null`" = "1" ] || WANT_CTX="$NOMAP_CTX"
     fi
-    if [ "$WANT_CTX" != "$LAST_CTX" ]; then
-        GATE_TICK=0
-        log "cluster context=$WANT_CTX"
-    fi
+    [ "$WANT_CTX" = "$LAST_CTX" ] || log "cluster context=$WANT_CTX"
+    # Every second: the HMI can take the cluster back on a layout change, and until
+    # this runs the factory map shows (0.5 to 3 s on the #8-#10 videos, at every 3 s).
     # 72 is the factory's own view: once, and then the HMI may change it.
-    if [ "$GATE_TICK" -eq 0 ] && { [ "$WANT_CTX" != "72" ] || [ "$LAST_CTX" != "72" ]; }; then
+    if [ "$WANT_CTX" != "72" ] || [ "$LAST_CTX" != "72" ]; then
         IPL_CONFIG_DIR=/etc/eso/production "$DMDT" sc 4 "$WANT_CTX" >> "$LOG" 2>&1 || true
     fi
     LAST_CTX="$WANT_CTX"
-    GATE_TICK=$((GATE_TICK + 1))
-    [ "$GATE_TICK" -ge 3 ] && GATE_TICK=0
 
     if [ "$REACQ_DONE" -eq 0 ]; then
         NAV=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`

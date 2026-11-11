@@ -367,7 +367,7 @@ int main(void)
         assert(!strcmp(get(patched->item[1].val, "features")->value, "2"));
         assert(!strcmp(get(patched->item[1].val, "primaryInputDevice")->value, ALTSCREEN_KNOB_UUID));
         assert(!strcmp(get(patched->item[1].val, "maxFPS")->value, "30"));
-        assert(get(patched->item[1].val, "viewAreas")->count == 4);
+        assert(get(patched->item[1].val, "viewAreas")->count == 9);
     }
 
     /* the phone may be told the card-less URL */

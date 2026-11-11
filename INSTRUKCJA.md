@@ -364,6 +364,9 @@ Bez tego nowe funkcje się nie włączą.
    (Inne modele: tabela przycisków w [wiki M.I.B.](https://wiki.mibsolution.one/en/MHI2).)
 2. Puść przyciski. MMI uruchomi się od nowa — to trwa **1–2 minuty**. Poczekaj, aż ekran działa
    normalnie.
+3. **Wyłącz silnik**, odczekaj, aż zgasną zegary i MMI (ok. minuty), i włącz go z powrotem. Restart MMI
+   nie restartuje zegarów; bez tego zegary mogą zostać w starym stanie (np. strzałka bez ciemnego tła)
+   aż do następnej jazdy.
 
 ### 5.2 Podłącz iPhone'a
 

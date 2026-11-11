@@ -22,21 +22,42 @@ final class K3346CapsuleFile {
     static final int ETA_BOTH = 2;
     /* The maneuver card option, same owners. */
     static final String CARD_MODE_PATH = "/tmp/k3346-card-mode";
+    static final int CARD_FULL = 0;
     static final int CARD_NONE = 1;
+    /* "1\n" while Apple Maps guides, written by mm-ipod: native/nav_app.h. */
+    static final String NAV_APPLE_PATH = "/tmp/k3346-nav-apple";
     /* On/off options: 0 on, 1 off.  Arrows: overlay too.  Map: the session script. */
     static final String ARROWS_MODE_PATH = "/tmp/k3346-arrows-mode";
     static final String MAP_MODE_PATH = "/tmp/k3346-map-mode";
     static final String HUD_MODE_PATH = "/tmp/k3346-hud-mode";
+    /* The VC skin, 0 Classic, 1 Sport: native/eta_mode.h and the overlay. */
+    static final String SKIN_PATH = "/tmp/vc-skin";
+    /* The layout the stock HMI holds, as a slot: overlay_layout.h. */
+    static final String VIEW_SIZE_PATH = "/tmp/vc-view-size";
     /* Present while the app sends no route guidance, native/eta_mode.h. */
     static final String NO_RGI_PATH = "/tmp/k3346-no-rgi";
     /* Written by the phone part, format in overlay/call_card.h. */
     static final String CALL_CARD_PATH = "/tmp/vc-call-card";
     static final int CALL_NONE = 0;
     static final int CALL_VISIBLE = 1;
+    /* The MMI option "Call card on VC" (K3346EtaRow): 0 smoked, 1 light, 2 off.  With
+     * the card off a call leaves the times where they are: native/eta_mode.h. */
+    static final String CALLCARD_MODE_PATH = "/tmp/k3346-callcard-mode";
+    static final int CALLCARD_OFF = 2;
+    /* Our own arrival-time box on the map, overlay/eta_pill.h: the text in the format
+     * of writeText(), and the overlay's word that it can draw it. */
+    static final String ETA_PILL_PATH = "/tmp/vc-eta-pill";
+    static final String ETA_PILL_OK_PATH = "/tmp/vc-eta-pill-ok";
 
     /* One overlay line is below this many bytes, or the file is refused. */
     private static final int LINE_MAX = 96;
     private static final int CALL_CARD_READ_MAX = 512;
+
+    /* IViewSizeManager counts the map: 1 small map = big gauges = slot 1, 2 large map =
+     * small gauges = slot 0.  Anything else says nothing (car run-64, run-65). */
+    static int viewSizeSlot(int size) {
+        return size == 1 ? 1 : (size == 2 ? 0 : -1);
+    }
 
     /* readSlot results; otherwise slot + 2 * draw. */
     static final int SLOT_MISSING = -1;
@@ -127,6 +148,20 @@ final class K3346CapsuleFile {
     static int readCallCard(String path) {
         String text = readUpTo(path, CALL_CARD_READ_MAX);
         return text == null ? CALL_NONE : parseCallCard(text);
+    }
+
+    /* No file is the default, smoked (on); a half-written one keeps the previous. */
+    static int readCallCardMode(String path, int previous) {
+        int read = readEtaMode(path);
+        if (read == SLOT_MISSING) {
+            return 0;
+        }
+        return read == SLOT_NOT_READY ? previous : read;
+    }
+
+    /* A call makes room for our card only while the card is on. */
+    static boolean callCardShown(boolean callVisible, int callCardMode) {
+        return callVisible && callCardMode != CALLCARD_OFF;
     }
 
     static int readSlot(String path) {

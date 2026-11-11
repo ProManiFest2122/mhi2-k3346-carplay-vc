@@ -102,6 +102,11 @@ gcc "${CFLAGS[@]}" -o "$OUT/call_card_test" "$D/call_card_test.c" -lm
 run_test call_card "$OUT/call_card_test"
 
 echo
+echo "== eta_pill (our own arrival-time box on the map)"
+gcc "${CFLAGS[@]}" -o "$OUT/eta_pill_test" "$D/eta_pill_test.c" -lm
+( cd "$OUT" && run_test eta_pill "$OUT/eta_pill_test" )
+
+echo
 # ENABLE_LOGGING=0 turns the LOG_* macros into no-ops so the test does not need
 # the hook's logging backend (which is QNX-flavoured) just to check bytes.
 echo
@@ -118,6 +123,9 @@ run_test overlay_feed "$OUT/overlay_feed_test"
 
 gcc -std=gnu99 -O1 -g -Wall -Wextra -Wno-unused-function -o "$OUT/rgd_list_restore_test" \
     "$ALT/native/tests/rgd_list_restore_test.c"
-run_test rgd_list_restore "$OUT/rgd_list_restore_test"
+# Not through run_test: this one is built without ASan and ends with a plain
+# "rgd list restore OK" (asserts), not with an "N OK, M FAIL" summary, so
+# run_test took a clean pass for "did not start" and failed the suite.
+timeout -k 10 60 "$OUT/rgd_list_restore_test"
 
 echo "OVERLAY_HOST_TESTS=PASS"

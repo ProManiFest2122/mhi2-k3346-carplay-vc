@@ -138,12 +138,16 @@ public final class K3346EtaRowTest {
         ConnectivityModelBank stock = new ConnectivityModelBank();
         K3346EtaRow.Bank bank = new K3346EtaRow.Bank();
         int[] ids = bank.getAllModelIds();
-        eq("piec modeli wiecej", stock.getAllModelIds().length + 5, ids.length);
-        eq("nasz id eta", K3346EtaRow.MODEL_ID, ids[ids.length - 5]);
-        eq("nasz id karty", K3346EtaRow.CARD_MODEL_ID, ids[ids.length - 4]);
-        eq("nasz id strzalki", K3346EtaRow.ARROWS_MODEL_ID, ids[ids.length - 3]);
-        eq("nasz id mapy", K3346EtaRow.MAP_MODEL_ID, ids[ids.length - 2]);
-        eq("nasz id hud", K3346EtaRow.HUD_MODEL_ID, ids[ids.length - 1]);
+        eq("szesc modeli wiecej", stock.getAllModelIds().length + 6, ids.length);
+        eq("nasz id eta", K3346EtaRow.MODEL_ID, ids[ids.length - 6]);
+        eq("nasz id karty", K3346EtaRow.CARD_MODEL_ID, ids[ids.length - 5]);
+        eq("nasz id strzalki", K3346EtaRow.ARROWS_MODEL_ID, ids[ids.length - 4]);
+        eq("nasz id mapy", K3346EtaRow.MAP_MODEL_ID, ids[ids.length - 3]);
+        eq("nasz id hud", K3346EtaRow.HUD_MODEL_ID, ids[ids.length - 2]);
+        eq("nasz id rozmowy", K3346EtaRow.CALL_MODEL_ID, ids[ids.length - 1]);
+        eq("id rozmowy po hud", K3346EtaRow.HUD_MODEL_ID + 1, K3346EtaRow.CALL_MODEL_ID);
+        eq("model rozmowy to wybor", "true",
+            String.valueOf(bank.getModel(K3346EtaRow.CALL_MODEL_ID) instanceof ChoiceModel));
         eq("model hud to wybor", "true",
             String.valueOf(bank.getModel(K3346EtaRow.HUD_MODEL_ID) instanceof ChoiceModel));
         eq("model strzalki to wybor", "true",
@@ -152,7 +156,8 @@ public final class K3346EtaRowTest {
             String.valueOf(bank.getModel(K3346EtaRow.MAP_MODEL_ID) instanceof ChoiceModel));
         for (int i = 0; i < stock.getAllModelIds().length; i++) {
             if (stock.getAllModelIds()[i] == K3346EtaRow.MODEL_ID
-                    || stock.getAllModelIds()[i] == K3346EtaRow.CARD_MODEL_ID) {
+                    || stock.getAllModelIds()[i] == K3346EtaRow.CARD_MODEL_ID
+                    || stock.getAllModelIds()[i] == K3346EtaRow.CALL_MODEL_ID) {
                 eq("id nie jest zajety", "wolny", "zajety");
             }
         }
@@ -204,7 +209,14 @@ public final class K3346EtaRowTest {
         eq("wl en", "On", K3346EtaRow.text(K3346EtaRow.TEXT_ON, false));
         eq("wyl en", "Off", K3346EtaRow.text(K3346EtaRow.TEXT_OFF, false));
         eq("sasiad wl nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_ARROWS_LABEL - 1, true));
-        eq("sasiad wyl nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_OFF + 1, true));
+        eq("rozmowa pl", "Karta rozmowy na VC", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LABEL, true));
+        eq("przydymiona pl", "Przydymiona", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_SMOKED, true));
+        eq("jasna pl", "Jasna", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, true));
+        eq("rozmowa en", "Call card on VC", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LABEL, false));
+        eq("przydymiona en", "Smoked", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_SMOKED, false));
+        eq("jasna en", "Light", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, false));
+        eq("teksty rozmowy po wyl", K3346EtaRow.TEXT_OFF + 1, K3346EtaRow.TEXT_CALL_LABEL);
+        eq("sasiad jasnej nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT + 1, true));
         eq("pl_PL", "true", String.valueOf(K3346HmiLanguage.isPolish("pl_PL")));
         eq("PL", "true", String.valueOf(K3346HmiLanguage.isPolish("PL")));
         eq("en_GB", "false", String.valueOf(K3346HmiLanguage.isPolish("en_GB")));
@@ -359,6 +371,39 @@ public final class K3346EtaRowTest {
         row.file = oldFile;
     }
 
+    /* Karta rozmowy: trzy wartosci, Przydymiona domyslnie, Wyl. jako ostatnia. */
+    private static void testCall(File dir) throws Exception {
+        System.out.println("=== karta rozmowy");
+        K3346EtaRow.Row row = K3346EtaRow.CALL;
+        int key = K3346EtaRow.CALL_KEY;
+        File f = new File(dir, "c");
+        String oldFile = row.file;
+        row.file = f.getPath();
+        eq("klucz po hud", K3346EtaRow.HUD_KEY + 1, key);
+        eq("0 zostaje", 0, row.clamp(0));
+        eq("1 zostaje", 1, row.clamp(1));
+        eq("2 zostaje", 2, row.clamp(2));
+        eq("3 na przydymiona", 0, row.clamp(3));
+        eq("-1 na przydymiona", 0, row.clamp(-1));
+        row.select(1);
+        eq("plik jasna", "1\n", read(f));
+        eq("klucz", key, stored[1]);
+        eq("wartosc", 1, stored[2]);
+        row.select(2);
+        eq("plik wyl", "2\n", read(f));
+        row.select(0);
+        eq("plik przydymiona", "0\n", read(f));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 2};
+        K3346EtaRow.boot(framework());
+        eq("start z magazynu: wyl", "2\n", read(f));
+        eq("flush", "true", String.valueOf(FlushValuesDict.isFlushRequired(K3346EtaRow.NAMESPACE, key)));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 7};
+        K3346EtaRow.boot(framework());
+        eq("smieci na przydymiona", "0\n", read(f));
+        f.delete();
+        row.file = oldFile;
+    }
+
     /* Oba wiersze w jednej szufladzie; awaria jednego nie rusza drugiego. */
     private static void testBothRows(IWrappedFont font) {
         System.out.println("=== dwa wiersze");
@@ -408,6 +453,24 @@ public final class K3346EtaRowTest {
         eq("fokus strzalka inny", "true", String.valueOf(arrows.getInternalID() != card.getInternalID()));
         eq("fokus mapa inny", "true", String.valueOf(map.getInternalID() != arrows.getInternalID()));
         eq("fokus hud inny", "true", String.valueOf(hud.getInternalID() != map.getInternalID()));
+
+        K3346EtaRow.CALL.addTo(drawer);
+        eq("szesc w menu", before + 6, menu.getChildren().size());
+        MenuItemController call = (MenuItemController)drawer.findViews(K3346EtaRow.CALL_MODEL_ID)[0];
+        eq("rozmowa: model", K3346EtaRow.CALL_MODEL_ID, call.getModelID());
+        eq("rozmowa: etykieta", K3346EtaRow.TEXT_CALL_LABEL, call.getLabelId());
+        eq("rozmowa: typ", MenuItemController.TYPE_COMBO_BOX, call.getType());
+        eq("rozmowa: trzy pozycje", 3, call.getTextIds().length);
+        eq("rozmowa: pierwsza przydymiona", K3346EtaRow.TEXT_CALL_SMOKED, call.getTextIds()[0]);
+        eq("rozmowa: druga jasna", K3346EtaRow.TEXT_CALL_LIGHT, call.getTextIds()[1]);
+        eq("rozmowa: trzecia wyl", K3346EtaRow.TEXT_OFF, call.getTextIds()[2]);
+        eq("rozmowa: ostatnia w szufladzie", K3346EtaRow.CALL_MODEL_ID,
+            drawer.getViewIDs()[drawer.getViewIDs().length - 1]);
+        int[] focus = {eta.getInternalID(), card.getInternalID(), arrows.getInternalID(),
+            map.getInternalID(), hud.getInternalID()};
+        for (int i = 0; i < focus.length; i++) {
+            eq("fokus rozmowy inny " + i, "true", String.valueOf(call.getInternalID() != focus[i]));
+        }
     }
 
     private static void testRow() {
@@ -501,10 +564,12 @@ public final class K3346EtaRowTest {
         eq("plik strzalki dla nakladki", "/tmp/k3346-arrows-mode", K3346EtaRow.ARROWS.file);
         eq("plik mapy dla skryptu", "/tmp/k3346-map-mode", K3346EtaRow.MAP.file);
         eq("plik hud dla bundla", "/tmp/k3346-hud-mode", K3346EtaRow.HUD.file);
+        eq("plik karty rozmowy dla nakladki", "/tmp/k3346-callcard-mode", K3346EtaRow.CALL.file);
         /* boot() w testach pisze pliki kazdego wiersza: nie do /tmp prawdziwego auta */
         K3346EtaRow.ARROWS.file = new File(dir, "a").getPath();
         K3346EtaRow.MAP.file = new File(dir, "m").getPath();
         K3346EtaRow.HUD.file = new File(dir, "h").getPath();
+        K3346EtaRow.CALL.file = new File(dir, "r").getPath();
         testTexts();
         testBank();
         testMode(mode);
@@ -513,6 +578,7 @@ public final class K3346EtaRowTest {
         testOnOff(dir, K3346EtaRow.ARROWS, K3346EtaRow.ARROWS_KEY, "strzalka");
         testOnOff(dir, K3346EtaRow.MAP, K3346EtaRow.MAP_KEY, "mapa");
         testOnOff(dir, K3346EtaRow.HUD, K3346EtaRow.HUD_KEY, "hud");
+        testCall(dir);
         testRow();
 
         mode.delete();
@@ -520,6 +586,7 @@ public final class K3346EtaRowTest {
         new File(dir, "a").delete();
         new File(dir, "m").delete();
         new File(dir, "h").delete();
+        new File(dir, "r").delete();
         dir.delete();
         System.out.println("WYNIK_ETA_ROW: " + ok + " OK, " + fail + " FAIL");
         System.exit(fail == 0 ? 0 : 1);

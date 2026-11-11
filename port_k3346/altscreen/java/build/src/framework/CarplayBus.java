@@ -167,6 +167,10 @@ public class CarplayBus {
     private Socket sock;
     private InputStream in;
 
+    /* What only a route frame with the whole state has, see isRouteSnapshot. */
+    private static final byte[] SNAPSHOT_KEY = "\ndiag_rx_seq:".getBytes();
+    private static final int SNAPSHOT_KEY_WITHIN = 96;
+
     private static final int MAX_TYPES = 0x0400;
     private final Listener[] listeners = new Listener[MAX_TYPES];
 
@@ -306,25 +310,36 @@ public class CarplayBus {
         }
 
         byte[] hdr = new byte[HEADER_SIZE];
+        Frame next = null;
         while (running) {
             try {
-                din.readFully(hdr);
-                int magic = getBE32(hdr, 0);
-                if (magic != MAGIC) {
-                    Log.w(TAG, "bad magic 0x" + Integer.toHexString(magic));
-                    break;
+                Frame f = next != null ? next : readFrame(din, hdr);
+                next = null;
+                if (f == null) break;
+
+                /* The phone sends a route in half a second, and each frame takes about
+                 * 150 ms here (BAP, the log), so the factory tile came 7 s after our arrow
+                 * (car run-70).  A newer state already waiting makes this one obsolete.
+                 * If available() said nothing on this JVM, every frame would just be
+                 * handled as before. */
+                int skipped = 0;
+                boolean bad = false;
+                while (isRouteSnapshot(f) && din.available() > 0) {
+                    Frame newer = readFrame(din, hdr);
+                    if (newer == null) {
+                        bad = true;
+                        break;
+                    }
+                    if (!isRouteSnapshot(newer)) {
+                        next = newer;
+                        break;
+                    }
+                    f = newer;
+                    skipped++;
                 }
-                int seq  = getBE32(hdr, 4);
-                int type = getBE16(hdr, 8);
-                int flags = hdr[10] & 0xFF;
-                int len = getBE32(hdr, 12);
-                if (len < 0 || len > MAX_PAYLOAD) {
-                    Log.w(TAG, "bad len " + len);
-                    break;
-                }
-                byte[] payload = (len > 0) ? new byte[len] : new byte[0];
-                if (len > 0) din.readFully(payload);
-                dispatch(type, flags, payload, len, seq);
+                if (skipped > 0) Log.d(TAG, "route frames skipped=" + skipped);
+                dispatch(f.type, f.flags, f.payload, f.len, f.seq);
+                if (bad) break;
             } catch (IOException e) {
                 if (running) {
                     String msg = e.getMessage();
@@ -343,6 +358,57 @@ public class CarplayBus {
             if (sock == owned) closeConnectionLocked("reader exit");
             lock.notifyAll();
         }
+    }
+
+    private static final class Frame {
+        final int seq;
+        final int type;
+        final int flags;
+        final int len;
+        final byte[] payload;
+
+        Frame(int seq, int type, int flags, int len, byte[] payload) {
+            this.seq = seq;
+            this.type = type;
+            this.flags = flags;
+            this.len = len;
+            this.payload = payload;
+        }
+    }
+
+    /* null: the stream can not be trusted any more. */
+    private static Frame readFrame(DataInputStream din, byte[] hdr) throws IOException {
+        din.readFully(hdr);
+        int magic = getBE32(hdr, 0);
+        if (magic != MAGIC) {
+            Log.w(TAG, "bad magic 0x" + Integer.toHexString(magic));
+            return null;
+        }
+        int seq  = getBE32(hdr, 4);
+        int type = getBE16(hdr, 8);
+        int flags = hdr[10] & 0xFF;
+        int len = getBE32(hdr, 12);
+        if (len < 0 || len > MAX_PAYLOAD) {
+            Log.w(TAG, "bad len " + len);
+            return null;
+        }
+        byte[] payload = (len > 0) ? new byte[len] : new byte[0];
+        if (len > 0) din.readFully(payload);
+        return new Frame(seq, type, flags, len, payload);
+    }
+
+    /* A route frame with the whole state (write_bus_snapshot_from_cache in rgd_hook.c):
+     * the list and its maneuvers are in every one, car run-73 ran on a single frame.  The
+     * short frames, a clear and a route end, have no such key and are never skipped. */
+    private static boolean isRouteSnapshot(Frame f) {
+        if (f.type != EVT_RGD_UPDATE) return false;
+        int end = Math.min(f.len, SNAPSHOT_KEY_WITHIN) - SNAPSHOT_KEY.length;
+        for (int i = 0; i <= end; i++) {
+            int k = 0;
+            while (k < SNAPSHOT_KEY.length && f.payload[i + k] == SNAPSHOT_KEY[k]) k++;
+            if (k == SNAPSHOT_KEY.length) return true;
+        }
+        return false;
     }
 
     private void dispatch(int type, int flags, byte[] payload, int len, int seq) {

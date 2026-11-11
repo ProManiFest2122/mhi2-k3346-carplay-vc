@@ -32,18 +32,21 @@ wired CarPlay.
 ## Current status
 
 **The version to download is 1.0.1**, from [Releases](../../releases/latest). The code in this repository is
-newer: it is the test version of **2.0**, not released yet and with no date set. It passed the tests in the
-car. To use what is below before the release, you have to [build it yourself](BUILDING.md).
+newer: it is the test version of **2.0**. **If the tests in the car go well, 2.0 will be released on
+14 November 2026.** To use what is below before the release, you have to [build it yourself](BUILDING.md).
 
 ### Coming in 2.0
 
 | | New |
 |---|---|
 | 🕘 | **Favorites** next to recent calls (tested on iOS 27; FaceTime entries and e-mail addresses are not shown) |
-| 🏁 | **Our own arrival-time box** on the cockpit map, by the gauges: arrival time, time left and distance, always complete, with Apple Maps and Google Maps, on both gauge layouts. Or the same on the cockpit bar, or in both places |
-| 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change): **smoked** or **light** glass, or **off**. The arrival-time box takes the same look |
-| 🟩 | **Map without the phone's maneuver card**, on both gauge layouts |
+| 🏁 | **Arrival time where you want it:** as a box on the cockpit map, by the gauges, or as a capsule on the cockpit bar, or both. Arrival time, time left and distance, always complete, with Apple Maps and Google Maps, on both gauge layouts |
+| 🟩 | **The phone's maneuver card can be switched off**: a clean map, on both gauge layouts |
+| 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change): name, state dot and call time |
+| 🎨 | **Pick the look** of the call card and of the arrival-time box: **smoked** or **light** glass, or switch the call card **off** |
 | ➡️ | **Switch off** the arrow, the CarPlay map on the cockpit (the factory view comes back) or the HUD arrows. Switching off the HUD is untested: no car with a HUD here |
+| 🌍 | **Our MMI options and the call card in 8 languages**: English, Polish, German, Russian, Czech, French, Italian and Spanish, following the MMI language (other languages: English) |
+| ⚙️ | **All of it set in the MMI**, no SD card or script needed to change an option (see below) |
 
 | | Fixed |
 |---|---|
@@ -54,8 +57,16 @@ car. To use what is below before the release, you have to [build it yourself](BU
 | 🔧 | Install guide: after the MMI restart, switch the engine off for a minute. An MMI restart does not restart the cockpit |
 
 All of these options are in one place: MMI menu → Settings (last item) → Connection manager → push the
-rotary knob to the right → bottom of the list: **CarPlay arrival time**, **CarPlay maneuver card**,
-**Arrow on VC**, **Map on VC**, **CarPlay HUD**, **Call card on VC**.
+rotary knob to the right → bottom of the list:
+
+| Option | Choices |
+|---|---|
+| **CarPlay arrival time** | **Bar** (capsule on the cockpit bar), **Map** (box on the map, by the gauges), **Both** |
+| **CarPlay maneuver card** | **Full** (the phone's card on the map), **Off** (map without it) |
+| **Arrow on VC** | **On**, **Off** |
+| **Map on VC** | **On**, **Off** (the factory view comes back) |
+| **CarPlay HUD** | **On**, **Off** |
+| **Call card on VC** | **Smoked**, **Light** (also the look of the arrival-time box), **Off** |
 
 ### Later
 

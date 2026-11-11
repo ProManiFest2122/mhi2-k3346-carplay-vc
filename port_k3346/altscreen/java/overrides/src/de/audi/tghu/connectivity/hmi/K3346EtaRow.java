@@ -124,23 +124,60 @@ final class K3346EtaRow {
 
     /* null for an id that is not ours. */
     static String text(int id, boolean polish) {
+        return text(id, polish ? "pl" : "en");
+    }
+
+    /* null for an id that is not ours; lang as K3346HmiLanguage.lang(). */
+    static String text(int id, String lang) {
+        String[] row = row(id);
+        return row == null ? null : K3346HmiLanguage.pick(row, lang);
+    }
+
+    /* Short: the MMI cuts a long label.  The columns of K3346HmiLanguage.LANGS:
+     * en, pl, de, ru, cs, fr, it, es. */
+    private static String[] row(int id) {
         switch (id) {
-            case TEXT_LABEL:       return polish ? "Czas dojazdu CarPlay" : "CarPlay arrival time";
-            case TEXT_CAPSULE:     return polish ? "Kapsuła" : "Bar";
-            case TEXT_MAP:         return polish ? "Mapa" : "Map";
-            case TEXT_BOTH:        return polish ? "Obie" : "Both";
-            case TEXT_CARD_LABEL:  return polish ? "Karta manewru CarPlay" : "CarPlay maneuver card";
-            case TEXT_CARD_FULL:   return polish ? "Pełna" : "Full";
-            case TEXT_CARD_NONE:   return polish ? "Brak" : "Off";
-            case TEXT_ARROWS_LABEL: return polish ? "Strzałka na VC" : "Arrow on VC";
-            case TEXT_MAP_LABEL:   return polish ? "Mapa na VC" : "Map on VC";
-            case TEXT_HUD_LABEL:   return polish ? "HUD CarPlay" : "CarPlay HUD";
-            case TEXT_ON:          return polish ? "Wł." : "On";
-            case TEXT_OFF:         return polish ? "Wył." : "Off";
-            case TEXT_CALL_LABEL:  return polish ? "Karta rozmowy na VC" : "Call card on VC";
-            case TEXT_CALL_SMOKED: return polish ? "Przydymiona" : "Smoked";
-            case TEXT_CALL_LIGHT:  return polish ? "Jasna" : "Light";
-            default:               return null;
+            case TEXT_LABEL:
+                return new String[] {"CarPlay arrival time", "Czas dojazdu CarPlay", "CarPlay Ankunftszeit",
+                    "Время прибытия CarPlay", "Čas příjezdu CarPlay", "Heure d'arrivée CarPlay",
+                    "Orario di arrivo CarPlay", "Hora de llegada CarPlay"};
+            case TEXT_CAPSULE:
+                return new String[] {"Bar", "Kapsuła", "Leiste", "Панель", "Lišta", "Barre", "Barra", "Barra"};
+            case TEXT_MAP:
+                return new String[] {"Map", "Mapa", "Karte", "Карта", "Mapa", "Carte", "Mappa", "Mapa"};
+            case TEXT_BOTH:
+                return new String[] {"Both", "Obie", "Beide", "Оба", "Obojí", "Les deux", "Entrambi", "Ambos"};
+            case TEXT_CARD_LABEL:
+                return new String[] {"CarPlay maneuver card", "Karta manewru CarPlay", "CarPlay Manöverkarte",
+                    "Карточка манёвра CarPlay", "Karta manévru CarPlay", "Carte de manœuvre CarPlay",
+                    "Scheda manovra CarPlay", "Tarjeta de maniobra CarPlay"};
+            case TEXT_CARD_FULL:
+                return new String[] {"Full", "Pełna", "Voll", "Полная", "Plná", "Complète", "Completa", "Completa"};
+            case TEXT_CARD_NONE:
+                return new String[] {"Off", "Brak", "Keine", "Нет", "Žádná", "Aucune", "Nessuna", "Ninguna"};
+            case TEXT_ARROWS_LABEL:
+                return new String[] {"Arrow on VC", "Strzałka na VC", "Pfeil im VC", "Стрелка на VC",
+                    "Šipka na VC", "Flèche sur VC", "Freccia su VC", "Flecha en VC"};
+            case TEXT_MAP_LABEL:
+                return new String[] {"Map on VC", "Mapa na VC", "Karte im VC", "Карта на VC", "Mapa na VC",
+                    "Carte sur VC", "Mappa su VC", "Mapa en VC"};
+            case TEXT_HUD_LABEL:
+                return new String[] {"CarPlay HUD", "HUD CarPlay", "CarPlay HUD", "HUD CarPlay", "HUD CarPlay",
+                    "HUD CarPlay", "HUD CarPlay", "HUD CarPlay"};
+            case TEXT_ON:
+                return new String[] {"On", "Wł.", "Ein", "Вкл.", "Zap.", "Act.", "Att.", "Act."};
+            case TEXT_OFF:
+                return new String[] {"Off", "Wył.", "Aus", "Выкл.", "Vyp.", "Désact.", "Disatt.", "Desact."};
+            case TEXT_CALL_LABEL:
+                return new String[] {"Call card on VC", "Karta rozmowy na VC", "Anrufkarte im VC",
+                    "Карточка звонка на VC", "Karta hovoru na VC", "Carte d'appel sur VC",
+                    "Scheda chiamata su VC", "Tarjeta de llamada en VC"};
+            case TEXT_CALL_SMOKED:
+                return new String[] {"Smoked", "Przydymiona", "Getönt", "Тёмная", "Tmavá", "Fumée", "Fumé", "Ahumada"};
+            case TEXT_CALL_LIGHT:
+                return new String[] {"Light", "Jasna", "Hell", "Светлая", "Světlá", "Claire", "Chiara", "Clara"};
+            default:
+                return null;
         }
     }
 
@@ -333,12 +370,12 @@ final class K3346EtaRow {
         }
 
         public String getText(int id) {
-            String ours = text(id, id >= TEXT_LABEL && K3346HmiLanguage.isPolish());
+            String ours = id >= TEXT_LABEL ? text(id, K3346HmiLanguage.lang()) : null;
             return ours != null ? ours : super.getText(id);
         }
 
         public String getAltText(int id) {
-            String ours = text(id, id >= TEXT_LABEL && K3346HmiLanguage.isPolish());
+            String ours = id >= TEXT_LABEL ? text(id, K3346HmiLanguage.lang()) : null;
             return ours != null ? ours : super.getAltText(id);
         }
 

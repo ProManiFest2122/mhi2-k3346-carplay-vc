@@ -217,10 +217,102 @@ public final class K3346EtaRowTest {
         eq("jasna en", "Light", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, false));
         eq("teksty rozmowy po wyl", K3346EtaRow.TEXT_OFF + 1, K3346EtaRow.TEXT_CALL_LABEL);
         eq("sasiad jasnej nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT + 1, true));
-        eq("pl_PL", "true", String.valueOf(K3346HmiLanguage.isPolish("pl_PL")));
-        eq("PL", "true", String.valueOf(K3346HmiLanguage.isPolish("PL")));
-        eq("en_GB", "false", String.valueOf(K3346HmiLanguage.isPolish("en_GB")));
-        eq("null", "false", String.valueOf(K3346HmiLanguage.isPolish(null)));
+
+        System.out.println("=== jezyki (2.0)");
+        eq("kolejnosc kolumn", "en,pl,de,ru,cs,fr,it,es", join(K3346HmiLanguage.LANGS));
+        eq("de_DE", "de", K3346HmiLanguage.lang("de_DE"));
+        eq("ru_RU", "ru", K3346HmiLanguage.lang("ru_RU"));
+        eq("cs_CZ", "cs", K3346HmiLanguage.lang("cs_CZ"));
+        eq("fr_CA", "fr", K3346HmiLanguage.lang("fr_CA"));
+        eq("it_IT", "it", K3346HmiLanguage.lang("it_IT"));
+        eq("es_MX", "es", K3346HmiLanguage.lang("es_MX"));
+        eq("pl_PL", "pl", K3346HmiLanguage.lang("pl_PL"));
+        eq("PL", "pl", K3346HmiLanguage.lang("PL"));
+        eq("de-AT", "de", K3346HmiLanguage.lang("de-AT"));
+        eq(" De_ch ", "de", K3346HmiLanguage.lang(" De_ch "));
+        eq("en_GB", "en", K3346HmiLanguage.lang("en_GB"));
+        eq("uk_UA: w MMI go nie ma", "en", K3346HmiLanguage.lang("uk_UA"));
+        eq("nl_NL: brak tekstow", "en", K3346HmiLanguage.lang("nl_NL"));
+        eq("pusty", "en", K3346HmiLanguage.lang(""));
+        eq("null jezyk", "en", K3346HmiLanguage.lang(null));
+        eq("deu: nie de", "en", K3346HmiLanguage.lang("deu"));
+        eq("bez frameworku: en", "en", K3346HmiLanguage.lang());
+        eq("indeks ru", 3, K3346HmiLanguage.index("ru"));
+        eq("indeks obcy", 0, K3346HmiLanguage.index("xx"));
+        eq("pick: brak kolumny = en", "A", K3346HmiLanguage.pick(new String[] {"A", "B"}, "es"));
+        eq("pick: pusta kolumna = en", "A", K3346HmiLanguage.pick(new String[] {"A", null, "C"}, "pl"));
+        eq("pick: de", "C", K3346HmiLanguage.pick(new String[] {"A", null, "C"}, "de"));
+
+        int[] ids = {K3346EtaRow.TEXT_LABEL, K3346EtaRow.TEXT_CAPSULE, K3346EtaRow.TEXT_MAP, K3346EtaRow.TEXT_BOTH,
+            K3346EtaRow.TEXT_CARD_LABEL, K3346EtaRow.TEXT_CARD_FULL, K3346EtaRow.TEXT_CARD_NONE,
+            K3346EtaRow.TEXT_ARROWS_LABEL, K3346EtaRow.TEXT_MAP_LABEL, K3346EtaRow.TEXT_HUD_LABEL,
+            K3346EtaRow.TEXT_ON, K3346EtaRow.TEXT_OFF, K3346EtaRow.TEXT_CALL_LABEL,
+            K3346EtaRow.TEXT_CALL_SMOKED, K3346EtaRow.TEXT_CALL_LIGHT};
+        String[] langs = K3346HmiLanguage.LANGS;
+        int empty = 0, sameAsEn = 0;
+        for (int i = 0; i < ids.length; i++) {
+            String en = K3346EtaRow.text(ids[i], "en");
+            for (int l = 0; l < langs.length; l++) {
+                String t = K3346EtaRow.text(ids[i], langs[l]);
+                if (t == null || t.trim().length() == 0) {
+                    empty++;
+                }
+                if (l > 0 && t != null && t.equals(en) && ids[i] != K3346EtaRow.TEXT_HUD_LABEL) {
+                    sameAsEn++;
+                    System.out.println("  (jak po angielsku: " + ids[i] + " " + langs[l] + ")");
+                }
+            }
+            eq("obcy jezyk = en " + ids[i], en, K3346EtaRow.text(ids[i], "xx"));
+            eq("boolean pl = pl " + ids[i], K3346EtaRow.text(ids[i], "pl"), K3346EtaRow.text(ids[i], true));
+            eq("boolean en = en " + ids[i], en, K3346EtaRow.text(ids[i], false));
+        }
+        eq("zaden tekst pusty", 0, empty);
+        int sameOnOff = 0, sameCall = 0, sameCard = 0, sameEta = 0;
+        for (int l = 0; l < langs.length; l++) {
+            if (K3346EtaRow.text(K3346EtaRow.TEXT_ON, langs[l]).equals(K3346EtaRow.text(K3346EtaRow.TEXT_OFF, langs[l]))) {
+                sameOnOff++;
+            }
+            if (K3346EtaRow.text(K3346EtaRow.TEXT_CALL_SMOKED, langs[l]).equals(K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, langs[l]))) {
+                sameCall++;
+            }
+            if (K3346EtaRow.text(K3346EtaRow.TEXT_CARD_FULL, langs[l]).equals(K3346EtaRow.text(K3346EtaRow.TEXT_CARD_NONE, langs[l]))) {
+                sameCard++;
+            }
+            String c = K3346EtaRow.text(K3346EtaRow.TEXT_CAPSULE, langs[l]);
+            String m = K3346EtaRow.text(K3346EtaRow.TEXT_MAP, langs[l]);
+            String b = K3346EtaRow.text(K3346EtaRow.TEXT_BOTH, langs[l]);
+            if (c.equals(m) || c.equals(b) || m.equals(b)) {
+                sameEta++;
+            }
+        }
+        eq("Wl. rozne od Wyl. w kazdym jezyku", 0, sameOnOff);
+        eq("Przydymiona rozna od Jasnej", 0, sameCall);
+        eq("Pelna rozna od Brak", 0, sameCard);
+        eq("Kapsula/Mapa/Obie rozne", 0, sameEta);
+        eq("it Wl.", "Att.", K3346EtaRow.text(K3346EtaRow.TEXT_ON, "it"));
+        eq("de Wyl.", "Aus", K3346EtaRow.text(K3346EtaRow.TEXT_OFF, "de"));
+        /* the same word happens: "Mapa" (pl, cs, es) is not English; only exact copies of
+         * the English text count, and only these two are expected */
+        eq("tylko Barra/Mapa itp. bez kopii angielskich", 0, sameAsEn);
+        eq("de etykieta", "CarPlay Ankunftszeit", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "de"));
+        eq("ru etykieta", "Время прибытия CarPlay", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "ru"));
+        eq("cs wyl", "Vyp.", K3346EtaRow.text(K3346EtaRow.TEXT_OFF, "cs"));
+        eq("fr rozmowa", "Carte d'appel sur VC", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LABEL, "fr"));
+        eq("it jasna", "Chiara", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, "it"));
+        eq("es brak", "Ninguna", K3346EtaRow.text(K3346EtaRow.TEXT_CARD_NONE, "es"));
+        eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT + 1, "de"));
+        eq("pl bez zmian", "Czas dojazdu CarPlay", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "pl"));
+    }
+
+    private static String join(String[] a) {
+        StringBuffer b = new StringBuffer();
+        for (int i = 0; i < a.length; i++) {
+            if (i > 0) {
+                b.append(',');
+            }
+            b.append(a[i]);
+        }
+        return b.toString();
     }
 
     private static void testMode(File mode) throws Exception {

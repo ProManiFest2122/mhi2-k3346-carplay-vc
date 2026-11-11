@@ -31,18 +31,22 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 ## Stan prac
 
 **Wersja do pobrania to 1.0.1**, z [Releases](../../releases/latest). Kod w tym repozytorium jest nowszy: to
-wersja testowa **2.0**, jeszcze niewydana i bez ustalonej daty. Przeszła testy w aucie. Żeby skorzystać
-z poniższych funkcji przed wydaniem, trzeba [zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
+wersja testowa **2.0**. **Jeśli testy w aucie przebiegną pomyślnie, wersja 2.0 zostanie opublikowana
+14 listopada 2026.** Żeby skorzystać z poniższych funkcji przed wydaniem, trzeba
+[zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
 
 ### W wersji 2.0
 
 | | Nowe |
 |---|---|
 | 🕘 | **Ulubione** obok ostatnich połączeń (sprawdzone na iOS 27; pozycje FaceTime i adresy e-mail się nie pokazują) |
-| 🏁 | **Własna ramka z czasem dojazdu** na mapie zegarów, przy zegarach: godzina przyjazdu, pozostały czas i dystans, zawsze w całości, w Mapach Apple i Google Maps, na obu układach zegarów. Albo to samo na pasku w zegarach, albo w obu miejscach |
-| 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki): szkło **przydymione** albo **jasne**, albo **wyłączona**. Ramka czasu ma ten sam wygląd |
-| 🟩 | **Mapa bez karty manewru telefonu**, na obu układach zegarów |
+| 🏁 | **Czas dojazdu tam, gdzie chcesz:** jako ramka na mapie zegarów, przy zegarach, albo jako kapsuła na pasku w zegarach, albo w obu miejscach. Godzina przyjazdu, pozostały czas i dystans, zawsze w całości, w Mapach Apple i Google Maps, na obu układach zegarów |
+| 🟩 | **Kartę manewru z telefonu można wyłączyć**: czysta mapa, na obu układach zegarów |
+| 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki): imię, kropka stanu i czas rozmowy |
+| 🎨 | **Wybór wyglądu** karty rozmowy i ramki z czasem dojazdu: szkło **przydymione** albo **jasne**, albo karta rozmowy **wyłączona** |
 | ➡️ | **Wyłączanie** strzałki, mapy CarPlay na zegarach (wraca widok fabryczny) albo strzałek na HUD. Wyłączenia HUD nie sprawdziliśmy, bo nie mamy auta z HUD |
+| 🌍 | **Nasze opcje w MMI i karta rozmowy w 8 językach**: angielskim, polskim, niemieckim, rosyjskim, czeskim, francuskim, włoskim i hiszpańskim, zgodnie z językiem MMI (pozostałe języki: angielski) |
+| ⚙️ | **Wszystko ustawiane w MMI**, bez karty SD i skryptów (lista niżej) |
 
 | | Poprawione |
 |---|---|
@@ -53,8 +57,16 @@ z poniższych funkcji przed wydaniem, trzeba [zbudować ją samodzielnie](BUILDI
 | 🔧 | Instrukcja instalacji: po restarcie MMI wyłącz silnik na minutę. Restart MMI nie restartuje zegarów |
 
 Wszystkie te opcje są w jednym miejscu: menu MMI → Ustawienia (ostatnia pozycja) → Manager połączeń →
-pokrętło w prawo → dół listy: **Czas dojazdu CarPlay**, **Karta manewru CarPlay**, **Strzałka na VC**,
-**Mapa na VC**, **HUD CarPlay**, **Karta rozmowy na VC**.
+pokrętło w prawo → dół listy:
+
+| Opcja | Do wyboru |
+|---|---|
+| **Czas dojazdu CarPlay** | **Kapsuła** (na pasku w zegarach), **Mapa** (ramka na mapie, przy zegarach), **Obie** |
+| **Karta manewru CarPlay** | **Pełna** (karta telefonu na mapie), **Brak** (mapa bez niej) |
+| **Strzałka na VC** | **Wł.**, **Wył.** |
+| **Mapa na VC** | **Wł.**, **Wył.** (wraca widok fabryczny) |
+| **HUD CarPlay** | **Wł.**, **Wył.** |
+| **Karta rozmowy na VC** | **Przydymiona**, **Jasna** (to także wygląd ramki z czasem dojazdu), **Wył.** |
 
 ### Później
 

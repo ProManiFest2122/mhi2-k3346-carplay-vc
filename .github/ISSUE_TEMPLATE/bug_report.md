@@ -17,6 +17,10 @@ How to collect logs / Jak zebrać logi: README → "Reporting a problem" / READM
 
 **Firmware** (should be MHI2_ER_AUG22_K3346, MU 1438):
 
+**Cluster layout in use (classic / sport) / Układ zegarów (klasyczny / sport):**
+
+**HUD (yes / no) / HUD (tak / nie):**
+
 **iPhone model, iOS version / Model iPhone'a, wersja iOS:**
 
 **What I did / Co robiłem:**

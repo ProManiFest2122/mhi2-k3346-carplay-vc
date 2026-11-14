@@ -33,6 +33,7 @@ wired CarPlay.
 
 **The version to download is 2.0.0**, from [Releases](../../releases/latest). Updating from 1.0.x takes one
 file, `…-update.zip`: see [Uninstall (and before every update)](#uninstall-and-before-every-update).
+All changes by version: [CHANGELOG.md](CHANGELOG.md).
 
 ### New in 2.0
 
@@ -87,6 +88,8 @@ rotary knob to the right → bottom of the list:
 - **Wireless CarLink adapters:** many errors and unstable behaviour. Use the cable.
 
 ## Will it work in my car?
+
+Cars it has been reported on so far: [COMPATIBILITY.md](COMPATIBILITY.md).
 
 You need **all** of these:
 

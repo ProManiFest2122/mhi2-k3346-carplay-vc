@@ -32,6 +32,7 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 
 **Wersja do pobrania to 2.0.0**, z [Releases](../../releases/latest). Aktualizacja z 1.0.x to jeden plik,
 `…-update.zip`: zob. [Odinstalowanie (i przed każdą aktualizacją)](#odinstalowanie-i-przed-każdą-aktualizacją).
+Wszystkie zmiany według wersji: [CHANGELOG.md](CHANGELOG.md) (po angielsku).
 
 ### Nowe w wersji 2.0
 
@@ -86,6 +87,8 @@ pokrętło w prawo → dół listy:
 - **Bezprzewodowe adaptery CarLink:** dużo błędów i niestabilne działanie. Używaj kabla.
 
 ## Czy zadziała w moim aucie?
+
+Auta, z których są już zgłoszenia: [COMPATIBILITY.md](COMPATIBILITY.md) (po angielsku).
 
 Potrzebne jest **wszystko** z listy:
 

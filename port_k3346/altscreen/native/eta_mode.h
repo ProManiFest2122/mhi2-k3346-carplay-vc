@@ -198,7 +198,15 @@ static int k3346_skin_read(const char *path, int previous)
  * keeps its car marker and the street label above them (car, rc29, IMG_0783..0788:
  * Google Maps draws both low, right under our box).  Only the big gauges WITH the card
  * keep the full height: the card on top needs it (mib2high-lvds-viewareas.conf).  So
- * an app other than Apple Maps without the card has its own area there (view 8). */
+ * an app other than Apple Maps without the card has its own area there (view 8).
+ * Since 2.0.0-rc10 view 3 ends at y 334 too (the label stood under our box with the
+ * card: car, rc9, IMG_0805); views 3 and 8 stay apart in case the card needs the height.
+ * Since 2.0.0-rc8 view 5 is the small gauges with a route and without the card for
+ * EVERY app.  Without the card Google Maps had view 1 there (x 300..780) and stood the
+ * car marker in its middle, left of the middle of the map, while with the card it stood
+ * in the middle (car, rc6, run-05 and IMG_0801).  The areas were to the left for the
+ * phone's ETA box, which it has not drawn since rc29.  The geometry and what the car
+ * did with each try are in mib2high-lvds-viewareas.conf (rc8 was too far right). */
 #define K3346_VIEW_APPLE_FREE 5
 #define K3346_VIEW_APPLE_CARD 6
 #define K3346_VIEW_APPLE_BIG  7
@@ -210,7 +218,7 @@ static int k3346_skin_read(const char *path, int previous)
 
 static int k3346_wire_view(int view, int sport, int apple_area)
 {
-    if (view == 1 && apple_area == K3346_APPLE_FREE)
+    if (view == 1 && (apple_area == K3346_APPLE_FREE || apple_area == K3346_OTHER_FREE))
         return K3346_VIEW_APPLE_FREE;
     if (view == 1 && apple_area == K3346_APPLE_CARD)
         return K3346_VIEW_APPLE_CARD;
@@ -223,8 +231,8 @@ static int k3346_wire_view(int view, int sport, int apple_area)
     return view;
 }
 
-/* Which areas the app and the card option take.  Other apps differ only on the big
- * gauges, by the card (view 8 or 3); on the small ones they have view 1 either way. */
+/* Which areas the app and the card option take.  Other apps differ by the card: on the
+ * big gauges view 8 or 3, on the small ones view 5 (without, as Apple Maps) or 1. */
 static int k3346_apple_area(int apple, int card)
 {
     if (!apple)

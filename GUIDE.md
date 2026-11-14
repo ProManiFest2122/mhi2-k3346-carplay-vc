@@ -88,7 +88,9 @@ chapter [2](#2-download-the-file-on-the-computer).
 
 M.I.B. is somebody else's tool (author: Mr-MIBonk). Below is the simplest way to install it, as described
 in the [M.I.B. wiki](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash/wiki/Prepare-M.I.B-SD-card-&-install-M.I.B).
-This mod was tested with **M.I.B. V3.6.0**.
+This mod was tested with **M.I.B. V3.6.0**. From version 2.0 the package also carries the installer as
+`mod/custom.sh`: newer M.I.B. versions run that file, from a menu item called **Run Custom Script**. We have
+not tested those versions in our car.
 
 ### 1.1 Which card
 
@@ -208,10 +210,10 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 
 1. Go to the **[Releases](../../releases/latest)** page of this project.
 2. Scroll down to the **"Assets"** section.
-3. Click **`mhi2-k3346-carplay-vc-1.0.1-install.zip`**.
+3. Click **`mhi2-k3346-carplay-vc-2.0.0-install.zip`**.
    Do **not** click "Source code" — that is code for developers, not for installing.
 4. The file is saved in your **Downloads** folder.
-5. Also download **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** now and keep it. You will need it to
+5. Also download **`mhi2-k3346-carplay-vc-2.0.0-uninstall.zip`** now and keep it. You will need it to
    uninstall.
 
 **Do not unzip anything yet.** You will do it in step 3, straight onto the card.
@@ -231,14 +233,14 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 
 ### 3.2 Unzip onto the card — Windows
 
-1. In **Downloads**, **right**-click `mhi2-k3346-carplay-vc-1.0.1-install.zip`.
+1. In **Downloads**, **right**-click `mhi2-k3346-carplay-vc-2.0.0-install.zip`.
 2. Choose **"Extract All…"**.
 3. In the window that opens, click **"Browse…"**, choose the **card drive** (e.g. `E:`), then
    **"Select Folder"**.
 4. **CAREFUL — almost everybody gets this wrong.** Look at the path field. Windows adds a folder name
    at the end by itself, e.g.:
 
-   `E:\mhi2-k3346-carplay-vc-1.0.1-install`
+   `E:\mhi2-k3346-carplay-vc-2.0.0-install`
 
    **Delete** that ending so that only this is left:
 
@@ -246,7 +248,8 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 
    (with the letter of your card).
 5. Click **"Extract"**.
-6. If Windows asks whether to replace files (e.g. `mod\command.sh` from another mod), choose
+6. If Windows asks whether to replace files (e.g. `mod\command.sh` or `mod\custom.sh` from another mod or
+   from M.I.B. itself), choose
    **"Replace the files in the destination"**.
 
 ### 3.2 Unzip onto the card — Mac
@@ -254,13 +257,13 @@ This card is now your **M.I.B. card**. In the next chapters you put this mod ont
 On a Mac **do not drag the whole `mod` folder** onto the card: Finder will offer "Replace", which would
 delete the M.I.B. files in the card's `mod` folder. Do it like this:
 
-1. In **Downloads**, double-click `mhi2-k3346-carplay-vc-1.0.1-install.zip`. A folder with the same name
+1. In **Downloads**, double-click `mhi2-k3346-carplay-vc-2.0.0-install.zip`. A folder with the same name
    appears. Open it — inside there is a folder **`mod`** and a file **`README_CarPlay_VC.txt`**.
 2. Drag **`README_CarPlay_VC.txt`** into the main window of the card.
 3. Open the unzipped **`mod`** folder from Downloads and, in a second window, the **`mod` folder on the card**.
 4. From the unzipped `mod`, drag **two things** into `mod` on the card: the folder
-   **`mib2high-carplay-rgi-v8s-simple`** and the file **`command.sh`**. If Finder asks about `command.sh`,
-   choose **"Replace"** (it only concerns that one file).
+   **`mib2high-carplay-rgi-v8s-simple`** and the file **`command.sh`** (from version 2.0 also the file
+   **`custom.sh`**). If Finder asks about these files, choose **"Replace"** (it only concerns these files).
 
 ### 3.3 Check that everything is in place
 
@@ -269,18 +272,18 @@ This is the most important step before going to the car. Open the card and check
 1. In the **main** window of the card (where the M.I.B. folders are) there is now a file
    **`README_CarPlay_VC.txt`**.
 2. Open the **`mod`** folder. It contains a folder **`mib2high-carplay-rgi-v8s-simple`** and a file
-   **`command.sh`**.
+   **`command.sh`** (from version 2.0 also **`custom.sh`**, the same installer for newer M.I.B. versions).
 3. Open **`mib2high-carplay-rgi-v8s-simple`**. It contains:
    - a file **`INSTALL_ALL`**,
    - a file **`RELEASE`**,
    - a folder **`payload`**,
    - a folder **`source`**.
 
-**Typical mistake:** the main window of the card has a folder **`mhi2-k3346-carplay-vc-1.0.1-install`**
+**Typical mistake:** the main window of the card has a folder **`mhi2-k3346-carplay-vc-2.0.0-install`**
 with `mod` inside it. That means you did not delete the end of the path in step 3.2. Fix: open that
 folder, select its contents (`mod` and `README_CarPlay_VC.txt`), drag them into the main window of the card
 (Windows: "Replace the files"; Mac: do it as in step 3.2 for Mac), then delete the now empty folder
-`mhi2-k3346-carplay-vc-1.0.1-install`.
+`mhi2-k3346-carplay-vc-2.0.0-install`.
 
 ### 3.4 Eject the card
 
@@ -321,7 +324,8 @@ your card. If you already have it, doing this again does no harm.
 1. Open the **green menu**: hold **NAV/MAP + RADIO** together until the green screen appears (as in step 0.3).
 2. Turn the MMI knob to **`m.i.b.`** and **press the knob**.
 3. Go to **`advanced settings`** and **press the knob**.
-4. Go to **`run individual script`** and **press the knob**.
+4. Go to **`run individual script`** (in newer M.I.B. versions the item is called **`Run Custom Script`**)
+   and **press the knob**.
 
 ### 4.5 Wait — do not touch anything
 
@@ -415,7 +419,7 @@ Uninstalling returns the car to its factory state, file for file. **You must use
 installed from, because it holds the copy of the original files.
 
 1. Put that card into the computer.
-2. Unzip **`mhi2-k3346-carplay-vc-1.0.1-uninstall.zip`** onto the card **exactly as in step 3.2**
+2. Unzip **`mhi2-k3346-carplay-vc-2.0.0-uninstall.zip`** onto the card **exactly as in step 3.2**
    (Windows: delete the end of the path, only `E:\` must remain). Mac: unzip it in Downloads and drag
    only the file **`ROLLBACK`** (from `mod/mib2high-carplay-rgi-v8s-simple/`) into the folder
    `mod/mib2high-carplay-rgi-v8s-simple/` **on the card**.
@@ -448,7 +452,7 @@ If you run a plain `…-install.zip` over an installed version, nothing changes,
 | What you see | What it means | What to do |
 |---|---|---|
 | No `m.i.b.` in the green menu | M.I.B. is not installed, or the green menu is not available yet (up to 5 min after start-up). | Wait 5 minutes and try again. Still nothing → install M.I.B. (chapter [1](#1-sd-card-and-mib-only-if-you-do-not-have-mib-yet)). |
-| No `[V8S]` lines after `run individual script` | The card has no `mod/command.sh`, or it is not in the slot M.I.B. runs from. | Check the card as in step 3.3 (most often: unzipped one folder too deep) and the slot SD1. |
+| No `[V8S]` lines after `run individual script` | The card has no `mod/command.sh` (newer M.I.B.: `mod/custom.sh`), or it is not in the slot M.I.B. runs from. | Check the card as in step 3.3 (most often: unzipped one folder too deep) and the slot SD1. |
 | `ERROR VERSION_GATE …` | This is not firmware K3346 / MU 1438. | **Nothing was changed.** This mod is not for your car. |
 | `INSTALL_ALL_RESULT=FAIL` | Something interrupted the installation. The car is in a **safe state**: parts installed earlier stay, the part that failed was undone automatically. | The reason is on the line with `ERROR`. Take a photo of it. Run the script again (step 4.4) — it finishes the missing parts. If it says `FAIL` again, uninstall (chapter 6) and report the problem. |
 | A line with `do not reboot` | The automatic undo did not work. | **Do not restart the MMI.** Uninstall straight away (chapter 6, steps 1–7). |

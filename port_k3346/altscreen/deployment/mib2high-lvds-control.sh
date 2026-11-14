@@ -169,8 +169,6 @@ else
 fi
 
 NAV0=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`
-REACQ_DONE=0
-[ "$NAV0" -ge 2 ] && REACQ_DONE=1
 log "session active nav_ready_count=$NAV0 profile_features=$FEATURES"
 
 export LD_LIBRARY_PATH=/eso/lib
@@ -279,14 +277,11 @@ while [ -e "$ACTIVE" ]; do
     fi
     LAST_CTX="$WANT_CTX"
 
-    if [ "$REACQ_DONE" -eq 0 ]; then
-        NAV=`sloginfo 2>/dev/null | grep -c 'Change NavStateOfOperation to 5' || true`
-        if [ "$NAV" -ge 2 ]; then
-            : > "$REACQUIRE"
-            REACQ_DONE=1
-            log "second nav-ready observed; reacquire marker set"
-        fi
-    fi
+    # No sloginfo here any more (2.0.0-rc6).  Until a second "nav ready" showed
+    # up, this loop dumped the whole system log through grep every second to set
+    # /tmp/mib2high-lvds-reacquire, a marker nothing reads (the hook only removes
+    # it).  In the runs before rc4 the second line never came, so it ran for the
+    # whole session; the children of this script cost about 10 % of a core.
 
     sleep 1
 done

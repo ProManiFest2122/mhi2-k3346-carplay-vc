@@ -27,6 +27,11 @@ public class K3346GatedPhoneServiceTest {
         for (int i = calls.size() - 1; i >= 0; i--) { Object[] e = (Object[])calls.get(i); if (e[0].equals(m)) return e[1]; }
         return null;
     }
+    /* wywolanie bez argumentow tez sie liczy (last() zwraca wtedy null) */
+    static boolean seen(String m) {
+        for (int i = 0; i < calls.size(); i++) if (((Object[])calls.get(i))[0].equals(m)) return true;
+        return false;
+    }
     static FsgSetup fsg(int mct) {
         return FsgSetup.builder().setHfpConnectionPossible(false).setAppleLinkConnectionPossible(true).setMobileConnectionType(mct).build();
     }
@@ -68,6 +73,9 @@ public class K3346GatedPhoneServiceTest {
            && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_COMBINED_NUMBERS]
            && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_FAVORITE_LIST],
            "CarPlay: stan rozmow, odbierz/rozlacz, ostatnie, ulubione + wybieranie z listy (Etap 6)");
+        ok(sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_CALL_HOLD] && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_RESUME_CALL]
+           && sup[CombiBAPServicePhone.MOBILE_SERVICE_SUPPORT_MICRO_MUTE_ON_OFF], "CarPlay: wstrzymaj, wznow, wycisz (2.0)");
+        ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0]), "CarPlay: start bez wyciszenia");
         g.updateFSGOperationState(5, false, false);
         ok(((Integer)((Object[])last("updateFSGOperationState"))[0]).intValue() == 15, "CarPlay: stock Tel_State zatrzymany (w cache)");
 
@@ -272,6 +280,106 @@ public class K3346GatedPhoneServiceTest {
         ok(!vc[0].getTelNumber().equals("+00000000006") && vc[0].getCallMode() == K3346GatedPhoneService.CALLMODE_DIALED,
            "swieza lista z BT ma te rozmowe -> wpis sesji usuniety (bez duplikatu)");
         g.updateFsgSetup(fsg(3));
+
+        /* 2.0: wstrzymaj / wznow / wycisz z zegarow */
+        {
+            final int HOLD = K3346GatedPhoneService.ACT_HOLD, RES = K3346GatedPhoneService.ACT_RESUME;
+            final int MON = K3346GatedPhoneService.ACT_MUTE_ON, MOFF = K3346GatedPhoneService.ACT_MUTE_OFF;
+            K3346GatedPhoneService.CMD_FILE = new java.io.File(cmdDir, "k3346-tel-cmd-test3").getPath();
+            java.io.File cf = new java.io.File(K3346GatedPhoneService.CMD_FILE);
+            cf.delete();
+            K3346GatedPhoneListener lis = (K3346GatedPhoneListener)K3346GatedPhoneListener.wrap(
+                (de.audi.atip.interapp.combi.bap.phone.CombiBAPServicePhoneListener)Proxy.newProxyInstance(
+                    CombiBAPServicePhone.class.getClassLoader(),
+                    new Class[]{de.audi.atip.interapp.combi.bap.phone.CombiBAPServicePhoneListener.class},
+                    new InvocationHandler() { public Object invoke(Object p, Method m, Object[] args) {
+                        calls.add(new Object[]{"stock." + m.getName(), args}); return null; } }));
+
+            /* bez CarPlay: wszystko do stock, bez pliku */
+            calls.clear();
+            lis.callHold(); lis.resumeCall(); lis.setMicMuteState(true);
+            ok(seen("stock.callHold") && seen("stock.resumeCall")
+               && Boolean.TRUE.equals(((Object[])last("stock.setMicMuteState"))[0]) && !cf.exists(),
+               "bez CarPlay: wstrzymaj/wznow/wycisz ida do stock, bez polecenia");
+            g.updateMicMuteState(true);
+            ok(Boolean.TRUE.equals(((Object[])last("updateMicMuteState"))[0]), "bez CarPlay: stan wyciszenia stock przechodzi");
+
+            g.updateFsgSetup(fsg(5));
+            ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0]), "CarPlay: stock 'wyciszony' nie przechodzi na zegary");
+            calls.clear();
+            g.updateMicMuteState(false);
+            ok(last("updateMicMuteState") == null, "CarPlay: stan wyciszenia stock zatrzymany");
+
+            /* bez rozmowy: odmowa, bez polecenia */
+            calls.clear();
+            lis.callHold();
+            ok(((Integer)((Object[])last("callHoldResult"))[0]).intValue() == 1 && !cf.exists() && !seen("stock.callHold"),
+               "CarPlay bez rozmowy: wstrzymaj = FAILED, bez polecenia, nie do stock");
+            lis.setMicMuteState(true);
+            ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0]) && !cf.exists(), "CarPlay bez rozmowy: wycisz nic nie robi");
+
+            K3346PpsCall c = K3346PpsCall.parse("CallStateStatus:n:1\nCallStateDirection:n:0\nCallStatePhoneNumber::+00000000009\nUniqueCallID::h1\n");
+            g.onPps(c);
+            CombiBAPCallState[] hs = (CombiBAPCallState[])((Object[])last("updateCallStates"))[0];
+            ok(hs[0].isCallOptionCallHoldEnabled() && !hs[0].isCallOptionResumeCallEnabled(), "VC: aktywna rozmowa z opcja Wstrzymaj, bez Wznow");
+
+            calls.clear();
+            lis.resumeCall();
+            ok(((Integer)((Object[])last("resumeCallResult"))[0]).intValue() == 1 && !cf.exists(), "wznow przy aktywnej = FAILED");
+            lis.callHold();
+            ok(((Integer)((Object[])last("callHoldResult"))[0]).intValue() == 0
+               && "hold 1\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)) && !seen("stock.callHold"),
+               "wstrzymaj przy aktywnej -> 'hold 1', wynik OK");
+            cf.delete();
+
+            c.status = K3346GatedPhoneService.IAP_HOLDING; g.onPps(c);
+            hs = (CombiBAPCallState[])((Object[])last("updateCallStates"))[0];
+            ok(hs[0].getCallState() == K3346GatedPhoneService.BAP_HELD && hs[0].isCallOptionResumeCallEnabled()
+               && !hs[0].isCallOptionCallHoldEnabled(), "VC: wstrzymana z opcja Wznow, bez Wstrzymaj");
+            calls.clear();
+            lis.callHold();
+            ok(((Integer)((Object[])last("callHoldResult"))[0]).intValue() == 1 && !cf.exists(), "wstrzymaj przy wstrzymanej = FAILED");
+            lis.resumeCall();
+            ok(((Integer)((Object[])last("resumeCallResult"))[0]).intValue() == 0
+               && "hold 0\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)), "wznow przy wstrzymanej -> 'hold 0', wynik OK");
+            cf.delete();
+
+            c.status = 1; g.onPps(c);
+            calls.clear();
+            lis.setMicMuteState(true);
+            ok(Boolean.TRUE.equals(((Object[])last("updateMicMuteState"))[0])
+               && "mute 1\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)) && !seen("stock.setMicMuteState"),
+               "wycisz -> 'mute 1', zegary: wyciszony");
+            lis.setMicMuteState(false);
+            ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0])
+               && "mute 0\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)), "wlacz mikrofon -> 'mute 0'");
+            lis.setMicMuteState(true);
+            calls.clear();
+            c.status = 0; g.onPps(c);
+            ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0]), "koniec rozmowy zdejmuje wyciszenie na zegarach");
+            calls.clear();
+            c.status = 1; g.onPps(c); c.status = 0; g.onPps(c);
+            ok(last("updateMicMuteState") == null, "bez wyciszenia koniec rozmowy nie rusza stanu mikrofonu");
+
+            /* blad zapisu polecenia: odmowa, stan bez zmian */
+            c.status = 1; g.onPps(c);
+            K3346GatedPhoneService.CMD_FILE = new java.io.File(cmdDir, "brak/plik").getPath();
+            calls.clear();
+            lis.callHold();
+            ok(((Integer)((Object[])last("callHoldResult"))[0]).intValue() == 1, "blad zapisu: wstrzymaj = FAILED");
+            lis.setMicMuteState(true);
+            ok(Boolean.FALSE.equals(((Object[])last("updateMicMuteState"))[0]), "blad zapisu: zegary nie pokazuja wyciszenia");
+            K3346GatedPhoneService.CMD_FILE = cf.getPath();
+            lis.setMicMuteState(true);
+            c.status = 0; g.onPps(c);
+
+            /* po CarPlay wraca stan stock (ostatni: mikrofon wlaczony) */
+            g.updateMicMuteState(true);
+            calls.clear();
+            g.updateFsgSetup(fsg(3));
+            ok(Boolean.TRUE.equals(((Object[])last("updateMicMuteState"))[0]), "po CarPlay wraca stan wyciszenia stock");
+            cf.delete();
+        }
         K3346GatedPhoneService.CMD_FILE = new java.io.File(cmdDir, "k3346-tel-cmd-test2").getPath();
         ok(K3346GatedPhoneService.writeCommand("dial +1\n") && "dial +1\n".equals(K3346CoverArtTestHelper.read(K3346GatedPhoneService.CMD_FILE)),
            "polecenie zapisane wprost (bez renameTo)");

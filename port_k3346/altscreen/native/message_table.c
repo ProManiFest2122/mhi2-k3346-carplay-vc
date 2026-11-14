@@ -342,6 +342,11 @@ int k3346_msgtable_tel_try_install_base(void *driver_base)
     }
     tel_messages[0x5A].name = "InitiateCall";
     tel_messages[0x5A].flags = 0x00000001U;
+    /* 2.0: rozmowa z zegarow; kierunek MMI -> iPhone jak InitiateCall */
+    tel_messages[0x5F].name = "HoldStatusUpdate";
+    tel_messages[0x5F].flags = 0x00000001U;
+    tel_messages[0x60].name = "MuteStatusUpdate";
+    tel_messages[0x60].flags = 0x00000001U;
     tel_messages[0x70].name = "StartListUpdates";
     tel_messages[0x70].flags = 0x00000001U;
     tel_messages[0x71].name = "ListUpdate";
@@ -363,7 +368,7 @@ int k3346_msgtable_tel_try_install_base(void *driver_base)
     }
     tel_slot = slot41;
     tel_installed = 1;
-    rgi_diag_log("MSGTABLE", "tel_patch msg=415a/4170 flags=00000001 msg=4171 flags=00000002");
+    rgi_diag_log("MSGTABLE", "tel_patch msg=415a/415f/4160/4170 flags=00000001 msg=4171 flags=00000002");
     rgi_diag_log("MSGTABLE", "tel_verify=PASS slot=%p count=%u", slot41, (unsigned)slot41->count);
     return 1;
 }

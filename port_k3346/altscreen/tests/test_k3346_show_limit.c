@@ -9,10 +9,17 @@
 static altscreen_state *s;
 
 /* the area sent for a logical view: an app other than Apple Maps without the card has
- * its own on the big gauges of Classic (rc30, view 8) */
+ * its own on the big gauges of Classic (rc30, view 8), and on the small gauges the
+ * one in the middle of the screen (2.0.0-rc8, view 5) */
 static int wire_of(int view)
 {
-    return view == 3 && g_card_mode == K3346_CARD_NONE && !g_nav_apple && !g_sport ? 8 : view;
+    int other_free = g_card_mode == K3346_CARD_NONE && !g_nav_apple;
+
+    if (view == 3 && other_free && !g_sport)
+        return 8;
+    if (view == 1 && other_free)
+        return 5;
+    return view;
 }
 
 #define URL_BIG "maps:/car/instrumentcluster?maneuverLayout=topAligned"

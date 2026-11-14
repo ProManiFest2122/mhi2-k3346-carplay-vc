@@ -16,6 +16,10 @@
 #define K3346_TEL_MSG_IDENT_START    0x1D00
 #define K3346_TEL_MSG_IDENT_ACCEPTED 0x1D02
 #define K3346_TEL_MSG_INITIATE_CALL  0x415A
+/* 2.0: rozmowa z zegarow (wzor: luka-dev tel_hook.c; na Harmanie potwierdzone w aucie,
+ * rc6 i rc8) */
+#define K3346_TEL_MSG_HOLD_STATUS    0x415F
+#define K3346_TEL_MSG_MUTE_STATUS    0x4160
 #define K3346_TEL_MSG_START_LISTS    0x4170
 #define K3346_TEL_MSG_LIST_UPDATE    0x4171
 
@@ -52,6 +56,10 @@ void k3346_tel_merge(k3346_tel_list *last, const k3346_tel_list *upd);
 size_t k3346_tel_format(const k3346_tel_list *l, char *out, size_t max);
 size_t k3346_tel_format_favorites(const k3346_tel_list *l, char *out, size_t max);
 int k3346_tel_parse_command(const char *text, char *number, size_t number_max);
+/* HoldStatusUpdate / MuteStatusUpdate: stan jako parametr 0 (jeden bajt 0/1) */
+size_t k3346_tel_build_status(uint8_t *out, size_t max, int on);
+/* "hold 0|1", "mute 0|1": 1 i *msgid, *on */
+int k3346_tel_parse_call_command(const char *text, uint16_t *msgid, int *on);
 
 /* ---- sesja (hook) ---- */
 void k3346_tel_session_reset(void);

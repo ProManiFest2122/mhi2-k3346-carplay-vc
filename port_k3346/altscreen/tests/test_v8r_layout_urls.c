@@ -203,8 +203,13 @@ static void test_card_option(void)
             assert(k3346_wire_view(1, sport, K3346_APPLE_FREE) == K3346_VIEW_APPLE_FREE);
             assert(k3346_wire_view(1, sport, K3346_APPLE_CARD) == K3346_VIEW_APPLE_CARD);
             assert(k3346_wire_view(1, sport, K3346_APPLE_NONE) == 1);
-            /* another app without the card: view 1 as with it (rc30) */
-            assert(k3346_wire_view(1, sport, K3346_OTHER_FREE) == 1);
+            /* another app without the card: the area of Apple Maps without it, in the
+             * middle of the screen (2.0.0-rc8); with the card view 1 as before */
+            assert(k3346_wire_view(1, sport, K3346_OTHER_FREE) == K3346_VIEW_APPLE_FREE);
+            assert(k3346_wire_view(1, sport, k3346_apple_area(0, K3346_CARD_NONE)) == 5);
+            assert(k3346_wire_view(1, sport, k3346_apple_area(0, K3346_CARD_FULL)) == 1);
+            assert(k3346_wire_view(1, sport, k3346_apple_area(1, K3346_CARD_NONE)) == 5);
+            assert(k3346_wire_view(1, sport, k3346_apple_area(1, K3346_CARD_FULL)) == 6);
             for (area = K3346_APPLE_NONE; area <= K3346_OTHER_FREE; ++area) {
                 assert(k3346_wire_view(0, sport, area) == 0);
                 assert(k3346_wire_view(2, sport, area) == (sport ? 4 : 2));

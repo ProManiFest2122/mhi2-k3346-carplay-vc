@@ -105,6 +105,11 @@ cmp -s "$STAGE/base/mod/command.sh" "$STAGE/etap7/mod/command.sh" \
 
 mkdir -p "$CARD/mod/$PKG/payload" "$CARD/mod/$PKG/source"
 cp "$STAGE/base/mod/command.sh" "$CARD/mod/command.sh"
+# Ten sam instalator pod druga nazwa: wydania M.I.B. do V3.7.1 uruchamiaja
+# /mod/command.sh ("Run individual script"), nowsze /mod/custom.sh ("Run Custom
+# Script"; luka-dev install_MoreIncredibleBash, nasze zgloszenie #13). Karta jest
+# FAT, bez dowiazan, wiec kopia.
+cp "$STAGE/base/mod/command.sh" "$CARD/mod/custom.sh"
 cp -a "$STAGE/base/mod/$PKG/payload/." "$CARD/mod/$PKG/payload/"
 cp -a "$STAGE/base/mod/$PKG/source/."  "$CARD/mod/$PKG/source/"
 for f in "$STAGE/etap7/mod/$PKG/payload/"*; do
@@ -164,6 +169,10 @@ POLCARDS="$POLCARDS $UPDCARD $UPDTPCARD"
 step "kontrole karty"
 # 3a. instalator ze zrodel, nie stary
 cmp -s "$CARD/mod/command.sh" "$A/deployment/custom.sh" || fail "command.sh rozny od deployment/custom.sh"
+cmp -s "$CARD/mod/custom.sh" "$A/deployment/custom.sh" || fail "custom.sh rozny od deployment/custom.sh"
+for c in "$UPDCARD" "$UPDTPCARD"; do
+    cmp -s "$c/mod/custom.sh" "$c/mod/command.sh" || fail "karta aktualizacji: custom.sh rozny od command.sh"
+done
 # 3b. komplet payloadu, ktorego wymagaja etapy
 for n in libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh \
          mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8l-dsitracer-capture \

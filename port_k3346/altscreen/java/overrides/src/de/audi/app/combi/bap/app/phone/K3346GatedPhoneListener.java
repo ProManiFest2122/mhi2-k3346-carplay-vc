@@ -36,9 +36,13 @@ public class K3346GatedPhoneListener implements CombiBAPServicePhoneListener {
     }
     public void dialService(int i) { real.dialService(i); }
     public void confirmEmergencyCall(boolean b) { real.confirmEmergencyCall(b); }
-    public void callHold() { real.callHold(); }
-    public void resumeCall() { real.resumeCall(); }
-    public void setMicMuteState(boolean b) { real.setMicMuteState(b); }
+    /* 2.0: wstrzymaj / wznow / wycisz mikrofon przy CarPlay -> iAP2 przez hook mm-ipod */
+    public void callHold() { if (!K3346GatedPhoneService.onVcAction(K3346GatedPhoneService.ACT_HOLD)) real.callHold(); }
+    public void resumeCall() { if (!K3346GatedPhoneService.onVcAction(K3346GatedPhoneService.ACT_RESUME)) real.resumeCall(); }
+    public void setMicMuteState(boolean b) {
+        if (!K3346GatedPhoneService.onVcAction(b ? K3346GatedPhoneService.ACT_MUTE_ON : K3346GatedPhoneService.ACT_MUTE_OFF))
+            real.setMicMuteState(b);
+    }
     public void releaseActiveCallAcceptWaitingCall() { real.releaseActiveCallAcceptWaitingCall(); }
     public void swapCalls() { real.swapCalls(); }
     public void callHoldAcceptWaitingCall() { real.callHoldAcceptWaitingCall(); }

@@ -26,6 +26,8 @@
 #include "protocol.h"
 #include "maneuver.h"            /* ICON_* */
 #include "maneuver_command.h"    /* cr_decode_maneuver - Luka's decoder */
+#include "arrow_progress.h"      /* CR_PROGRESS_* */
+#include "lane_guidance.h"       /* cr_lane_receive - Luka's lane decoder */
 
 static int g_pass, g_fail;
 
@@ -312,6 +314,58 @@ static void t_lanes(void)
     lg.lane_count = 0;
     CHECK_EQ(k3346_overlay_build_lanes(&lg, 1, bundle, K3346_OVERLAY_MAX_LANE_PKTS), 0,
              "no lanes -> nothing");
+
+    /* The pair that hides them (2.0.0-rc11, #16), and what Luka's decoder makes
+     * of both bundles: that is what the lane row on the VC is drawn from. */
+    {
+        cr_lane_decoder_t dec;
+        cr_lane_guidance_t shown;
+        cr_cmd_t cmd;
+        int done = 0;
+
+        lg.lane_count = 3;
+        n = k3346_overlay_build_lanes(&lg, 7UL, bundle, K3346_OVERLAY_MAX_LANE_PKTS);
+        cr_lane_clear(&dec, &shown);
+        for (i = 0; i < n; i++) {
+            memcpy(&cmd, bundle + (size_t)i * K3346_OVERLAY_PKT, sizeof(cmd));
+            done = cr_lane_receive(&dec, &cmd, &shown);
+        }
+        CHECK(done == 1 && shown.showing == 1 && shown.count == 3 && shown.complete == 1,
+              "Luka's decoder: the lane bundle shows three lanes");
+        CHECK_EQ(shown.event_index, 4, "...of the event we named");
+
+        memset(bundle, 0xAA, sizeof(bundle));
+        n = k3346_overlay_build_lanes_hide(0x01020304UL, bundle, K3346_OVERLAY_MAX_LANE_PKTS);
+        CHECK_EQ(n, 2, "hide: BEGIN + COMMIT");
+        CHECK_EQ(bundle[0], CMD_LANES_BEGIN, "hide: first packet is BEGIN");
+        CHECK_EQ(bundle[1], 0, "hide: no flags");
+        CHECK(bundle[2] == 1 && bundle[3] == 2 && bundle[4] == 3 && bundle[5] == 4, "hide: BEGIN carries the token");
+        CHECK_EQ(bundle[2 + 4], 0, "hide: no lanes");
+        CHECK_EQ(bundle[2 + 5], 0, "hide: not complete");
+        CHECK_EQ(bundle[2 + 6], 0, "hide: not showing");
+        CHECK(bundle[2 + 8] == 0xFF && bundle[2 + 9] == 0xFF && bundle[2 + 10] == 0xFF && bundle[2 + 11] == 0xFF,
+              "hide: event -1, as Luka's HIDDEN");
+        CHECK_EQ(bundle[K3346_OVERLAY_PKT], CMD_LANES_COMMIT, "hide: second packet is COMMIT");
+        CHECK(memcmp(bundle + K3346_OVERLAY_PKT + 2, bundle + 2, 4) == 0, "hide: COMMIT carries the same token");
+        CHECK_EQ(bundle[2 + 7], 0, "hide: the byte between showing and the event is zero");
+        for (i = 2 + 12; i < K3346_OVERLAY_PKT; i++)
+            if (bundle[i] != 0) break;
+        CHECK_EQ(i, K3346_OVERLAY_PKT, "hide: the rest of BEGIN is zero");
+        for (i = 6; i < K3346_OVERLAY_PKT; i++)
+            if (bundle[K3346_OVERLAY_PKT + i] != 0) break;
+        CHECK_EQ(i, K3346_OVERLAY_PKT, "hide: the rest of COMMIT is zero");
+
+        done = 0;
+        for (i = 0; i < n; i++) {
+            memcpy(&cmd, bundle + (size_t)i * K3346_OVERLAY_PKT, sizeof(cmd));
+            done = cr_lane_receive(&dec, &cmd, &shown);
+        }
+        CHECK(done == 1, "Luka's decoder: the hide pair is a whole update");
+        CHECK(shown.showing == 0 && shown.count == 0, "...after which nothing is showing");
+
+        CHECK_EQ(k3346_overlay_build_lanes_hide(1UL, bundle, 1), 0, "hide: no room for both -> nothing");
+        CHECK_EQ(k3346_overlay_build_lanes_hide(1UL, NULL, 2), 0, "hide: no buffer -> nothing");
+    }
 }
 
 /* ------------------------------------------------- topology (sockets) -- */
@@ -422,6 +476,318 @@ static void t_topology(void)
     if (fd >= 0) close(fd);
 }
 
+/* ------------------------------------- only what changed (2.0.0-rc6) -- */
+/*
+ * The phone repeats the route state about once a second.  Until rc6 every
+ * repeat went out as a whole CMD_MANEUVER, and Luka's engine answers each of
+ * those with a hand-over that empties the fill: in the car the arrow kept
+ * refilling and the renderer took 13 % of a core (run-02).  His own sender
+ * sends a maneuver when it changed and the fill by itself.
+ */
+
+/* 1 = a packet arrived within ms. */
+static int read_pkt_ms(int fd, unsigned char *out, int ms)
+{
+    struct timeval tv;
+    size_t off = 0;
+
+    tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+    (void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    while (off < CR_PKT_SIZE) {
+        ssize_t n = recv(fd, out + off, CR_PKT_SIZE - off, 0);
+        if (n > 0) { off += (size_t)n; continue; }
+        if (n < 0 && errno == EINTR) continue;
+        return 0;
+    }
+    return 1;
+}
+
+static unsigned long lane_token(const unsigned char *p)
+{
+    return ((unsigned long)p[2] << 24) | ((unsigned long)p[3] << 16)
+         | ((unsigned long)p[4] << 8) | p[5];
+}
+
+/* Reads one whole lane bundle of three lanes; 0 when anything else arrives. */
+static int read_lanes(int fd, unsigned long *token, int *status1)
+{
+    unsigned char pkt[K3346_OVERLAY_PKT];
+    int i;
+
+    if (!read_pkt(fd, pkt) || pkt[0] != CMD_LANES_BEGIN || pkt[2 + 4] != 3) return 0;
+    *token = lane_token(pkt);
+    for (i = 0; i < 3; i++) {
+        if (!read_pkt(fd, pkt) || pkt[0] != CMD_LANES_LANE || lane_token(pkt) != *token) return 0;
+        if (i == 1) *status1 = pkt[2 + 7];
+    }
+    return read_pkt(fd, pkt) && pkt[0] == CMD_LANES_COMMIT && lane_token(pkt) == *token;
+}
+
+/* Reads the pair that hides the lanes; 0 when anything else arrives. */
+static int read_hide(int fd, unsigned long *token)
+{
+    unsigned char pkt[K3346_OVERLAY_PKT];
+
+    if (!read_pkt(fd, pkt) || pkt[0] != CMD_LANES_BEGIN) return 0;
+    if (pkt[2 + 4] != 0 || pkt[2 + 5] != 0 || pkt[2 + 6] != 0) return 0;
+    if (pkt[2 + 8] != 0xFF || pkt[2 + 9] != 0xFF || pkt[2 + 10] != 0xFF || pkt[2 + 11] != 0xFF) return 0;
+    *token = lane_token(pkt);
+    return read_pkt(fd, pkt) && pkt[0] == CMD_LANES_COMMIT && lane_token(pkt) == *token;
+}
+
+static void mk_lanes(rgd_lane_guidance_t *lg)
+{
+    int i;
+
+    memset(lg, 0, sizeof(*lg));
+    lg->present = 1;
+    lg->lane_guidance_index = 4;
+    lg->lane_count = 3;
+    for (i = 0; i < 3; i++) {
+        lg->lanes[i].position = (uint16_t)i;
+        lg->lanes[i].status = (uint8_t)(i == 1 ? 2 : 0);
+        lg->lanes[i].direction = (int16_t)(i * 45 - 45);
+        lg->lanes[i].angles[0] = (int16_t)(i * 45 - 45);
+        lg->lanes[i].angle_count = 1;
+    }
+}
+
+static void nap_ms(int ms)
+{
+    struct timespec n;
+    n.tv_sec = ms / 1000; n.tv_nsec = (long)(ms % 1000) * 1000000L;
+    while (nanosleep(&n, &n) != 0 && errno == EINTR) {}
+}
+
+static void t_only_changes(void)
+{
+    static const int roads[3] = { -90, 0, 90 };
+    rgd_update_t u;
+    rgd_maneuver_t m;
+    rgd_lane_guidance_t lg;
+    unsigned char pkt[K3346_OVERLAY_PKT];
+    maneuver_state_t st;
+    unsigned long tok1 = 0, tok2 = 0, tok3 = 0;
+    int fd, fd2, i, s1 = -1;
+
+    printf("only what changed goes to the renderer\n");
+
+    k3346_overlay_feed_init();
+    fd = tcp_connect_retry(CR_TCP_PORT, 60);
+    CHECK(fd >= 0, "renderer connected");
+    if (fd < 0) { k3346_overlay_feed_shutdown(); return; }
+    CHECK(!read_pkt_ms(fd, pkt, 300), "a fresh feed replays nothing (state of an earlier run is gone)");
+
+    /* city approach, 1500 m = level 16: 1400 m -> 14, 900 m -> 9 */
+    mk_maneuver(&m, MT_RIGHT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    mk_update(&u, 1400);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.exit_angle > 0, "first update: the whole maneuver");
+    CHECK_EQ(pkt[2 + 44], 14, "...with its fill level");
+    /* What a renderer that has just connected draws is not known (it outlives
+     * an mm-ipod restart), so the first update without lanes hides them. */
+    CHECK(read_hide(fd, &tok1) && tok1 != 0, "...and, for a renderer that just connected, one hide of the lanes");
+    tok1 = 0;
+
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "the same update again: nothing is sent");
+
+    mk_update(&u, 900);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt), "nearer: something is sent");
+    CHECK_EQ(pkt[0], CMD_PROGRESS, "...the fill by itself, not a new maneuver");
+    CHECK_EQ(pkt[2 + 0], 9, "...level 9");
+    CHECK_EQ(pkt[2 + 1], 1, "...fill on");
+    CHECK_EQ(pkt[2 + 2], CR_PROGRESS_FILL, "...filling, not blinking");
+
+    mk_update(&u, 905);     /* still level 9 */
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "a few metres within the same level: nothing");
+
+    mk_update(&u, -1);      /* the phone stopped sending the distance */
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_PROGRESS, "distance gone: the fill by itself");
+    CHECK_EQ(pkt[2 + 1], 0, "...fill off");
+    CHECK_EQ(pkt[2 + 2], CR_PROGRESS_OFF, "...state off");
+
+    /* far away the level is 16 with the fill on, and 16 again with it off */
+    mk_update(&u, 2000);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_PROGRESS && pkt[2 + 0] == 16 && pkt[2 + 1] == 1,
+          "distance back, far away: level 16, fill on");
+    mk_update(&u, -1);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_PROGRESS && pkt[2 + 0] == 16 && pkt[2 + 1] == 0,
+          "same level, fill switched off: sent all the same");
+
+    /* another arrow */
+    mk_maneuver(&m, MT_LEFT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    mk_update(&u, 900);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.exit_angle < 0, "the next maneuver: a whole maneuver again");
+    CHECK_EQ(pkt[2 + 44], 9, "...with its own fill level");
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "...and nothing when it is repeated");
+
+    /* the same turn with the side roads the phone sends a moment later */
+    add_roads(&m, roads, 3);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st), "same turn, roads added: a whole maneuver (the picture changed)");
+    CHECK(st.junction_angle_count >= 1, "...with the side roads");
+
+    /* route end, and the updates with nothing to draw that follow it */
+    k3346_overlay_feed_clear("test");
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_CLEAR, "clear goes out");
+    k3346_overlay_feed_clear("test again");
+    k3346_overlay_feed_publish(&u, NULL, NULL);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "blank already: a second clear and an empty update send nothing");
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.junction_angle_count >= 1,
+          "after a clear the same maneuver is a whole maneuver again");
+    k3346_overlay_feed_clear("once more");
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_CLEAR, "a clear after a maneuver goes out again");
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_MANEUVER, "and the maneuver after it");
+
+    /* lanes: once, and again only when they change */
+    memset(&lg, 0, sizeof(lg));
+    lg.present = 1;
+    lg.lane_guidance_index = 4;
+    lg.lane_count = 3;
+    for (i = 0; i < 3; i++) {
+        lg.lanes[i].position = (uint16_t)i;
+        lg.lanes[i].status = (uint8_t)(i == 1 ? 2 : 0);
+        lg.lanes[i].direction = (int16_t)(i * 45 - 45);
+        lg.lanes[i].angles[0] = (int16_t)(i * 45 - 45);
+        lg.lanes[i].angle_count = 1;
+    }
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok1, &s1) && s1 == 2, "lanes: the bundle, with nothing before it (arrow and fill unchanged)");
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "the same lanes again: nothing");
+    lg.lanes[1].status = 1;
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok2, &s1) && s1 == 1, "a lane changed: a new bundle");
+    CHECK(tok2 != tok1 && tok1 != 0 && tok2 != 0, "...under a new token");
+
+    /* a new arrow takes its lanes with it */
+    mk_maneuver(&m, MT_RIGHT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.exit_angle > 0, "new maneuver with the same lanes: the maneuver");
+    CHECK(read_lanes(fd, &tok3, &s1) && tok3 != tok2, "...and the lanes once more, for the new arrow");
+
+    /* fill moved on while the renderer was away: the replay has the newest */
+    mk_update(&u, 600);     /* level 6 */
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_PROGRESS && pkt[2 + 0] == 6, "level 6 by itself");
+    close(fd);
+    fd2 = tcp_connect_retry(CR_TCP_PORT, 60);
+    CHECK(fd2 >= 0, "the renderer restarts and connects again");
+    if (fd2 >= 0) {
+        CHECK(read_pkt(fd2, pkt) && decode(pkt, &st) && st.exit_angle > 0, "replay: the maneuver");
+        CHECK_EQ(pkt[2 + 44], 6, "...carrying the newest fill, not the one it was first sent with");
+        CHECK(read_pkt(fd2, pkt) && pkt[0] == CMD_PROGRESS && pkt[2 + 0] == 6, "replay: the fill");
+        nap_ms(200);        /* the sender notes what the replay gave */
+        k3346_overlay_feed_publish(&u, &m, &lg);
+        CHECK(read_lanes(fd2, &tok1, &s1), "after a reconnect the unchanged update brings the lanes (not replayed) and no maneuver");
+        k3346_overlay_feed_publish(&u, &m, &lg);
+        CHECK(!read_pkt_ms(fd2, pkt, 300), "...and then nothing again");
+
+        /* the last 20 %: the phone's update says blink, the sender keeps the clock */
+        mk_update(&u, 100);     /* level 1, blinking */
+        k3346_overlay_feed_publish(&u, &m, &lg);
+        CHECK(read_pkt(fd2, pkt) && pkt[0] == CMD_PROGRESS && pkt[2 + 0] == 1, "close to the turn: the fill by itself");
+        CHECK_EQ(pkt[2 + 2], CR_PROGRESS_BLINK_HIGH, "...blinking, from the update itself (the sender's ticks follow)");
+        CHECK(read_pkt(fd2, pkt) && pkt[0] == CMD_PROGRESS
+              && (pkt[2 + 2] == CR_PROGRESS_BLINK_HIGH || pkt[2 + 2] == CR_PROGRESS_BLINK_LOW),
+              "...and the sender keeps the blink going between updates");
+        close(fd2);
+    }
+
+    k3346_overlay_feed_shutdown();
+}
+
+/* ------------------------------- lanes go away again (2.0.0-rc11, #16) -- */
+/*
+ * The renderer keeps its lanes until it is told to hide them or to clear the
+ * panel.  Until rc11 an update without lanes sent nothing about them, so the
+ * lanes of the turn just taken stayed under the next arrow (car, rc10, run-08).
+ */
+static void t_lanes_hide(void)
+{
+    rgd_update_t u;
+    rgd_maneuver_t m;
+    rgd_lane_guidance_t lg, none;
+    unsigned char pkt[K3346_OVERLAY_PKT];
+    maneuver_state_t st;
+    unsigned long tok = 0, hide1 = 0, hide2 = 0;
+    int fd, s1 = -1;
+
+    printf("lanes go away when the update has none\n");
+
+    k3346_overlay_feed_init();
+    fd = tcp_connect_retry(CR_TCP_PORT, 60);
+    CHECK(fd >= 0, "renderer connected");
+    if (fd < 0) { k3346_overlay_feed_shutdown(); return; }
+    CHECK(!read_pkt_ms(fd, pkt, 300), "nothing before the first update");
+
+    /* 900 m of 1500 m: level 9, far from the blink, so the sender adds nothing */
+    mk_maneuver(&m, MT_RIGHT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    mk_update(&u, 900);
+    mk_lanes(&lg);
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.exit_angle > 0, "the maneuver");
+    CHECK(read_lanes(fd, &tok, &s1), "...with its lanes, and no hide before them");
+
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_hide(fd, &hide1), "the same arrow, lanes gone: the hide pair");
+    CHECK(hide1 != tok && hide1 != 0, "...under a token of its own");
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(!read_pkt_ms(fd, pkt, 300), "still no lanes: the hide is not repeated");
+
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok, &s1) && tok != hide1, "the same lanes come back: the bundle goes out again");
+
+    /* the car's case: the turn is taken, the next arrow has no lanes */
+    mk_maneuver(&m, MT_LEFT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && decode(pkt, &st) && st.exit_angle < 0, "next maneuver without lanes: the maneuver");
+    CHECK(read_hide(fd, &hide2) && hide2 != hide1, "...and the hide pair after it");
+
+    mk_maneuver(&m, MT_RIGHT_TURN, 1000, JUNCTION_SINGLE_INTERSECTION, DRIVING_SIDE_RIGHT);
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_MANEUVER, "another maneuver, no lanes on screen: the maneuver");
+    CHECK(!read_pkt_ms(fd, pkt, 300), "...and no hide");
+
+    /* an empty list and a list marked absent are no lanes either */
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok, &s1), "lanes again");
+    none = lg;
+    none.lane_count = 0;
+    k3346_overlay_feed_publish(&u, &m, &none);
+    CHECK(read_hide(fd, &hide1), "a list with no lanes in it: hide");
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok, &s1), "lanes again");
+    none = lg;
+    none.present = 0;
+    k3346_overlay_feed_publish(&u, &m, &none);
+    CHECK(read_hide(fd, &hide1), "a list marked absent: hide");
+
+    /* a clear takes the lanes with the panel, so nothing is left to hide */
+    k3346_overlay_feed_publish(&u, &m, &lg);
+    CHECK(read_lanes(fd, &tok, &s1), "lanes again");
+    k3346_overlay_feed_clear("test");
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_CLEAR, "clear goes out");
+    k3346_overlay_feed_publish(&u, &m, NULL);
+    CHECK(read_pkt(fd, pkt) && pkt[0] == CMD_MANEUVER, "after the clear: the maneuver");
+    CHECK(!read_pkt_ms(fd, pkt, 300), "...and no hide, the clear did that");
+
+    close(fd);
+    k3346_overlay_feed_shutdown();
+}
+
 int main(void)
 {
     t_left_right();
@@ -433,6 +799,8 @@ int main(void)
     t_nothing_to_draw();
     t_lanes();
     t_topology();
+    t_only_changes();
+    t_lanes_hide();
 
     printf("\noverlay_feed: %d OK, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

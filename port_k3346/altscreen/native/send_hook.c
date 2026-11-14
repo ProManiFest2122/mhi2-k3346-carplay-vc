@@ -593,9 +593,8 @@ static int wrapped_iap2_close(void *ctx, void *ctp, void *reserved, void *ocb)
     rc = original_iap2_close(ctx, ctp, reserved, ocb);
     pthread_mutex_unlock(&send_lock);
 
-    rgi_diag_log("OCB",
-                "close_passthrough ctx=%p ocb=%p rc=%d",
-                ctx, ocb, rc);
+    /* No log line here: 2493 of them in four minutes in the car (run-02), 59 %
+     * of the native log, each an open, a write and a close on the iAP2 thread. */
 
     return rc;
 }

@@ -71,7 +71,9 @@ setup_fakes(){
         echo 'exit 0'
     } > /mnt/app/armle/bin/pidin
     printf '#!/bin/sh\nexit 0\n' > /mnt/app/armle/bin/slay
-    printf '#!/bin/sh\nexit 0\n' > /mnt/app/armle/bin/sloginfo
+    # sloginfo liczy wywolania: zrzut calego logu systemowego co sekunde kosztowal
+    # w aucie procesor (2.0.0-rc6), wiec ma byc jeden na sesje.
+    printf '#!/bin/sh\necho x >> /tmp/sim_gate_sloginfo_calls\nexit 0\n' > /mnt/app/armle/bin/sloginfo
 
     # sleep: bez czekania, a po N wywolaniach konczy sesje (kasuje ACTIVE),
     # zeby glowna petla skryptu sie domknela. 24 > 6 sekund bramy, wiec
@@ -164,6 +166,7 @@ reset_state(){
           /tmp/sim_gate_plan /tmp/sim_gate_dc902_fails /tmp/sim_gate_hb_seen /tmp/vc-skin \
           /tmp/mib2high-lvds-sessions /tmp/vc-view-size \
           /tmp/sim_gate_pidin_calls /tmp/sim_gate_pidin.1 /tmp/sim_gate_pidin.2 \
+          /tmp/sim_gate_sloginfo_calls \
           /tmp/mib2high-vc-render.profile \
           /tmp/vc-overlay-ready /tmp/vc-overlay-ready.tmp \
           /tmp/mib2high-lvds-control.pid /tmp/k2161-altscreen-heartbeat \
@@ -408,6 +411,12 @@ case_good_report(){
     else bad "kombi pracowalo na `work_ctx`, oczekiwano 901"; fi
     expect_restore "meldunek dobry"
     expect_capsule_on "meldunek dobry"
+    if [ "`grep -c . /tmp/sim_gate_sloginfo_calls 2>/dev/null`" = "1" ]
+    then ok "sloginfo raz na sesje, nie w kazdym obiegu petli"
+    else bad "sloginfo wolane `grep -c . /tmp/sim_gate_sloginfo_calls 2>/dev/null` razy w sesji"; fi
+    if [ -e /tmp/mib2high-lvds-reacquire ]
+    then bad "znacznik reacquire, ktorego nikt nie czyta, nadal powstaje"
+    else ok "bez znacznika reacquire"; fi
 }
 
 case_wrong_id(){

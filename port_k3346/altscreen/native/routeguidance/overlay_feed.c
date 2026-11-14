@@ -89,12 +89,33 @@ static struct {
      * which on a long straight stretch can be minutes away. */
     unsigned char      last_man[CR_PKT_SIZE];
     int                last_man_valid;
+
+    /* What the renderer has been given (2.0.0-rc6).  The phone repeats the
+     * route state about once a second, and Luka's engine starts a hand-over
+     * and empties the fill for every CMD_MANEUVER, the same arrow included: in
+     * the car the arrow kept refilling and vc_overlay took 13 % of a core
+     * (run-02, 172 updates -> 152 "queued", 64 "promoting").  His own sender
+     * (RendererServer.java) sends a maneuver only when it changed and the
+     * progress by itself, and so do we now. */
+    int                man_sent;      /* last_man was queued, not dropped by a full ring */
+    int                sent_level, sent_mode, sent_blink;
+    int                cleared;       /* a CLEAR is the last thing queued */
+    unsigned char      last_lanes[K3346_OVERLAY_MAX_LANE_PKTS * CR_PKT_SIZE];
+    int                last_lanes_n;  /* 0 = the next lanes go out whatever they are */
+    /* The renderer may be drawing lanes (2.0.0-rc11).  It keeps them until it is
+     * told to hide them or to clear the panel, and a new arrow does neither: in
+     * the car the lanes of the turn just taken stayed under the next arrow
+     * (#16; rc10, run-08: "lanes: ... showing=1 count=2", then "new maneuver"
+     * and no other lanes line for the 64 s the log goes on, while the phone had
+     * ended them).  Not last_lanes_n: that one is zeroed for every new arrow. */
+    int                lanes_shown;
 } g_feed = {
     0, 0, -1, -1, 0,
     PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER,
     { { 0 } }, 0, 0, 0,
     0, 0, 0, 0,
-    { 0 }, 0
+    { 0 }, 0,
+    0, 0, 0, 0, 0, { 0 }, 0, 0
 };
 
 /* ------------------------------------------------------------- helpers -- */
@@ -120,17 +141,32 @@ static void put_be32(unsigned char *p, unsigned long v)
     p[3] = (unsigned char)(v & 0xFF);
 }
 
-/* Caller holds the lock.  Dropping is correct here: every packet is a full
- * snapshot of its kind, so the next update supersedes anything lost. */
-static void ring_push_locked(const unsigned char *pkt)
+/* Caller holds the lock.  1 = queued, 0 = dropped (ring full).  A dropped
+ * packet is not remembered as sent, so the next update sends it again. */
+static int ring_push_locked(const unsigned char *pkt)
 {
     int next = (g_feed.head + 1) % FEED_RING;
     if (next == g_feed.tail) {
         g_feed.dropped++;
-        return;
+        return 0;
     }
     memcpy(g_feed.ring[g_feed.head], pkt, CR_PKT_SIZE);
     g_feed.head = next;
+    return 1;
+}
+
+/* The arrow of two maneuver packets, without how far it has filled (the three
+ * progress bytes build_maneuver() writes). */
+static int same_arrow(const unsigned char *a, const unsigned char *b)
+{
+    unsigned char x[CR_PKT_SIZE], y[CR_PKT_SIZE];
+
+    memcpy(x, a, CR_PKT_SIZE);
+    memcpy(y, b, CR_PKT_SIZE);
+    x[2 + 42] = y[2 + 42] = 0;
+    x[2 + 44] = y[2 + 44] = 0;
+    x[2 + 45] = y[2 + 45] = 0;
+    return memcmp(x, y, CR_PKT_SIZE) == 0;
 }
 
 /* ------------------------------------------------- RendererMapper port -- */
@@ -555,6 +591,19 @@ static void *feed_thread(void *arg)
                 g_feed.fd = -1;
                 continue;
             }
+            /* The replay gave it the arrow and the fill; lanes are not
+             * replayed, so the next update has to send them again. */
+            pthread_mutex_lock(&g_feed.lock);
+            g_feed.man_sent = g_feed.last_man_valid;
+            g_feed.sent_level = g_feed.prog_level;
+            g_feed.sent_mode = g_feed.prog_mode;
+            g_feed.sent_blink = g_feed.prog_blink;
+            g_feed.last_lanes_n = 0;
+            /* What this renderer draws is not known: it outlives an mm-ipod
+             * restart, and what was queued while nobody was connected is gone.
+             * So an update without lanes hides them once. */
+            g_feed.lanes_shown = 1;
+            pthread_mutex_unlock(&g_feed.lock);
         }
 
         if (have && feed_write_all(g_feed.fd, pkt, CR_PKT_SIZE) != 0) {
@@ -592,6 +641,13 @@ void k3346_overlay_feed_init(void)
     g_feed.started = 1;
     g_feed.shutdown = 0;
     g_feed.head = g_feed.tail = 0;
+    g_feed.prog_valid = 0;
+    g_feed.prog_blink = 0;
+    g_feed.last_man_valid = 0;
+    g_feed.man_sent = 0;
+    g_feed.cleared = 0;
+    g_feed.last_lanes_n = 0;
+    g_feed.lanes_shown = 0;
     pthread_mutex_unlock(&g_feed.lock);
 
     if (pthread_create(&g_feed.thread, NULL, feed_thread, NULL) != 0) {
@@ -622,12 +678,21 @@ void k3346_overlay_feed_clear(const char *reason)
     build_clear(pkt);
 
     pthread_mutex_lock(&g_feed.lock);
+    /* Blank already and told so: off the road the phone keeps sending updates
+     * with nothing to draw (24 CLEARs in four minutes, run-02). */
+    if (g_feed.cleared) {
+        pthread_mutex_unlock(&g_feed.lock);
+        return;
+    }
     g_feed.prog_valid = 0;
     g_feed.prog_blink = 0;
     /* Drop the replay too: a renderer connecting after the route ended must
      * not be handed the arrow the route ended with. */
     g_feed.last_man_valid = 0;
-    ring_push_locked(pkt);
+    g_feed.last_lanes_n = 0;
+    g_feed.cleared = ring_push_locked(pkt);
+    /* The renderer drops its lanes with the panel (clear_maneuver). */
+    if (g_feed.cleared) g_feed.lanes_shown = 0;
     pthread_cond_signal(&g_feed.wake);
     pthread_mutex_unlock(&g_feed.lock);
 
@@ -689,15 +754,68 @@ int k3346_overlay_build_lanes(const rgd_lane_guidance_t *lanes,
 }
 
 /* Caller holds the lock.  The whole bundle goes in under one acquisition so
- * BEGIN/LANE/COMMIT can never be split by another publisher. */
-static void queue_lanes_locked(const rgd_lane_guidance_t *lanes, unsigned long token)
+ * BEGIN/LANE/COMMIT can never be split by another publisher.  The same lanes
+ * as last time are not sent again: built with token 0 they compare byte for
+ * byte, and only a bundle that differs gets a new token and goes out. */
+static void queue_lanes_locked(const rgd_lane_guidance_t *lanes, unsigned long *token)
 {
     unsigned char bundle[K3346_OVERLAY_MAX_LANE_PKTS * CR_PKT_SIZE];
-    int n = k3346_overlay_build_lanes(lanes, token, bundle,
+    int n = k3346_overlay_build_lanes(lanes, 0UL, bundle,
                                       K3346_OVERLAY_MAX_LANE_PKTS);
-    int i;
+    int i, queued = 1;
+
+    if (n <= 0) return;
+    if (n == g_feed.last_lanes_n
+        && memcmp(bundle, g_feed.last_lanes, (size_t)n * CR_PKT_SIZE) == 0)
+        return;
+    memcpy(g_feed.last_lanes, bundle, (size_t)n * CR_PKT_SIZE);
+    n = k3346_overlay_build_lanes(lanes, ++*token, bundle,
+                                  K3346_OVERLAY_MAX_LANE_PKTS);
     for (i = 0; i < n; i++)
-        ring_push_locked(bundle + (size_t)i * CR_PKT_SIZE);
+        if (!ring_push_locked(bundle + (size_t)i * CR_PKT_SIZE)) queued = 0;
+    /* A bundle with a hole in it is sent whole again next time. */
+    g_feed.last_lanes_n = queued ? n : 0;
+    g_feed.lanes_shown = 1;
+}
+
+int k3346_overlay_build_lanes_hide(unsigned long token,
+                                   unsigned char *out, int max_packets)
+{
+    unsigned char *pkt;
+
+    if (out == NULL || max_packets < 2) return 0;
+
+    /* Luka's LaneGuidanceSnapshot.HIDDEN as RendererServer.lanePacket writes it:
+     * no lanes, not complete, not showing, event -1. */
+    pkt = out;
+    memset(pkt, 0, CR_PKT_SIZE);
+    pkt[0] = CMD_LANES_BEGIN;
+    put_be32(&pkt[2 + 0], token);
+    put_be32(&pkt[2 + 8], 0xFFFFFFFFUL);
+
+    pkt = out + CR_PKT_SIZE;
+    memset(pkt, 0, CR_PKT_SIZE);
+    pkt[0] = CMD_LANES_COMMIT;
+    put_be32(&pkt[2 + 0], token);
+    return 2;
+}
+
+/* Caller holds the lock.  The update has no lanes: tell a renderer that may be
+ * drawing some, once.  With the ring full the flag stays and the next update
+ * (about a second later) tries again. */
+static void queue_lanes_hide_locked(unsigned long *token)
+{
+    unsigned char bundle[2 * CR_PKT_SIZE];
+    int n, i, queued = 1;
+
+    if (!g_feed.lanes_shown) return;
+    n = k3346_overlay_build_lanes_hide(++*token, bundle, 2);
+    for (i = 0; i < n; i++)
+        if (!ring_push_locked(bundle + (size_t)i * CR_PKT_SIZE)) queued = 0;
+    if (queued) {
+        g_feed.lanes_shown = 0;
+        g_feed.last_lanes_n = 0;
+    }
 }
 
 int k3346_overlay_build_maneuver(const rgd_update_t *upd,
@@ -783,16 +901,42 @@ void k3346_overlay_feed_publish(const rgd_update_t *upd,
     }
 
     pthread_mutex_lock(&g_feed.lock);
+    if (!(g_feed.last_man_valid && g_feed.man_sent && same_arrow(pkt, g_feed.last_man))) {
+        /* A new arrow: the whole maneuver, which carries its fill too. */
+        g_feed.man_sent = ring_push_locked(pkt);
+        g_feed.last_lanes_n = 0;
+        if (g_feed.man_sent) {
+            g_feed.sent_level = prog.level;
+            g_feed.sent_mode = prog.mode;
+            g_feed.sent_blink = prog.blink;
+        }
+    } else if (prog.level != g_feed.sent_level || prog.mode != g_feed.sent_mode
+               || prog.blink != g_feed.sent_blink) {
+        /* The same arrow, nearer or farther: only the fill, as feed_replay_state()
+         * sends it.  The blink itself is clocked by the sender thread. */
+        unsigned char pp[CR_PKT_SIZE];
+        build_progress(pp, prog.level, prog.mode,
+                       prog.mode ? (prog.blink ? CR_PROGRESS_BLINK_HIGH : CR_PROGRESS_FILL)
+                                 : CR_PROGRESS_OFF);
+        if (ring_push_locked(pp)) {
+            g_feed.sent_level = prog.level;
+            g_feed.sent_mode = prog.mode;
+            g_feed.sent_blink = prog.blink;
+        }
+    }
+    g_feed.cleared = 0;
     g_feed.prog_valid = 1;
     g_feed.prog_level = prog.level;
     g_feed.prog_mode  = prog.mode;
     g_feed.prog_blink = prog.blink;
-    /* Keep it for a renderer that connects after this update. */
+    /* Keep it, with the newest fill, for a renderer that connects after this
+     * update. */
     memcpy(g_feed.last_man, pkt, CR_PKT_SIZE);
     g_feed.last_man_valid = 1;
-    ring_push_locked(pkt);
     if (lanes != NULL && lanes->present != 0 && lanes->lane_count > 0)
-        queue_lanes_locked(lanes, ++s_token);
+        queue_lanes_locked(lanes, &s_token);
+    else
+        queue_lanes_hide_locked(&s_token);
     pthread_cond_signal(&g_feed.wake);
     pthread_mutex_unlock(&g_feed.lock);
 

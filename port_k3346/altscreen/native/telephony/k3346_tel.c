@@ -12,7 +12,10 @@
  * zapis przez .tmp + rename. Osobne pliki, bo wspolny moglby przekroczyc
  * FILE_MAX - format zwrocilby 0 i zniknelyby obie listy. Polecenia z Javy: plik
  * "dial <numer>", czytany i kasowany w watku sterownika (k3346_tel_tick) ->
- * 0x415A InitiateCall.
+ * 0x415A InitiateCall. Od 2.0 takze "hold 0|1" i "mute 0|1" -> 0x415F
+ * HoldStatusUpdate, 0x4160 MuteStatusUpdate (formaty wg luka-dev tel_hook.c:
+ * iOS czyta stan tylko z parametru 0). Bez SwapCalls: sledzimy jedna rozmowe,
+ * wiec zegary nie maja czego zamieniac.
  */
 #include "k3346_tel.h"
 
@@ -92,6 +95,14 @@ size_t k3346_tel_build_initiate_call(uint8_t *out, size_t max, const char *numbe
     if (!(off = put_tlv(out, max, 0, 0, &type, 1))) return 0;
     if (!(off = put_tlv(out, max, off, 1, number, strlen(number) + 1))) return 0;
     return put_tlv(out, max, off, 2, &service, 1);
+}
+
+/* HoldStatusUpdate 0x415F i MuteStatusUpdate 0x4160: stan w parametrze 0. iOS
+ * (accessoryd) czyta tylko parametr 0 i bez niego odrzuca wiadomosc (luka-dev). */
+size_t k3346_tel_build_status(uint8_t *out, size_t max, int on)
+{
+    uint8_t v = on ? 1 : 0;
+    return put_tlv(out, max, 0, 0, &v, 1);
 }
 
 /* ---------------- parser ---------------- */
@@ -225,6 +236,26 @@ int k3346_tel_parse_command(const char *text, char *number, size_t number_max)
     }
     number[n] = 0;
     return n > 0;
+}
+
+/* Polecenia rozmowy z zegarow. Dokladna tresc, nic poza nia: "hold 0", "hold 1",
+ * "mute 0", "mute 1", kazde zakonczone nowa linia albo koncem tekstu. */
+int k3346_tel_parse_call_command(const char *text, uint16_t *msgid, int *on)
+{
+    const char *p;
+    uint16_t id;
+    if (text == NULL || msgid == NULL || on == NULL) return 0;
+    if (strncmp(text, "hold ", 5) == 0) id = K3346_TEL_MSG_HOLD_STATUS;
+    else if (strncmp(text, "mute ", 5) == 0) id = K3346_TEL_MSG_MUTE_STATUS;
+    else return 0;
+    if (text[5] != '0' && text[5] != '1') return 0;
+    p = text + 6;
+    if (*p == '\r') p++;
+    if (*p != 0 && *p != '\n') return 0;
+    if (*p == '\n' && p[1] != 0) return 0;
+    *msgid = id;
+    *on = text[5] == '1';
+    return 1;
 }
 
 /* ---------------- sesja ---------------- */
@@ -368,7 +399,8 @@ void k3346_tel_tick(void *ctx, uint64_t now_ms, k3346_tel_send_fn send)
     uint8_t payload[256];
     char cmd[96], number[40];
     size_t len;
-    int do_lists = 0, rc;
+    int do_lists = 0, rc, on = 0;
+    uint16_t call_msg = 0;
 
     if (ctx == NULL || send == NULL) return;
 
@@ -406,6 +438,10 @@ void k3346_tel_tick(void *ctx, uint64_t now_ms, k3346_tel_send_fn send)
             len = k3346_tel_build_initiate_call(payload, sizeof(payload), number);
             rc = len ? send(ctx, K3346_TEL_MSG_INITIATE_CALL, payload, len) : -1;
             rgi_diag_log("TEL", "initiate_call digits=%u rc=%d", (unsigned)strlen(number), rc);
+        } else if (k3346_tel_parse_call_command(cmd, &call_msg, &on)) {
+            len = k3346_tel_build_status(payload, sizeof(payload), on);
+            rc = len ? send(ctx, call_msg, payload, len) : -1;
+            rgi_diag_log("TEL", "call_command msg=%04x on=%d rc=%d", (unsigned)call_msg, on, rc);
         } else {
             rgi_diag_log("TEL", "command_rejected");
         }

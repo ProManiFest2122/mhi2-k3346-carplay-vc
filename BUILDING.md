@@ -71,7 +71,8 @@ phonebook comes from Bluetooth PBAP, which CarPlay switches off.
   version screen). The installer checks again and stops if it does not match.
 - [M.I.B. – More Incredible Bash](https://github.com/Mr-MIBonk/M.I.B._More-Incredible-Bash) **3.6.0**
   working on your unit (GEM → m.i.b.). This guide uses its *run individual script* entry, which executes
-  `/mod/command.sh` from the SD card.
+  `/mod/command.sh` from the SD card. Newer M.I.B. versions run `/mod/custom.sh` from *Run Custom Script*;
+  release zips carry the same installer under both names (`tools/make_release.sh`).
 - A **full M.I.B. backup** of your unit (the `lsd.jxe` from it is also a build input).
 - External power or a battery charger connected while you work.
 - **Two SD cards** (FAT32): the install card (your M.I.B. card) and a separate **rescue card**.
@@ -294,6 +295,21 @@ Copy only the new files from the package; **keep** `backup/`, `*.installed.ok` a
 Run the script with nothing pending (or with `COLLECT_LOGS`): it writes
 `mod/mib2high-carplay-rgi-v8s-simple/collected/run-NN/` (system log, iAP2 log, our hooks' logs).
 **These logs contain personal data** (VIN, phone numbers, contact names, GPS). Do not post them publicly.
+
+From 2.0 every collection also measures CPU load and memory for about 20 seconds (`run-NN/cpu/`: two
+`pidin times` and two `pidin ttimes` snapshots, `pidin info`, the list of `/dev/shmem`). It measures the
+unit as it is at that moment, so start CarPlay and a route first if that is what you want to see. The
+car only stores raw output; the report is made on the PC:
+
+```bash
+python3 tools/cpu_report.py /path/to/collected/run-NN
+python3 tools/cpu_report.py /path/to/run-with-carplay --bez /path/to/run-without-phone
+```
+
+While the script runs, one thread of the HMI (the green menu waiting for the script) takes a whole
+core. The report names it and also gives the load of the unit without it. The parsers follow the
+output of our unit (K3346, QNX 6.5); a file they cannot read is reported with its first lines
+(`tools/test_cpu_report.py` holds the fixtures). `top` is not used: on the unit it needs a terminal.
 
 ## 5. Uninstall
 

@@ -128,6 +128,38 @@ int main(void)
           "0x415A: Type 0, DestinationID z NUL, Service 1");
     CHECK(k3346_tel_build_initiate_call(buf, sizeof(buf), "") == 0, "0x415A: pusty numer -> 0");
 
+    /* 2.0: HoldStatusUpdate 0x415F / MuteStatusUpdate 0x4160 - stan w parametrze 0
+     * (luka-dev tests/tel_hook_test.c: iOS czyta tylko parametr 0) */
+    memset(buf, 0xEE, 16);
+    n = k3346_tel_build_status(buf, sizeof(buf), 1);
+    CHECK(n == 5 && memcmp(buf, "\x00\x05\x00\x00\x01", 5) == 0 && buf[5] == 0xEE, "stan wlaczony: 00 05 00 00 01");
+    n = k3346_tel_build_status(buf, sizeof(buf), 0);
+    CHECK(n == 5 && memcmp(buf, "\x00\x05\x00\x00\x00", 5) == 0, "stan wylaczony: 00 05 00 00 00");
+    n = k3346_tel_build_status(buf, sizeof(buf), 7);
+    CHECK(n == 5 && buf[4] == 1, "stan: kazda wartosc niezerowa to 1");
+    CHECK(k3346_tel_build_status(buf, 4, 1) == 0, "stan: za maly bufor -> 0");
+    {
+        uint16_t m = 0;
+        int on = -1;
+        CHECK(k3346_tel_parse_call_command("hold 1\n", &m, &on) && m == 0x415F && on == 1, "hold 1 -> 0x415F wlacz");
+        CHECK(k3346_tel_parse_call_command("hold 0\n", &m, &on) && m == 0x415F && on == 0, "hold 0 -> 0x415F wylacz");
+        CHECK(k3346_tel_parse_call_command("mute 1\n", &m, &on) && m == 0x4160 && on == 1, "mute 1 -> 0x4160 wlacz");
+        CHECK(k3346_tel_parse_call_command("mute 0", &m, &on) && m == 0x4160 && on == 0, "mute 0 bez nowej linii (koniec tekstu)");
+        CHECK(k3346_tel_parse_call_command("hold 1\r\n", &m, &on) && m == 0x415F && on == 1, "hold 1 z CRLF");
+        m = 0x1234; on = 9;
+        CHECK(!k3346_tel_parse_call_command("hold 2\n", &m, &on) && !k3346_tel_parse_call_command("hold\n", &m, &on) &&
+              !k3346_tel_parse_call_command("hold 1 x\n", &m, &on) && !k3346_tel_parse_call_command("hold 11\n", &m, &on) &&
+              !k3346_tel_parse_call_command("mute\n", &m, &on) && !k3346_tel_parse_call_command("mute x\n", &m, &on) &&
+              !k3346_tel_parse_call_command("swap\n", &m, &on) && !k3346_tel_parse_call_command("dial 123\n", &m, &on) &&
+              !k3346_tel_parse_call_command("hold 1\nmute 1\n", &m, &on) && !k3346_tel_parse_call_command(" hold 1\n", &m, &on) &&
+              !k3346_tel_parse_call_command("", &m, &on) && !k3346_tel_parse_call_command(NULL, &m, &on),
+              "polecenia rozmowy: wszystko inne odrzucone");
+        CHECK(m == 0x1234 && on == 9, "odrzucone polecenie nie rusza wyniku");
+        CHECK(!k3346_tel_parse_call_command("hold 1\n", NULL, &on) && !k3346_tel_parse_call_command("hold 1\n", &m, NULL),
+              "polecenia rozmowy: brak miejsca na wynik -> 0");
+        CHECK(!k3346_tel_parse_command("hold 1\n", num, sizeof(num)), "hold to nie dial");
+    }
+
     memset(&last, 0, sizeof(last));
     CHECK(k3346_tel_parse_list_update(cap_avail + 6, sizeof(cap_avail) - 1 - 6, &upd) && upd.recents.count_set && upd.recents.count == 3,
           "ramka 1: dostepnosc + count 3");
@@ -313,6 +345,32 @@ int main(void)
               memcmp(sent_payload[before] + 9, "+00123", 6) == 0, "dial z pliku -> 0x415A");
     }
     CHECK(access("/tmp/k3346-tel-test-cmd", F_OK) != 0, "plik polecenia skasowany");
+
+    /* 2.0: polecenia rozmowy z Javy -> 0x4160 / 0x415F */
+    {
+        static const char *cmds[] = { "mute 1\n", "mute 0\n", "hold 1\n", "hold 0\n" };
+        static const uint16_t want_msg[] = { 0x4160, 0x4160, 0x415F, 0x415F };
+        static const uint8_t want_on[] = { 1, 0, 1, 0 };
+        unsigned k;
+        for (k = 0; k < 4; k++) {
+            FILE *c = fopen("/tmp/k3346-tel-test-cmd", "w");
+            fputs(cmds[k], c);
+            fclose(c);
+            sent_count = 0;
+            k3346_tel_tick(&ctx, 600000 + k, fake_send);
+            CHECK(sent_count == 1 && sent_msg[0] == want_msg[k] && sent_len[0] == 5 &&
+                  memcmp(sent_payload[0], "\x00\x05\x00\x00", 4) == 0 && sent_payload[0][4] == want_on[k], cmds[k]);
+            CHECK(access("/tmp/k3346-tel-test-cmd", F_OK) != 0, "polecenie rozmowy skasowane");
+        }
+        {
+            FILE *c = fopen("/tmp/k3346-tel-test-cmd", "w");
+            fputs("swap\n", c);
+            fclose(c);
+            sent_count = 0;
+            k3346_tel_tick(&ctx, 700000, fake_send);
+            CHECK(sent_count == 0 && access("/tmp/k3346-tel-test-cmd", F_OK) != 0, "nieznane polecenie: nic nie wysyla, plik skasowany");
+        }
+    }
 
     /* zniekształcone wejscie: 200000 losowych pakietow bez awarii */
     for (i = 0; i < 200000; i++) {

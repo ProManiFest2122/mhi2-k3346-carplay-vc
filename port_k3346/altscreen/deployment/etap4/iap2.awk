@@ -3,6 +3,8 @@
 #   MMI -> iPhone: 0x5200, 0x5203     iPhone -> MMI: 0x5201, 0x5202, 0x5204
 # Etap 6 (ostatnie polaczenia, dzwonienie z listy): MMI -> iPhone 0x415A
 # InitiateCall, 0x4170 StartListUpdates; iPhone -> MMI 0x4171 ListUpdate.
+# 2.0 (rozmowa z zegarow): MMI -> iPhone 0x415F HoldStatusUpdate,
+# 0x4160 MuteStatusUpdate.
 # Etap 6b (opcjonalnie, -v btmac=XX:XX:XX:XX:XX:XX): sekcja [bluetooth] ->
 # sterownik dodaje do identyfikacji BluetoothTransportComponent z adresem MMI
 # (ident_info_tspbt). Bez adresu sekcji nie ma wcale: enable=yes bez mac=
@@ -19,7 +21,7 @@ END {
     print "# K3346 Etap 4 (RGI): Route Guidance message directions"
     print "[ident]"
     print "recvmsgs=0x5201,0x5202,0x5204,0x4171"
-    print "sendmsgs=0x5200,0x5203,0x415a,0x4170"
+    print "sendmsgs=0x5200,0x5203,0x415a,0x4170,0x415f,0x4160"
     if (btmac != "") {
         print ""
         print "# K3346 Etap 6b: BluetoothTransportComponent (adres BT MMI)"

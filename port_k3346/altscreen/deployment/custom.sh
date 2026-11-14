@@ -24,13 +24,13 @@ E4_PENDING="$MOD/etap4.installing.flag"; E4_ROLLEDBACK="$MOD/etap4.rolledback.ok
 E4_INSTALL_MARK="$MOD/INSTALL_ETAP4"; E4_ROLLBACK_MARK="$MOD/ROLLBACK_ETAP4"
 E4_NAMES='libmib2high-carplay-rgi-ipod.so mm-ipod-rgi.sh usblauncher_otg.lua iap2.cfg'
 # Stock K3346 (collector v1.2 + backup M.I.B., identyczne): rozmiary plikow, ktore
-# Etap 4 zmienia, oraz oczekiwane rozmiary po zmianie (+21 B lua, +139 B iap2.cfg:
-# [ident] RGI + Etap 6 0x415a/0x4170/0x4171).
+# Etap 4 zmienia, oraz oczekiwane rozmiary po zmianie (+21 B lua, +153 B iap2.cfg:
+# [ident] RGI + Etap 6 0x415a/0x4170/0x4171 + 2.0 0x415f/0x4160).
 K3346_OTG_LUA_SIZE=19907; K3346_OTG_LUA_NEW_SIZE=19928
-K3346_IAP2CFG_SIZE=5852; K3346_IAP2CFG_NEW_SIZE=5991
+K3346_IAP2CFG_SIZE=5852; K3346_IAP2CFG_NEW_SIZE=6005
 # Etap 6b: z plikiem BT_MAC na karcie dochodzi sekcja [bluetooth] (+150 B, adres
 # ma zawsze 17 znakow).
-K3346_IAP2CFG_BT_SIZE=6141; E4_BTMAC_FILE="$MOD/BT_MAC"
+K3346_IAP2CFG_BT_SIZE=6155; E4_BTMAC_FILE="$MOD/BT_MAC"
 K3346_MMIPOD_SIZE=40297
 # --- K3346 Etap 5: JAR z klasami o fabrycznych nazwach (lsd/jars/ jest na
 # -Xbootclasspath przed lsd.jxe). Osobna transakcja i kopia; ROLLBACK_ETAP5 cofa
@@ -183,12 +183,13 @@ TX=0; TX4=0; TX5=0; TX7=0
 # W trybie INSTALL_ALL etapy NIE moga mowic "SAFE TO REMOVE SD" po drodze: kto
 # wyjmie karte po pierwszym etapie, wyjmie ja w trakcie zapisu nastepnego, a jego
 # auto-cofniecie potrzebuje kopii z tej karty. Ten komunikat pada raz, na koncu.
-ALL=0; RBFAIL=0; QUIET_SAFE=0
+ALL=0; RBFAIL=0; QUIET_SAFE=0; OTHERMOD=0
 stage_done(){ [ "$ALL" -eq 1 ] || say "$@"; }
 # Ostatnie slowo przebiegu INSTALL_ALL, ktory sie nie udal. Laik czyta tylko
 # koniec ekranu, wiec tam musi stac wynik i jedno polecenie, co dalej.
 all_failed(){ [ "$ALL" -eq 1 ] || return 0; say 'INSTALL_ALL_RESULT=FAIL (see the ERROR line above)'
-if [ "$RBFAIL" -eq 1 ]; then say 'Do NOT restart the MMI. Uninstall now: put the ROLLBACK file on this card and run the script again.'
+if [ "$OTHERMOD" -eq 1 ]; then say 'Another CarPlay mod is on this unit. Remove it with its own uninstaller, then run this script again.'; say 'NOTHING WAS CHANGED.'
+elif [ "$RBFAIL" -eq 1 ]; then say 'Do NOT restart the MMI. Uninstall now: put the ROLLBACK file on this card and run the script again.'
 else say 'The car is in a safe state: finished parts stay, the failed part was undone.'; say 'Run the script again to retry, or uninstall.'; fi; }
 onexit(){ rc="$1"; trap - 0; if [ "$TX" -eq 1 ]; then say 'INSTALL_FAILED: restoring originals'; if restore_all; then rm -f "$PENDING" "$INSTALLED"; say 'AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
 if [ "$TX5" -eq 1 ]; then say 'ETAP5_INSTALL_FAILED: restoring originals'; if tx_restore "$E5_BACKUP" "$E5_NAMES"; then rm -f "$E5_PENDING" "$E5_INSTALLED"; : > "$E5_ROLLEDBACK"; sync; say 'ETAP5_AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'ETAP5_AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
@@ -237,7 +238,27 @@ else
 fi
 say 'VERSION_GATE=PASS'
 }
-install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight; version_gate
+# --- 2.0: inne mody CarPlay (wzor: luka-dev 637559e4, chefranov install.sh "other mods").
+# Dwa mody na tych samych klasach HMI albo na tym samym strumieniu do zegarow to
+# czarny ekran albo MMI na logo, wiec instalacja staje PRZED pierwsza zmiana.
+# Szukamy cudzych plikow po ich wlasnych nazwach; nasze maja w nazwie mib2high
+# albo k3346. mm-ipod: nasz Etap 4 nie rusza binarki (startuje ja z
+# usblauncher_otg.lua), wiec inny rozmiar przed Etapem 4 to cudza nakladka.
+ESO="${MIB_ESO:-/eso}"
+other_mods(){ OM=''
+for d in "$APP"/root/mibsi* "$APP"/eso/lib/mibsi-* "$ESO"/lib/mibsi-* "$ESO"/mibsi-*; do
+    if [ -e "$d" ]; then OM="$OM MIBSI"; break; fi; done
+for f in "$APP/eso/hmi/lsd/jars/rgd_hook.jar" "$APP/eso/hmi/lsd/jars/coverart_hook.jar" "$APP/eso/hmi/lsd/jars/dpad_hook.jar" \
+         "$APP/eso/hmi/lsd/jars/pdc_hook.jar" "$APP/eso/hmi/lib/libcarplay_hook.so" "$APP/armle/usr/sbin/rgd_real"; do
+    if [ -e "$f" ]; then OM="$OM mhi2-au37x-carplay"; break; fi; done
+for f in "$APP/root/hooks/carplay_startup.sh" "$APP/eso/bin/apps/smartphone_integrator.carplay-stock" "$APP/root/carplay-altscreen"; do
+    if [ -e "$f" ]; then OM="$OM mib2q-carplay-rgi"; break; fi; done
+if [ ! -f "$E4_INSTALLED" ] && MS=`fsize "$APP/armle/usr/sbin/mm-ipod"` && [ "$MS" != "$K3346_MMIPOD_SIZE" ]; then OM="$OM mm-ipod-wrapper"; fi
+if [ -z "$OM" ]; then say 'OTHER_CARPLAY_MODS=none'; return 0; fi
+OM="${OM# }"; OTHERMOD=1; say "OTHER_CARPLAY_MODS=$OM"
+fail "another CarPlay mod is installed ($OM). Remove it with its own uninstaller, then run this install again. NOTHING WAS CHANGED"
+}
+install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight; version_gate; other_mods
 [ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'
 # Po UDANYM pelnym cofnieciu (rolledback.ok) auto jest znow fabryczne, wiec
 # nowa instalacja moze zrobic nowa kopie. Stara nie znika: odsuwamy ja na bok,
@@ -516,6 +537,39 @@ copyif(){
     [ -f "$1" ] || return 0
     cp "$1" "$2/" || return 1
 }
+# --- 2.0: obciazenie procesora i pamiec przy zbieraniu logow (run-NN/cpu/).
+# Auto zapisuje surowe wyjscia, liczy tools/cpu_report.py na komputerze.
+# Pierwszy pomiar z auta (2.0.0-rc4, 2026-11-11): "pidin times" jest na proces
+# (pid name sid start utime stime cutime cstime; czasy powyzej minuty jako
+# "9m10s", rozdzielczosc 1 s), stad okno 20 s. "pidin ttimes" daje czas na watek
+# (pid tid name STATE start thread-start sutime; 2.0.0-rc6).
+# Bez top (2.0.0-rc7): na jednostce chce terminala ("Unable to enter cbreak
+# mode"), a wczesniej wypisywal tylko pomoc, wiec nie dal ani jednej liczby.
+# Migawki "times" sa wewnatrz, "ttimes" na zewnatrz: okno liczone z "times" nie
+# obejmuje wolniejszego "ttimes". To dodatek: zaden blad tutaj nie zmienia
+# COLLECT_RESULT, wynik kazdego kroku jest w cpu/status.txt. Mierzony jest stan
+# z chwili uruchomienia skryptu (CarPlay z trasa albo bez), razem z samym
+# skryptem: watek zielonego menu, ktory na niego czeka, zajmuje caly rdzen
+# (tools/cpu_report.py odejmuje go, o ile sa czasy na watek).
+CPU_WINDOW="${MIB_CPU_WINDOW:-20}"
+cpu_step(){ # cpu_step NAZWA plik polecenie...
+    cs_name="$1"; cs_out="$2"; shift 2
+    if "$@" > "$cs_out" 2>&1; then echo "$cs_name=OK" >> "$CPUD/status.txt"; else echo "$cs_name=FAILED" >> "$CPUD/status.txt"; fi
+}
+cpu_measure(){ CPUD="$1/cpu"
+    mkdir -p "$CPUD" || return 0
+    say "CPU_MEASURE: $CPU_WINDOW s..."
+    echo "CPU_WINDOW=$CPU_WINDOW" > "$CPUD/status.txt"
+    cpu_step PIDIN_INFO "$CPUD/pidin-info.txt" pidin info
+    cpu_step PIDIN_TTIMES_1 "$CPUD/pidin-ttimes-1.txt" pidin ttimes
+    cpu_step PIDIN_TIMES_1 "$CPUD/pidin-times-1.txt" pidin times
+    ci=0
+    while [ "$ci" -lt "$CPU_WINDOW" ]; do sleep 1; ci=$((ci+1)); done
+    cpu_step PIDIN_TIMES_2 "$CPUD/pidin-times-2.txt" pidin times
+    cpu_step PIDIN_TTIMES_2 "$CPUD/pidin-ttimes-2.txt" pidin ttimes
+    cpu_step LS_SHMEM "$CPUD/ls-shmem.txt" ls -l /dev/shmem
+    return 0
+}
 collect(){
     say 'MODE=COLLECT'
     checkrw "$SD" || fail 'SD not writable'
@@ -629,6 +683,7 @@ collect(){
     fi
     pidin ar > "$d/pidin-ar.txt" 2>&1 || { RESULT=PARTIAL; echo 'PIDIN_FAILED' >> "$d/trace/collection-errors.txt"; }
     netstat -an > "$d/netstat-an.txt" 2>&1 || { RESULT=PARTIAL; echo 'NETSTAT_FAILED' >> "$d/trace/collection-errors.txt"; }
+    cpu_measure "$d"
     # Etap 5.3: sonda okladki (tylko odczyt, jedno polaczenie klienta iAP2).
     # Uruchamiana z kopii w /tmp, z limitem 15 s; zawieszona -> zabita (TIMEOUT).
     # Sensowna tylko przy podlaczonym iPhonie i grajacej muzyce w CarPlay.

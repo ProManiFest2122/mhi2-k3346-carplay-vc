@@ -14,9 +14,11 @@ What you need
 
 INSTALL
  1. Unzip the -install.zip into the ROOT of your M.I.B. card and allow
-    overwriting. It adds its own folder and replaces only mod/command.sh.
+    overwriting. It adds its own folder and replaces only mod/command.sh
+    and mod/custom.sh (the same installer under both names).
  2. Card into the slot M.I.B. runs from (SD1), ignition on, charger on.
- 3. Green menu: m.i.b. -> advanced settings -> run individual script.
+ 3. Green menu: m.i.b. -> advanced settings -> run individual script
+    (newer M.I.B. versions: Run Custom Script).
  4. Wait for INSTALL_ALL_RESULT=PASS and then SAFE TO REMOVE SD (a few
     minutes). Do not switch the ignition off before that.
  5. Restart the MMI: hold together the big MMI knob + NAV/MAP + RADIO
@@ -80,10 +82,11 @@ Co jest potrzebne
 INSTALACJA
  1. Rozpakuj -install.zip do KATALOGU GLOWNEGO karty z M.I.B. i zgodz sie
     na zastapienie plikow. Dodaje wlasny folder i podmienia tylko
-    mod/command.sh.
+    mod/command.sh i mod/custom.sh (ten sam instalator pod dwiema nazwami).
  2. Karta do slotu, z ktorego dziala M.I.B. (SD1), zaplon wlaczony,
     prostownik podlaczony.
- 3. Zielone menu: m.i.b. -> advanced settings -> run individual script.
+ 3. Zielone menu: m.i.b. -> advanced settings -> run individual script
+    (nowsze wersje M.I.B.: Run Custom Script).
  4. Czekaj na INSTALL_ALL_RESULT=PASS, a potem SAFE TO REMOVE SD (kilka
     minut). Nie wylaczaj zaplonu wczesniej.
  5. Restart MMI: przytrzymaj jednoczesnie duze pokretlo MMI + NAV/MAP +

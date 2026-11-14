@@ -203,34 +203,30 @@ int main(void)
     apple("0\n");
     idle();
 
-    /* Brak, small gauges, Google: the area of rc22 */
+    /* Brak, small gauges, Google: view 5, the middle of the screen (2.0.0-rc8; the
+     * car marker stood left of the middle of the map on view 1) */
     request_cluster(s);
-    show_sequence(0, 1, "instrumentcluster/map");
+    show_sequence(0, 5, "instrumentcluster/map");
+    assert(s->ui_apple == K3346_OTHER_FREE);
     settled();
 
-    /* Apple: its own area, without a showUI */
+    /* Apple without the card has the same area there: a new app sends nothing */
     b = nsends;
     apple("1\n");
-    area_only(5);
-    assert(s->ui_apple == 1);
-    settled();
-    /* the same name again: nothing */
-    apple("1\n");
     idle();
-    assert(nsends == b + 2);
-
+    assert(nsends == b);
+    settled();
     /* a half-written file changes nothing */
     apple("x\n");
     idle();
-    assert(nsends == b + 2);
+    assert(nsends == b);
 
-    /* back to Google: view 1, with the card or without */
+    /* back to Google, and to Apple again: still nothing */
     apple("0\n");
-    area_only(1);
-    assert(s->ui_apple == K3346_OTHER_FREE);
-    settled();
+    idle();
     apple("1\n");
-    area_only(5);
+    idle();
+    assert(nsends == b);
     settled();
 
     /* Apple with the card (Pełna): the box sits under the card, an area as wide */
@@ -288,17 +284,30 @@ int main(void)
     eta_mode_poll();
     idle();
 
-    /* the file gone with the session: rc22's area until mm-ipod writes it again */
+    /* the file gone with the session (not Apple until mm-ipod writes it again):
+     * without the card the area is the same, nothing is sent */
+    b = nsends;
+    apple(NULL);
+    idle();
+    apple("1\n");
+    idle();
+    assert(nsends == b);
+    settled();
+
+    /* a change during a sequence waits for its end.  With the card, where the apps
+     * have different areas (1 and 6). */
+    card_none(0);
+    show_sequence(0, 6, "instrumentcluster?maneuverLayout=leftAligned");
+    settled();
     apple(NULL);
     area_only(1);
     apple("1\n");
-    area_only(5);
+    area_only(6);
     settled();
-
-    /* a change during a sequence waits for its end */
     apple("0\n");
     b = nsends;
     step("updateViewArea");
+    assert(sends[b].view == 1);
     apple("1\n");
     idle();
     ack(b, 0);
@@ -306,7 +315,10 @@ int main(void)
     ack(b + 1, 0);
     idle();
     eta_mode_poll();
-    area_only(5);
+    area_only(6);
+    settled();
+    card_none(1);
+    show_sequence(0, 5, "instrumentcluster/map");
     settled();
 
     /* rc29: the ETA option on.  The phone is not asked for a box, whatever the app,
@@ -369,19 +381,18 @@ int main(void)
     change_sequence(1, URL_CARD_SMALL);
     settled();
 
-    /* Google Maps, Brak: view 1 again (the wide area of rc27 is gone), the plain URL;
-     * a new app moves the area alone on both layouts */
+    /* Google Maps, Brak: view 5 (2.0.0-rc8), the plain URL.  On the small gauges a
+     * new app sends nothing, on the big ones it moves the area alone */
     card_none(1);
-    url_sequence(1, URL_NO_BOX);
+    url_sequence(5, URL_NO_BOX);
     assert(s->ui_apple == K3346_OTHER_FREE);
     settled();
     b = nsends;
     apple("1\n");
-    area_only(5);
-    settled();
+    idle();
     apple("0\n");
-    area_only(1);
-    assert(nsends == b + 4);
+    idle();
+    assert(nsends == b);
     settled();
     /* rc30: on the big gauges Google Maps without the card has view 8, which ends
      * above our boxes; with the card view 3, the full height the card needs */
@@ -405,7 +416,7 @@ int main(void)
     assert(s->ui_apple == K3346_OTHER_FREE);
     settled();
     press_view(0);
-    change_sequence(1, URL_NO_BOX);
+    change_sequence(5, URL_NO_BOX);
     settled();
     press_view(1);
     change_sequence(8, URL_NO_BOX);
@@ -427,12 +438,14 @@ int main(void)
     url_sequence(8, URL_NO_BOX);
     settled();
     press_view(0);
-    change_sequence(1, URL_NO_BOX);
+    change_sequence(5, URL_NO_BOX);
     settled();
 
     /* Sport has its own area on the big gauges: Apple gets that one there */
+    b = nsends;
     apple("1\n");
-    area_only(5);
+    idle();
+    assert(nsends == b);
     settled();
     put_file(K3346_SKIN_PATH, "1\n");
     eta_mode_poll();

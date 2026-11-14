@@ -90,4 +90,9 @@ int k3346_overlay_build_lanes(const rgd_lane_guidance_t *lanes,
                               unsigned long token,
                               unsigned char *out, int max_packets);
 
+/* Builds the BEGIN/COMMIT pair that makes the renderer hide its lanes.  Returns
+ * 2, or 0 when out has no room for both. */
+int k3346_overlay_build_lanes_hide(unsigned long token,
+                                   unsigned char *out, int max_packets);
+
 #endif /* K3346_OVERLAY_FEED_H */

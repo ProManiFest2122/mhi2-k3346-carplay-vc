@@ -63,6 +63,9 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
 
     /* akcje z VC (K3346GatedPhoneListener) */
     static final int ACT_ACCEPT = 1, ACT_HANGUP = 2;
+    /* 2.0 (wzor: luka-dev GatedPhoneService): iAP2 HoldStatusUpdate / MuteStatusUpdate
+     * przez hook mm-ipod, nie przelacznik HID Flash */
+    static final int ACT_HOLD = 3, ACT_RESUME = 4, ACT_MUTE_ON = 5, ACT_MUTE_OFF = 6;
     private static final int RESULT_OK = 0, RESULT_FAILED = 1;
     private static final long FALLBACK_MS = 2500;
     /* przycisk sluchawki: kombi wysyla rownolegle BAP, a stock MFL robi flash */
@@ -99,6 +102,10 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     private CombiBAPCallInfo[] stockInfos;
     private CallStartTime[] stockDurations;
     private int stockSignal = -1, stockRegState, stockNetType, stockDataType;
+    private boolean haveStockMute, stockMute;
+    /* CarPlay: mikrofon wyciszony z zegarow. iPhone nie odsyla tego stanu, wiec
+     * pamietamy to, co sami wyslalismy; koniec rozmowy i nowa sesja zeruja. */
+    private boolean muted;
     private boolean haveStockRegState, haveStockProvider;
     private int stockProvNameValid, stockProvIdValid;
     private String stockProvName, stockProvId;
@@ -237,6 +244,20 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         } else if (action == ACT_HANGUP) {
             ok = st != 0;
             real.hangupCallResult(ok ? RESULT_OK : RESULT_FAILED);
+        } else if (action == ACT_HOLD || action == ACT_RESUME) {
+            boolean hold = action == ACT_HOLD;
+            ok = st == (hold ? BAP_ACTIVE : BAP_HELD) && writeCommand(hold ? "hold 1\n" : "hold 0\n");
+            if (hold) real.callHoldResult(ok ? RESULT_OK : RESULT_FAILED);
+            else real.resumeCallResult(ok ? RESULT_OK : RESULT_FAILED);
+            K3346Diag.log("K3346_PHONE vc " + actionName(action) + " state=" + st + " result=" + (ok ? "OK" : "FAILED"));
+            return true;
+        } else if (action == ACT_MUTE_ON || action == ACT_MUTE_OFF) {
+            boolean on = action == ACT_MUTE_ON;
+            ok = st != 0 && writeCommand(on ? "mute 1\n" : "mute 0\n");
+            if (ok) muted = on;
+            real.updateMicMuteState(muted);
+            K3346Diag.log("K3346_PHONE vc " + actionName(action) + " state=" + st + " result=" + (ok ? "OK" : "FAILED"));
+            return true;
         } else {
             return false;
         }
@@ -282,7 +303,14 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     }
 
     private static String actionName(int action) {
-        return action == ACT_ACCEPT ? "accept" : "hangup";
+        switch (action) {
+            case ACT_ACCEPT: return "accept";
+            case ACT_HOLD: return "hold";
+            case ACT_RESUME: return "resume";
+            case ACT_MUTE_ON: return "mute on";
+            case ACT_MUTE_OFF: return "mute off";
+            default: return "hangup";
+        }
     }
 
     private void scheduleFallback(final int pressedState, final String key) {
@@ -621,6 +649,9 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
          * powtarzamy (pressUnlessSteering), odbiera stock FLASH. */
         support[MOBILE_SERVICE_SUPPORT_ACCEPT_CALL] = true;
         support[MOBILE_SERVICE_SUPPORT_HANGUP_CALL] = true;
+        support[MOBILE_SERVICE_SUPPORT_CALL_HOLD] = true;           /* 2.0 */
+        support[MOBILE_SERVICE_SUPPORT_RESUME_CALL] = true;         /* 2.0 */
+        support[MOBILE_SERVICE_SUPPORT_MICRO_MUTE_ON_OFF] = true;   /* 2.0 */
         support[MOBILE_SERVICE_SUPPORT_REGISTER_STATE] = true;
         support[MOBILE_SERVICE_SUPPORT_NETWORK_PROVIDER] = true;
         support[MOBILE_SERVICE_SUPPORT_SIGNAL_QUALITY] = true;
@@ -628,6 +659,8 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         support[MOBILE_SERVICE_SUPPORT_FAVORITE_LIST] = true;       /* Etap 6 */
         support[MOBILE_SERVICE_SUPPORT_DIAL_NUMBER] = true;         /* Etap 6: z listy */
         real.updateMobileServiceSupport(support);
+        muted = false;
+        real.updateMicMuteState(false);
         publishCalls();
         publishComm();
         publishRecents();
@@ -643,6 +676,8 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
             states[0] = new CombiBAPCallState(st, BAP_CALL_TYPE_VOICE, 0);
             /* VC pokazuje Accept tylko dla rozmowy z ta opcja (RE Luki, callOptions 0x01) */
             states[0].setCallOptionAcceptCallEnabled(st == BAP_RINGING);
+            states[0].setCallOptionCallHoldEnabled(st == BAP_ACTIVE);
+            states[0].setCallOptionResumeCallEnabled(st == BAP_HELD);
             infos[0] = new CombiBAPCallInfo(displayName(call), call.number, BAP_CALL_TYPE_VOICE, 0);
             if (st == BAP_ACTIVE || st == BAP_HELD) {
                 long now = System.currentTimeMillis();
@@ -654,6 +689,11 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
             }
         } else {
             activeId = null;
+            /* wyciszenie dotyczy rozmowy: po jej koncu zegary nie zostaja z "wyciszony" */
+            if (muted) {
+                muted = false;
+                real.updateMicMuteState(false);
+            }
         }
         real.updateCallStates(states, false);
         real.updateCallInfo(infos);
@@ -675,6 +715,8 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
         real.updateCallInfo(stockInfos);
         real.updateCallDurations(stockDurations != null ? stockDurations : noDurations());
         real.updateSignalQuality(stockSignal >= 0 ? stockSignal : 0);
+        muted = false;
+        real.updateMicMuteState(haveStockMute && stockMute);
         if (haveStockRegState) real.updateRegisterState(stockRegState, stockNetType, stockDataType);
         else real.updateRegisterState(0, 0, 0);
         if (haveStockProvider) real.updateNetworkProvider(stockProvNameValid, stockProvName, stockProvIdValid, stockProvId);
@@ -713,7 +755,10 @@ public class K3346GatedPhoneService implements CombiBAPServicePhone {
     public void acceptCallResult(int i) { real.acceptCallResult(i); }
     public void callHoldResult(int i) { real.callHoldResult(i); }
     public void resumeCallResult(int i) { real.resumeCallResult(i); }
-    public void updateMicMuteState(boolean b) { real.updateMicMuteState(b); }
+    public synchronized void updateMicMuteState(boolean b) {
+        haveStockMute = true; stockMute = b;
+        if (!gated) real.updateMicMuteState(b);
+    }
     public void releaseActiveCallAcceptWaitingCallResult(int i) { real.releaseActiveCallAcceptWaitingCallResult(i); }
     public void swapCallsResult(int i) { real.swapCallsResult(i); }
     public void callHoldAcceptWaitingCallResult(int i) { real.callHoldAcceptWaitingCallResult(i); }

@@ -17,9 +17,9 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 
 | | Funkcja |
 |---|---|
-| 🗺️ | **Mapa CarPlay na zegarach**, w obu układach; przycisk **VIEW** przełącza układ |
+| 🗺️ | **Mapa CarPlay na zegarach**, w obu układach; przycisk **VIEW** przełącza układ. Zmierzone w naszym aucie: 27–30 klatek na sekundę z Mapami Apple, 16–18 z Google Maps (o liczbie klatek dla każdej aplikacji decyduje telefon) |
 | 🔍 | **Przybliżanie mapy** lewą rolką na kierownicy |
-| ➡️ | **Strzałka manewru 3D** obok mapy, do tego odległość, nazwa ulicy i flaga celu. Z Mapami Apple i Google Maps: **Waze nie przekazuje kierunków**, więc z nim strzałek nie ma |
+| ➡️ | **Strzałka manewru 3D** obok mapy, do tego odległość, nazwa ulicy, flaga celu i pasy ruchu. Z Mapami Apple i Google Maps: **Waze nie przekazuje kierunków**, więc z nim strzałek nie ma |
 | 🔙 | Mapa działa dalej przy **cofaniu** (MMI pokazuje kamerę jak zwykle) |
 | 📞 | **Rozmowy CarPlay na karcie telefonu w zegarach**: kto dzwoni, odbierz / odrzuć / rozłącz, przycisk na kierownicy działa |
 | 🕘 | **Ostatnie połączenia** w zegarach podczas CarPlay, dzwonienie z listy |
@@ -30,12 +30,10 @@ oprogramowanie `MHI2_ER_AUG22_K3346`, MU 1438**. Sprawdzone w Audi A4 B9 z CarPl
 
 ## Stan prac
 
-**Wersja do pobrania to 1.0.1**, z [Releases](../../releases/latest). Kod w tym repozytorium jest nowszy: to
-wersja testowa **2.0**. **Jeśli testy w aucie przebiegną pomyślnie, wersja 2.0 zostanie opublikowana
-14 listopada 2026.** Żeby skorzystać z poniższych funkcji przed wydaniem, trzeba
-[zbudować ją samodzielnie](BUILDING.md) (opis po angielsku).
+**Wersja do pobrania to 2.0.0**, z [Releases](../../releases/latest). Aktualizacja z 1.0.x to jeden plik,
+`…-update.zip`: zob. [Odinstalowanie (i przed każdą aktualizacją)](#odinstalowanie-i-przed-każdą-aktualizacją).
 
-### W wersji 2.0
+### Nowe w wersji 2.0
 
 | | Nowe |
 |---|---|
@@ -43,6 +41,7 @@ wersja testowa **2.0**. **Jeśli testy w aucie przebiegną pomyślnie, wersja 2.
 | 🏁 | **Czas dojazdu tam, gdzie chcesz:** jako ramka na mapie zegarów, przy zegarach, albo jako kapsuła na pasku w zegarach, albo w obu miejscach. Godzina przyjazdu, pozostały czas i dystans, zawsze w całości, w Mapach Apple i Google Maps, na obu układach zegarów |
 | 🟩 | **Kartę manewru z telefonu można wyłączyć**: czysta mapa, na obu układach zegarów |
 | 📞 | **Własna karta rozmowy** na mapie CarPlay (fabryczna znika po zmianie zakładki): imię, kropka stanu i czas rozmowy |
+| ⏸️ | **Wstrzymanie, wznowienie i wyciszenie** rozmowy CarPlay z karty telefonu w zegarach |
 | 🎨 | **Wybór wyglądu** karty rozmowy i ramki z czasem dojazdu: szkło **przydymione** albo **jasne**, albo karta rozmowy **wyłączona** |
 | ➡️ | **Wyłączanie** strzałki, mapy CarPlay na zegarach (wraca widok fabryczny) albo strzałek na HUD. Wyłączenia HUD nie sprawdziliśmy, bo nie mamy auta z HUD |
 | 🌍 | **Nasze opcje w MMI i karta rozmowy w 8 językach**: angielskim, polskim, niemieckim, rosyjskim, czeskim, francuskim, włoskim i hiszpańskim, zgodnie z językiem MMI (pozostałe języki: angielski) |
@@ -52,9 +51,13 @@ wersja testowa **2.0**. **Jeśli testy w aucie przebiegną pomyślnie, wersja 2.
 |---|---|
 | 🔧 | Mapa nie miga po naciśnięciu **VIEW** |
 | 🔧 | Ramka z czasem dojazdu nie jest już ucinana ani pomijana przez telefon (wcześniej sama godzina albo brak dystansu, zależnie od aplikacji, układu zegarów i karty manewru) |
-| 🔧 | Znacznik auta i nazwa ulicy na mapie stoją nad ramką czasu; ramka i karta rozmowy mają taki sam odstęp od zegarów |
+| 🔧 | Znacznik auta i nazwa ulicy na mapie stoją nad ramką czasu, na obu układach zegarów, z kartą manewru telefonu i bez niej; ramka i karta rozmowy mają taki sam odstęp od zegarów |
+| 🔧 | Przy wyłączonej karcie manewru telefonu znacznik auta stoi przy środku mapy w układzie z małymi zegarami (wcześniej uciekał w lewo) |
 | 🔧 | Ramka z czasem dojazdu pojawia się bez naciskania VIEW, strzałka wraca po ponownym podłączeniu kabla |
+| 🔧 | Strzałki pasów ruchu pod manewrem znikają po wykonaniu skrętu, zamiast zostawać pod następną strzałką. Tej jednej poprawki nie potwierdziliśmy jeszcze w aucie: dajcie znać, jak działa |
+| 🔧 | Strzałka manewru wypełnia się kolorem raz, w miarę zbliżania do skrętu, zamiast napełniać się w kółko. Jej rysowanie prawie nie zajmuje już procesora (pomiar w aucie: wcześniej 13% jednego rdzenia, teraz 0,3%) |
 | 🔧 | Instrukcja instalacji: po restarcie MMI wyłącz silnik na minutę. Restart MMI nie restartuje zegarów |
+| 🔧 | Instalator jest na karcie także jako `mod/custom.sh`, czyli plik uruchamiany przez nowsze wersje M.I.B. (**Run Custom Script**; niesprawdzone w naszym aucie), i zatrzymuje się bez żadnych zmian, gdy w jednostce jest inny mod CarPlay |
 
 Wszystkie te opcje są w jednym miejscu: menu MMI → Ustawienia (ostatnia pozycja) → Manager połączeń →
 pokrętło w prawo → dół listy:
@@ -73,7 +76,7 @@ pokrętło w prawo → dół listy:
 | | Funkcja |
 |---|---|
 | 🔧 | Poprawki błędów |
-| 🎧 | CarPlay 5-głośnikowy MixUp (Dzięki yety-ua za prace) |
+| 🎧 | CarPlay 5-głośnikowy MixUp (Dzięki yety-ua i joeyQuery za prace) |
 
 ### Na razie niewspierane
 
@@ -107,9 +110,11 @@ Potrzebne jest **wszystko** z listy:
 *Skrót dla tych, którzy już to robili. **Pierwszy raz? Użyj [instrukcji krok po kroku](INSTRUKCJA.md).***
 
 1. **Rozpakuj** `…-install.zip` do **katalogu głównego karty z M.I.B.**; zgódź się na zastąpienie plików.
-   Dodaje własny folder i podmienia tylko `mod/command.sh`.
+   Dodaje własny folder i podmienia tylko `mod/command.sh` (od 2.0 także `mod/custom.sh`, ten sam
+   instalator dla nowszych wersji M.I.B.).
 2. Karta do slotu, z którego działa M.I.B. (**SD1**), **zapłon włączony**, **prostownik podłączony**.
-3. Zielone menu → **m.i.b.** → **advanced settings** → **run individual script**.
+3. Zielone menu → **m.i.b.** → **advanced settings** → **run individual script** (nowsze wersje M.I.B.:
+   **Run Custom Script**).
 4. Czekaj na **`INSTALL_ALL_RESULT=PASS`**, a potem **`SAFE TO REMOVE SD`** (kilka minut).
    Nie wyłączaj zapłonu wcześniej.
 5. **Restart MMI** ([jak](#jak-zrestartować-mmi)). Gdy CarPlay wróci, **wyłącz silnik**, odczekaj, aż
@@ -200,8 +205,9 @@ oczekiwałeś, co się stało, ile minut przed zebraniem logów, ewentualnie zdj
 
 ## Znane ograniczenia
 
-- **Pasy ruchu** (który pas wybrać) są podłączone, ale **jeszcze niewidziane w aucie** — na trasach
-  testowych nie było manewrów z wieloma pasami. Daj znać, jak to wygląda.
+- **Pasy ruchu** (który pas wybrać) pokazują się pod strzałką manewru; widziane w aucie z Google Maps.
+  W 1.0.x pasy zostawały po wykonaniu skrętu. Wersja 2.0 je chowa, ale tej poprawki **nie potwierdziliśmy
+  jeszcze w aucie**. Daj znać, jak to wygląda.
 - **Ostatnie połączenia:** iOS 26.6–26.7.x wysyła po kablu pustą listę (błąd iOS, dotyka też fabrycznych
   zegarów BMW/Porsche); wtedy pokazywana jest lista, którą MMI pobrało przez Bluetooth. iOS 27.2 działa.
   Pełna książka adresowa przez CarPlay nie jest możliwa.

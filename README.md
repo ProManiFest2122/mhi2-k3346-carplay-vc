@@ -18,9 +18,9 @@ wired CarPlay.
 
 | | Feature |
 |---|---|
-| 🗺️ | **CarPlay map on the cockpit**, in both gauge layouts; the **VIEW** button switches layout |
+| 🗺️ | **CarPlay map on the cockpit**, in both gauge layouts; the **VIEW** button switches layout. Measured in our car: 27–30 frames a second with Apple Maps, 16–18 with Google Maps (the phone decides how many frames each app sends) |
 | 🔍 | **Map zoom** with the left steering-wheel roller |
-| ➡️ | **3D maneuver arrow** next to the map, plus distance, street name and destination flag. With Apple Maps and Google Maps: **Waze does not send directions**, so there are no arrows with it |
+| ➡️ | **3D maneuver arrow** next to the map, plus distance, street name, destination flag and the lanes to take. With Apple Maps and Google Maps: **Waze does not send directions**, so there are no arrows with it |
 | 🔙 | Map keeps running while **reversing** (the MMI shows the camera as usual) |
 | 📞 | **CarPlay calls on the cockpit phone tab**: caller name, answer / reject / hang up, steering-wheel key works |
 | 🕘 | **Recent calls** on the cockpit during CarPlay, dial from the list |
@@ -31,11 +31,10 @@ wired CarPlay.
 
 ## Current status
 
-**The version to download is 1.0.1**, from [Releases](../../releases/latest). The code in this repository is
-newer: it is the test version of **2.0**. **If the tests in the car go well, 2.0 will be released on
-14 November 2026.** To use what is below before the release, you have to [build it yourself](BUILDING.md).
+**The version to download is 2.0.0**, from [Releases](../../releases/latest). Updating from 1.0.x takes one
+file, `…-update.zip`: see [Uninstall (and before every update)](#uninstall-and-before-every-update).
 
-### Coming in 2.0
+### New in 2.0
 
 | | New |
 |---|---|
@@ -43,6 +42,7 @@ newer: it is the test version of **2.0**. **If the tests in the car go well, 2.0
 | 🏁 | **Arrival time where you want it:** as a box on the cockpit map, by the gauges, or as a capsule on the cockpit bar, or both. Arrival time, time left and distance, always complete, with Apple Maps and Google Maps, on both gauge layouts |
 | 🟩 | **The phone's maneuver card can be switched off**: a clean map, on both gauge layouts |
 | 📞 | **Own call card** on the CarPlay map (the stock popup disappears after a tab change): name, state dot and call time |
+| ⏸️ | **Hold, resume and mute** a CarPlay call from the cockpit phone tab |
 | 🎨 | **Pick the look** of the call card and of the arrival-time box: **smoked** or **light** glass, or switch the call card **off** |
 | ➡️ | **Switch off** the arrow, the CarPlay map on the cockpit (the factory view comes back) or the HUD arrows. Switching off the HUD is untested: no car with a HUD here |
 | 🌍 | **Our MMI options and the call card in 8 languages**: English, Polish, German, Russian, Czech, French, Italian and Spanish, following the MMI language (other languages: English) |
@@ -52,9 +52,13 @@ newer: it is the test version of **2.0**. **If the tests in the car go well, 2.0
 |---|---|
 | 🔧 | The map no longer blinks when you press **VIEW** |
 | 🔧 | The arrival-time box is no longer cut short or left out by the phone (before: arrival time only, or no distance, depending on the app, the gauge layout and the maneuver card) |
-| 🔧 | The car marker and the street name of the map stay above the arrival-time box; the box and the call card keep the same gap from the gauges |
+| 🔧 | The car marker and the street name of the map stay above the arrival-time box, on both gauge layouts, with or without the phone's maneuver card; the box and the call card keep the same gap from the gauges |
+| 🔧 | With the phone's maneuver card switched off, the car marker stays near the middle of the map in the layout with small gauges (it used to stand to the left) |
 | 🔧 | The arrival-time box appears without pressing VIEW, the arrow shows up after replugging the cable |
+| 🔧 | The lane arrows under the maneuver go away once the turn is taken, instead of staying under the next arrow. This one fix has not been confirmed in the car yet: reports are welcome |
+| 🔧 | The maneuver arrow fills with color once, as you get closer to the turn, instead of filling up over and over. Drawing it now takes almost no processor time (measured in the car: 13% of one core before, 0.3% now) |
 | 🔧 | Install guide: after the MMI restart, switch the engine off for a minute. An MMI restart does not restart the cockpit |
+| 🔧 | The installer is also on the card as `mod/custom.sh`, the file newer M.I.B. versions run (**Run Custom Script**; not tested in our car), and it stops without changing anything when another CarPlay mod is on the unit |
 
 All of these options are in one place: MMI menu → Settings (last item) → Connection manager → push the
 rotary knob to the right → bottom of the list:
@@ -73,7 +77,7 @@ rotary knob to the right → bottom of the list:
 | | Feature |
 |---|---|
 | 🔧 | Bug fixes |
-| 🎧 | CarPlay 5-speaker system support (Thanks yety-ua for your research) |
+| 🎧 | CarPlay 5-speaker system support (Thanks yety-ua and joeyQuery for your research) |
 
 ### Not supported yet
 
@@ -107,9 +111,11 @@ You need **all** of these:
 *Short version for people who have done this before. **First time? Use the [step-by-step guide](GUIDE.md).***
 
 1. **Unzip** `…-install.zip` into the **root of your M.I.B. SD card**; allow overwriting.
-   It adds its own folder and replaces only `mod/command.sh`.
+   It adds its own folder and replaces only `mod/command.sh` (from 2.0 also `mod/custom.sh`, the same
+   installer for newer M.I.B. versions).
 2. Card into the slot M.I.B. runs from (**SD1**), **ignition on**, **charger on**.
-3. Green menu → **m.i.b.** → **advanced settings** → **run individual script**.
+3. Green menu → **m.i.b.** → **advanced settings** → **run individual script** (newer M.I.B. versions:
+   **Run Custom Script**).
 4. Wait for **`INSTALL_ALL_RESULT=PASS`** and then **`SAFE TO REMOVE SD`** (a few minutes).
    Do not switch the ignition off before that.
 5. **Restart the MMI** ([how](#how-to-restart-the-mmi)). When CarPlay is back, **switch the engine off**,
@@ -203,8 +209,9 @@ expected, what happened, how many minutes before collecting, and a photo of the 
 
 ## Known limitations
 
-- **Lane guidance** (which lane to take) is wired up but **not yet seen in the car** — the test drives
-  had no multi-lane maneuvers. Please report how it looks.
+- **Lane guidance** (which lane to take) shows under the maneuver arrow; seen in the car with Google Maps.
+  In 1.0.x the lanes stayed on after the turn. 2.0 hides them, but that fix has **not been confirmed in
+  the car yet**. Please report how it looks.
 - **Recent calls:** with iOS 26.6–26.7.x the iPhone sends an empty list over the cable (an iOS bug that
   also hits factory BMW/Porsche clusters); the MMI's own Bluetooth list is shown instead. iOS 27.2 works.
   The full address book is not possible over CarPlay.

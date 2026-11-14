@@ -32,6 +32,13 @@ INSTALLER="${INSTALLER:-/src/deployment/custom.sh}"
 use_current_installer(){
     if [ -f "$INSTALLER" ]; then cp "$INSTALLER" "$SIM/sd/mod/command.sh"
     else echo "  UWAGA: brak $INSTALLER - testuje command.sh z paczki (zamontuj /src)"; fi
+    # Transformacje plikow auta tez ze zrodel (2.0.0-rc3: iap2.awk dostal nowe
+    # identyfikatory, a paczka etapowa w work/ miala stary - instalator ze zrodel
+    # z transformacja sprzed miesiaca to nie jest to, co idzie do auta).
+    for t in /src/deployment/bundles.awk /src/deployment/smartphone.awk /src/deployment/trace.awk \
+             /src/deployment/etap4/usblauncher_otg.awk /src/deployment/etap4/iap2.awk; do
+        if [ -f "$t" ] && [ -d "$SIM/sd/mod/$PKGNAME/source" ]; then cp "$t" "$SIM/sd/mod/$PKGNAME/source/"; fi
+    done
 }
 
 PASS=0; FAILED=0
@@ -91,8 +98,10 @@ setup(){
 }
 
 run(){ # run [dodatkowe env...]
+    # MIB_CPU_WINDOW=0: pomiar procesora bez czekania (w aucie 20 s na kazde
+    # zbieranie logow; tu dziesiatki zbieran). T20 ustawia okno samo.
     env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" \
-        MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" "$@" \
+        MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" MIB_CPU_WINDOW=0 "$@" \
         sh "$SIM/sd/mod/command.sh" 2>&1
 }
 
@@ -425,8 +434,8 @@ D=$(diff "$SIM/lua.stock" "$LUA")
 [ "$(printf '%s\n' "$D" | grep -c '^[<>]')" = 2 ] && printf '%s\n' "$D" | grep -q '^> .*return "/mnt/app/root/mm-ipod-rgi.sh -d iap2,config=/etc/mm/iap2.cfg,' \
   && ok "lua: zmieniona dokladnie jedna linia (start mm-ipod)" || { bad "lua: zmiany inne niz zapowiedziane"; printf '%s\n' "$D" | head | sed 's/^/        /'; }
 [ "$(head -c 5852 "$CFG" | sha256sum)" = "$(sha256sum < "$SIM/cfg.stock")" ] && tail -n 3 "$CFG" | grep -q '^recvmsgs=0x5201,0x5202,0x5204,0x4171$' \
-  && tail -n 1 "$CFG" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' && [ "$(wc -c < "$CFG")" = 5991 ] \
-  && ok "iap2.cfg: stock bez zmian + [ident] (RGI + Etap 6) dopisane na koncu, 5991 B" || bad "iap2.cfg: zmiany inne niz zapowiedziane"
+  && tail -n 1 "$CFG" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170,0x415f,0x4160$' && [ "$(wc -c < "$CFG")" = 6005 ] \
+  && ok "iap2.cfg: stock bez zmian + [ident] (RGI + Etap 6) dopisane na koncu, 6005 B" || bad "iap2.cfg: zmiany inne niz zapowiedziane"
 [ "$(stat -c %a "$LUA")" = 644 ] && [ "$(stat -c %a "$CFG")" = 664 ] && ok "tryby lua/cfg zachowane (644/664)" || bad "tryby lua/cfg zmienione"
 if command -v luac5.1 >/dev/null 2>&1; then
     luac5.1 -p "$LUA" && ok "luac -p: nowy usblauncher_otg.lua poprawny skladniowo" || bad "luac -p: BLAD SKLADNI w lua"
@@ -623,10 +632,10 @@ case "$OUT" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "z BT_MAC: Etap 4 PASS";; *) ba
 case "$OUT" in *"ETAP4_BT=ON"*) ok "log ETAP4_BT=ON";; *) bad "brak ETAP4_BT=ON";; esac
 case "$OUT" in *"02:00:00:00:00:01"*) bad "adres wypisany w logu";; *) ok "adres nie trafil do logu";; esac
 [ "$(head -c 5852 "$CFG" | sha256sum)" = "$(sha256sum < "$SIM/cfg.stock")" ] && ok "iap2.cfg z BT: stockowa czesc bez zmian" || bad "iap2.cfg z BT: stockowa czesc zmieniona"
-[ "$(wc -c < "$CFG")" = 6141 ] && ok "iap2.cfg z BT: 6141 B" || bad "iap2.cfg z BT: $(wc -c < "$CFG") B zamiast 6141"
+[ "$(wc -c < "$CFG")" = 6155 ] && ok "iap2.cfg z BT: 6155 B" || bad "iap2.cfg z BT: $(wc -c < "$CFG") B zamiast 6155"
 [ "$(tail -n 6 "$CFG" | tr '\n' '|')" = '[bluetooth]|enable=yes|id=1111|name=Bluetooth|connectstatus=enable|mac=02:00:00:00:00:01|' ] \
   && ok "iap2.cfg z BT: sekcja [bluetooth] z mac na koncu" || { bad "iap2.cfg z BT: zla sekcja"; tail -n 7 "$CFG" | od -c | tail -5 | sed 's/^/        /'; }
-grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' "$CFG" && ok "iap2.cfg z BT: [ident] jest" || bad "iap2.cfg z BT: brak [ident]"
+grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170,0x415f,0x4160$' "$CFG" && ok "iap2.cfg z BT: [ident] jest" || bad "iap2.cfg z BT: brak [ident]"
 tail -c +5853 "$CFG" | grep -q "$(printf '\r')" && bad "iap2.cfg z BT: CR w dopisku" || ok "iap2.cfg z BT: dopisek bez CR"
 cp "$SIM/sd/ZNACZNIKI/ROLLBACK_ETAP4" "$E4M/"
 OUT=$(run); case "$OUT" in *"ETAP4_ROLLBACK_RESULT=PASS"*) ok "rollback Etapu 4 z BT PASS";; *) bad "rollback z BT nie PASS";; esac
@@ -713,7 +722,7 @@ case "$R1" in *"MODE=ROLLBACK_ETAP5"*"ETAP5_ROLLBACK_RESULT=PASS"*) ok "1.: roll
 case "$R2" in *"MODE=ROLLBACK_ETAP4"*"ETAP4_ROLLBACK_RESULT=PASS"*) ok "2.: rollback Etapu 4";; *) bad "2. nie rollback Etapu 4"; echo "$R2" | tail -3 | sed 's/^/      | /';; esac
 case "$R3" in *"ETAP4_INSTALL_RESULT=PASS"*) ok "3.: instalacja nowego Etapu 4";; *) bad "3. nie zainstalowal Etapu 4"; echo "$R3" | tail -3 | sed 's/^/      | /';; esac
 case "$R4" in *"ETAP5_INSTALL_RESULT=PASS"*) ok "4.: instalacja nowego Etapu 5";; *) bad "4. nie zainstalowal Etapu 5"; echo "$R4" | tail -3 | sed 's/^/      | /';; esac
-cmp -s "$LIBP" "$E4M/payload/libmib2high-carplay-rgi-ipod.so" && tail -n 1 "$CFGP" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170$' \
+cmp -s "$LIBP" "$E4M/payload/libmib2high-carplay-rgi-ipod.so" && tail -n 1 "$CFGP" | grep -q '^sendmsgs=0x5200,0x5203,0x415a,0x4170,0x415f,0x4160$' \
   && cmp -s "$OVR" "$E4M/payload/mib2high-k3346-overrides.jar" && [ -f "$CAF" ] && ok "w aucie: nowa biblioteka, iap2.cfg z Etapem 6, nowy JAR, narzedzie okladki" || bad "stan po aktualizacji niezgodny"
 ls "$E4M" | grep -q -E '^(INSTALL|ROLLBACK)_' && bad "zostaly znaczniki" || ok "wszystkie znaczniki zuzyte"
 OUT=$(run); case "$OUT" in *"MODE=COLLECT"*) ok "5.: zwykly COLLECT";; *) bad "5. nie COLLECT";; esac
@@ -1139,6 +1148,116 @@ case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK PASS";; *) bad "ROLLBACK n
 ls "$SIM/app/root" 2>/dev/null | grep -q 'k3346-touchpad.conf' && bad "plik/resztka touchpada zostala" || ok "ROLLBACK usuwa plik i resztki"
 [ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
 
+# ----------------------------------------------------------------------- T19
+# 2.0: inny mod CarPlay na jednostce -> stop PRZED pierwsza zmiana (wzor: luka-dev
+# 637559e4, chefranov install.sh). Karta jak z install.zip (INSTALL_ALL).
+echo
+echo "--- T19: inny mod CarPlay -> ODMOWA, zero zapisow, znacznik zostaje"
+if [ ! -d "$PKG7" ]; then
+    bad "brak $PKG7 - najpierw tools/make_sd_etap7.sh"
+else
+othermod(){ # othermod <opis> <oczekiwana nazwa> <polecenie tworzace slad> [env dla run]
+    setupall; eval "$3"
+    BF=$(snapshot_files "$SIM/app" "$SIM/system"); BD=$(snapshot_dirs "$SIM/app" "$SIM/system")
+    if [ -n "${4:-}" ]; then OUT=$(run "$4"); else OUT=$(run); fi
+    case "$OUT" in *"OTHER_CARPLAY_MODS=$2"*) ok "$1: rozpoznany ($2)";; *) bad "$1: nierozpoznany"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+    case "$OUT" in *"NOTHING WAS CHANGED"*"INSTALL_ALL_RESULT=FAIL"*"NOTHING WAS CHANGED."*) ok "$1: komunikat i wynik FAIL";; *) bad "$1: brak komunikatu/wyniku"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+    case "$OUT" in *"INSTALL_RESULT=PASS"*|*"INSTALLING="*) bad "$1: COS ZAINSTALOWAL";; *) ok "$1: nic nie zainstalowal";; esac
+    case "$OUT" in *"Run the script again to retry"*) bad "$1: rada 'sprobuj ponownie' zamiast 'usun mod'";; *) ok "$1: bez mylacej rady";; esac
+    [ "$BF" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ "$BD" = "$(snapshot_dirs "$SIM/app" "$SIM/system")" ] \
+      && ok "$1: zero zapisow do drzewa auta" || bad "$1: drzewo zmienione"
+    [ ! -e "$E4M/backup" ] && [ ! -e "$E4M/installing.flag" ] && [ ! -e "$E4M/installed.ok" ] \
+      && ok "$1: na karcie bez kopii i znacznikow instalacji" || bad "$1: slady instalacji na karcie"
+    [ -e "$E4M/INSTALL_ALL" ] && ok "$1: INSTALL_ALL zostaje do ponowienia" || bad "$1: INSTALL_ALL zuzyty"
+}
+othermod "MIBSI w /mnt/app/root" MIBSI 'mkdir -p "$SIM/app/root/mibsi-2.1"'
+othermod "MIBSI w /mnt/app/eso/lib" MIBSI 'mkdir -p "$SIM/app/eso/lib/mibsi-libs"'
+othermod "MIBSI w /eso/lib" MIBSI 'mkdir -p "$SIM/eso/lib/mibsi-x"' "MIB_ESO=$SIM/eso"
+rm -rf "$SIM/eso"
+othermod "chefranov: rgd_hook.jar" mhi2-au37x-carplay ': > "$SIM/app/eso/hmi/lsd/jars/rgd_hook.jar"'
+othermod "chefranov: dpad_hook.jar" mhi2-au37x-carplay ': > "$SIM/app/eso/hmi/lsd/jars/dpad_hook.jar"'
+othermod "chefranov: libcarplay_hook.so" mhi2-au37x-carplay 'mkdir -p "$SIM/app/eso/hmi/lib"; : > "$SIM/app/eso/hmi/lib/libcarplay_hook.so"'
+othermod "chefranov: rgd_real/" mhi2-au37x-carplay 'mkdir -p "$SIM/app/armle/usr/sbin/rgd_real"'
+othermod "fork Luki: carplay_startup.sh" mib2q-carplay-rgi 'mkdir -p "$SIM/app/root/hooks"; : > "$SIM/app/root/hooks/carplay_startup.sh"'
+othermod "mm-ipod jako skrypt" mm-ipod-wrapper 'echo "#!/bin/sh" > "$SIM/app/armle/usr/sbin/mm-ipod"'
+othermod "dwa mody naraz" "MIBSI mhi2-au37x-carplay" 'mkdir -p "$SIM/app/root/mibsi"; : > "$SIM/app/eso/hmi/lsd/jars/pdc_hook.jar"'
+
+echo
+echo "--- T19b: po usunieciu obcego modu to samo uruchomienie instaluje"
+setupall; mkdir -p "$SIM/app/root/mibsi-2.1"; OUT=$(run)
+case "$OUT" in *"OTHER_CARPLAY_MODS=MIBSI"*) ok "najpierw odmowa";; *) bad "brak odmowy";; esac
+rmdir "$SIM/app/root/mibsi-2.1"; OUT=$(run)
+case "$OUT" in *"OTHER_CARPLAY_MODS=none"*"INSTALL_ALL_RESULT=PASS"*) ok "czysta jednostka: none + INSTALL_ALL_RESULT=PASS";; *) bad "po usunieciu modu nie instaluje"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+
+echo
+echo "--- T19c: nasze wlasne pliki to nie obcy mod (wznowienie po v8s, ponowna instalacja)"
+setupall; rm -f "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"INSTALL_RESULT=PASS"*) ok "sam v8s zainstalowany";; *) bad "v8s nie przeszedl"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+: > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"OTHER_CARPLAY_MODS="*) bad "sprawdzian obcych modow przy wznowieniu po v8s";; *) ok "wznowienie nie sprawdza ponownie";; esac
+case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "wznowienie konczy instalacje";; *) bad "wznowienie nie przeszlo"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+: > "$E4M/ROLLBACK"; OUT=$(run); : > "$E4M/INSTALL_ALL"; OUT=$(run)
+case "$OUT" in *"OTHER_CARPLAY_MODS=none"*"INSTALL_ALL_RESULT=PASS"*) ok "po odinstalowaniu: none + ponowna instalacja";; *) bad "ponowna instalacja po ROLLBACK"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
+fi
+
+# ----------------------------------------------------------------------- T20
+# 2.0: obciazenie procesora przy zbieraniu logow (run-NN/cpu/). Atrapa pidin
+# przez PATH (instalator dokleja $PATH na koncu, w kontenerze go nie ma); zapisuje
+# numer wywolania i sekunde, zeby bylo widac, gdzie lezy okno.
+echo
+echo "--- T20: pomiar procesora przy zbieraniu logow"
+setup; OUT=$(run)   # zainstalowane: kolejne uruchomienia zbieraja logi
+mkdir -p "$SIM/cpubin"
+cat > "$SIM/cpubin/pidin" <<'EOF'
+#!/bin/sh
+n=0; [ -f "$CPU_FAKE_STATE" ] && n=$(cat "$CPU_FAKE_STATE"); n=$((n+1)); echo "$n" > "$CPU_FAKE_STATE"
+echo "FAKE_PIDIN $* call=$n"
+echo "FAKE_AT $(date +%s)"
+[ "$1" = "${CPU_FAKE_FAIL:-}" ] && exit 1
+exit 0
+EOF
+chmod 755 "$SIM/cpubin/pidin"
+lastrun(){ ls -d "$E4M"/collected/run-* | sort -V | tail -1; }
+cpurun(){ rm -f "$SIM/cpu-state"; env PATH="$PATH:$SIM/cpubin" CPU_FAKE_STATE="$SIM/cpu-state" MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" \
+    MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" "$@" sh "$SIM/sd/mod/command.sh" 2>&1; }
+at(){ sed -n 's/^FAKE_AT //p' "$R/cpu/$1"; }
+
+OUT=$(cpurun MIB_CPU_WINDOW=3); R=$(lastrun)
+case "$OUT" in *"CPU_MEASURE: 3 s..."*) ok "komunikat o pomiarze z dlugoscia okna";; *) bad "brak komunikatu CPU_MEASURE"; echo "$OUT" | tail -3 | sed 's/^/      | /';; esac
+for f in status.txt pidin-info.txt pidin-times-1.txt pidin-times-2.txt pidin-ttimes-1.txt pidin-ttimes-2.txt ls-shmem.txt; do
+    [ -f "$R/cpu/$f" ] && ok "cpu/$f" || bad "brak cpu/$f"
+done
+# wywolanie 1 to "pidin ar" samego zbierania, tuz przed pomiarem
+# migawki "times" sa wewnatrz, "ttimes" na zewnatrz: okno liczone z "times" nie obejmuje wolnego "ttimes"
+grep -q '^FAKE_PIDIN ar call=1$' "$R/pidin-ar.txt" && grep -q '^FAKE_PIDIN info call=2$' "$R/cpu/pidin-info.txt" \
+  && grep -q '^FAKE_PIDIN ttimes call=3$' "$R/cpu/pidin-ttimes-1.txt" && grep -q '^FAKE_PIDIN times call=4$' "$R/cpu/pidin-times-1.txt" \
+  && grep -q '^FAKE_PIDIN times call=5$' "$R/cpu/pidin-times-2.txt" && grep -q '^FAKE_PIDIN ttimes call=6$' "$R/cpu/pidin-ttimes-2.txt" \
+  && ok "pidin: info, ttimes, times | okno | times, ttimes" || bad "pidin: zla kolejnosc albo argumenty"
+W=$(( $(at pidin-times-2.txt) - $(at pidin-times-1.txt) ))
+[ "$W" -ge 3 ] && [ "$W" -le 5 ] && ok "okno lezy miedzy migawkami times i ma zadana dlugosc ($W s)" || bad "okno miedzy migawkami times: $W s zamiast 3"
+[ $(( $(at pidin-times-1.txt) - $(at pidin-ttimes-1.txt) )) -le 1 ] && [ $(( $(at pidin-ttimes-2.txt) - $(at pidin-times-2.txt) )) -le 1 ] \
+  && ok "poza migawkami times nie ma czekania" || bad "czekanie poza migawkami times"
+[ "$(tr '\n' ' ' < "$R/cpu/status.txt" | sed 's/LS_SHMEM=[A-Z]* $//')" = "CPU_WINDOW=3 PIDIN_INFO=OK PIDIN_TTIMES_1=OK PIDIN_TIMES_1=OK PIDIN_TIMES_2=OK PIDIN_TTIMES_2=OK " ] \
+  && ok "status: kazdy krok z wynikiem, w kolejnosci, bez top" || bad "status: $(tr '\n' ' ' < "$R/cpu/status.txt")"
+[ ! -e "$R/cpu/top.txt" ] && ! grep -q 'usr/bin/top\|MIB_TOP\|CPU_TIMEOUT' "$INSTALLER" \
+  && ok "bez top (na jednostce chce terminala, nie dal ani jednej liczby)" || bad "top nadal w pomiarze"
+! grep -qi 'cpu\|pidin' "$R/trace/collection-errors.txt" 2>/dev/null && ok "pomiar nie dopisuje bledow zbierania" || bad "pomiar w collection-errors.txt"
+case "$OUT" in *"COLLECT_RESULT="*"saved="*) ok "zbieranie konczy sie normalnie";; *) bad "brak COLLECT_RESULT";; esac
+
+echo
+echo "--- T20b: pidin bez ttimes / bez pidin -> zapisane, bez wplywu na wynik"
+OUT=$(cpurun MIB_CPU_WINDOW=1 CPU_FAKE_FAIL=ttimes); R=$(lastrun)
+[ "$(tr '\n' ' ' < "$R/cpu/status.txt" | sed 's/LS_SHMEM=[A-Z]* $//')" = "CPU_WINDOW=1 PIDIN_INFO=OK PIDIN_TTIMES_1=FAILED PIDIN_TIMES_1=OK PIDIN_TIMES_2=OK PIDIN_TTIMES_2=FAILED " ] \
+  && ok "jednostka bez ttimes: FAILED tylko przy ttimes, migawki times sa" || bad "bez ttimes: $(tr '\n' ' ' < "$R/cpu/status.txt")"
+case "$OUT" in *"COLLECT_RESULT="*"saved="*) ok "zbieranie dokonczone";; *) bad "zbieranie przerwane";; esac
+OUT=$(run); R=$(lastrun)     # bez atrapy pidin
+[ "$(tr '\n' ' ' < "$R/cpu/status.txt" | sed 's/LS_SHMEM=[A-Z]* $//')" = "CPU_WINDOW=0 PIDIN_INFO=FAILED PIDIN_TTIMES_1=FAILED PIDIN_TIMES_1=FAILED PIDIN_TIMES_2=FAILED PIDIN_TTIMES_2=FAILED " ] \
+  && ok "bez pidin: FAILED przy kazdym kroku" || bad "bez pidin: $(tr '\n' ' ' < "$R/cpu/status.txt")"
+case "$OUT" in *"CPU_MEASURE: 0 s..."*"COLLECT_RESULT="*) ok "domyslnie w symulacji okno 0 s, zbieranie dokonczone";; *) bad "run bez okna";; esac
+! grep -qi 'cpu' "$R/trace/collection-errors.txt" 2>/dev/null && ok "bledy pomiaru nie trafiaja do collection-errors.txt" || bad "bledy pomiaru w collection-errors.txt"
+grep -q "^CPU_WINDOW=\"\${MIB_CPU_WINDOW:-20}\"$" "$INSTALLER" && ok "w aucie: okno 20 s" || bad "inne domyslne okno"
+[ ! -e "$R/cpu/df-shmem.txt" ] && ok "bez df (w aucie nic nie wypisuje)" || bad "df-shmem.txt nadal powstaje"
+
 # ----------------------------------------------------------------------- T18
 # Zipy wydania dokladnie tak, jak dostaje je uzytkownik: rozpakowane na karte,
 # bez naszych paczek etapowych i bez ZNACZNIKI/. Wlaczane zmienna RELEASE_DIR
@@ -1159,6 +1278,8 @@ TOP=$(cd "$SIM/sd" && ls -A | LC_ALL=C sort | tr '\n' ' ')
 [ "$TOP" = "README_CarPlay_VC.txt mod " ] && ok "w katalogu glownym karty tylko mod/ i README" || bad "katalog glowny: $TOP"
 [ -e "$SIM$RM/INSTALL_ALL" ] && ok "INSTALL_ALL uzbrojony w zipie" || bad "zip bez INSTALL_ALL"
 if [ -f "$INSTALLER" ]; then cmp -s "$SIM/sd/mod/command.sh" "$INSTALLER" && ok "w zipie instalator ze zrodel" || bad "w zipie inny instalator niz w zrodlach"; fi
+# M.I.B. do V3.7.1 uruchamia mod/command.sh, nowsze mod/custom.sh: ten sam plik pod obiema nazwami
+cmp -s "$SIM/sd/mod/custom.sh" "$SIM/sd/mod/command.sh" && ok "w zipie custom.sh = command.sh (M.I.B. 3.8)" || bad "w zipie brak custom.sh albo rozny od command.sh"
 VER=$(cat "$SIM$RM/RELEASE" 2>/dev/null)
 OUT=$(run)
 case "$OUT" in *"INSTALL_ALL_RESULT=PASS"*) ok "INSTALL_ALL_RESULT=PASS";; *) bad "instalacja z zipa nie przeszla"; echo "$OUT" | tail -6 | sed 's/^/      | /';; esac
@@ -1172,9 +1293,9 @@ OUT=$(run); R=$(ls -d "$SIM$RM"/collected/run-* 2>/dev/null | tail -1)
 grep -q "RELEASE=$VER" "$R/trace/metadata.txt" 2>/dev/null && ok "zebrane logi znaja wersje" || bad "metadata bez wersji"
 
 echo
-echo "--- T18b: uninstall.zip na te sama karte -> fabryka bit w bit"
+echo "--- T18b: uninstall.zip na te sama karte -> fabryka bit w bit (uruchomione jako custom.sh, jak M.I.B. 3.8)"
 unz "$ZIP_U" "$SIM/sd"
-OUT=$(run)
+OUT=$(env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" sh "$SIM/sd/mod/custom.sh" 2>&1)
 case "$OUT" in *"ROLLBACK_RESULT=PASS"*) ok "ROLLBACK_RESULT=PASS";; *) bad "odinstalowanie nie przeszlo"; echo "$OUT" | tail -4 | sed 's/^/      | /';; esac
 [ "$FAB" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && ok "drzewo = fabryka, bit w bit" || bad "drzewo rozne od fabryki"
 

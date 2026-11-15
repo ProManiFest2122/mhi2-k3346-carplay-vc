@@ -58,6 +58,7 @@ final class K3346EtaRow {
     static final int TEXT_CALL_LABEL = 2509925;
     static final int TEXT_CALL_SMOKED = 2509926;
     static final int TEXT_CALL_LIGHT = 2509927;
+    static final int TEXT_HUD_FACTORY = 2509928;
 
     static final int NAMESPACE = 1008;   /* IStorageAccess.Namespace.TERMINALMODE */
     static final int KEY = 1000;         /* stock keys here: 1..3 */
@@ -79,8 +80,12 @@ final class K3346EtaRow {
         ON_OFF, "/tmp/k3346-arrows-mode");
     static final Row MAP = new Row(MAP_MODEL_ID, 2509913, MAP_KEY, TEXT_MAP_LABEL,
         ON_OFF, "/tmp/k3346-map-mode");
+    /* The third value is K3346HudStyle.MODE_FACTORY of the bundle (issue #15): the
+     * maneuver as the factory navigation sends it, so the car's own HUD setting
+     * "manoeuvres" has something to act on.  Last, so a stored 0 or 1 means what it
+     * meant in 2.0.0. */
     static final Row HUD = new Row(HUD_MODEL_ID, 2509914, HUD_KEY, TEXT_HUD_LABEL,
-        ON_OFF, "/tmp/k3346-hud-mode");
+        new int[] {TEXT_ON, TEXT_OFF, TEXT_HUD_FACTORY}, "/tmp/k3346-hud-mode");
     /* The call card on the map (overlay/call_card.h): smoked or light glass, or none.
      * Off also gives the big gauges their ETA box back during a call. */
     static final Row CALL = new Row(CALL_MODEL_ID, 2509915, CALL_KEY, TEXT_CALL_LABEL,
@@ -176,6 +181,9 @@ final class K3346EtaRow {
                 return new String[] {"Smoked", "Przydymiona", "Getönt", "Тёмная", "Tmavá", "Fumée", "Fumé", "Ahumada"};
             case TEXT_CALL_LIGHT:
                 return new String[] {"Light", "Jasna", "Hell", "Светлая", "Světlá", "Claire", "Chiara", "Clara"};
+            case TEXT_HUD_FACTORY:
+                return new String[] {"Factory", "Fabryczny", "Werk", "Штатный", "Tovární", "Origine",
+                    "Di serie", "De fábrica"};
             default:
                 return null;
         }

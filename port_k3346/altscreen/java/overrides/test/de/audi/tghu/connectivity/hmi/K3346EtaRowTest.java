@@ -216,7 +216,8 @@ public final class K3346EtaRowTest {
         eq("przydymiona en", "Smoked", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_SMOKED, false));
         eq("jasna en", "Light", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, false));
         eq("teksty rozmowy po wyl", K3346EtaRow.TEXT_OFF + 1, K3346EtaRow.TEXT_CALL_LABEL);
-        eq("sasiad jasnej nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT + 1, true));
+        eq("tekst hud po jasnej", K3346EtaRow.TEXT_CALL_LIGHT + 1, K3346EtaRow.TEXT_HUD_FACTORY);
+        eq("sasiad ostatniego nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY + 1, true));
 
         System.out.println("=== jezyki (2.0)");
         eq("kolejnosc kolumn", "en,pl,de,ru,cs,fr,it,es", join(K3346HmiLanguage.LANGS));
@@ -247,7 +248,7 @@ public final class K3346EtaRowTest {
             K3346EtaRow.TEXT_CARD_LABEL, K3346EtaRow.TEXT_CARD_FULL, K3346EtaRow.TEXT_CARD_NONE,
             K3346EtaRow.TEXT_ARROWS_LABEL, K3346EtaRow.TEXT_MAP_LABEL, K3346EtaRow.TEXT_HUD_LABEL,
             K3346EtaRow.TEXT_ON, K3346EtaRow.TEXT_OFF, K3346EtaRow.TEXT_CALL_LABEL,
-            K3346EtaRow.TEXT_CALL_SMOKED, K3346EtaRow.TEXT_CALL_LIGHT};
+            K3346EtaRow.TEXT_CALL_SMOKED, K3346EtaRow.TEXT_CALL_LIGHT, K3346EtaRow.TEXT_HUD_FACTORY};
         String[] langs = K3346HmiLanguage.LANGS;
         int empty = 0, sameAsEn = 0;
         for (int i = 0; i < ids.length; i++) {
@@ -300,7 +301,8 @@ public final class K3346EtaRowTest {
         eq("fr rozmowa", "Carte d'appel sur VC", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LABEL, "fr"));
         eq("it jasna", "Chiara", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, "it"));
         eq("es brak", "Ninguna", K3346EtaRow.text(K3346EtaRow.TEXT_CARD_NONE, "es"));
-        eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT + 1, "de"));
+        eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY + 1, "de"));
+        eq("de fabryczny", "Werk", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, "de"));
         eq("pl bez zmian", "Czas dojazdu CarPlay", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "pl"));
     }
 
@@ -463,6 +465,45 @@ public final class K3346EtaRowTest {
         row.file = oldFile;
     }
 
+    /* HUD: Wl., Wyl. i Fabryczny (zgloszenie #15).  0 i 1 znacza to samo co w 2.0.0,
+     * nowa wartosc jest trzecia; plik czyta bundle (K3346HudStyle). */
+    private static void testHud(File dir) throws Exception {
+        System.out.println("=== hud");
+        K3346EtaRow.Row row = K3346EtaRow.HUD;
+        int key = K3346EtaRow.HUD_KEY;
+        File f = new File(dir, "hud");
+        String oldFile = row.file;
+        row.file = f.getPath();
+        eq("hud: 0 zostaje", 0, row.clamp(0));
+        eq("hud: 1 zostaje", 1, row.clamp(1));
+        eq("hud: 2 zostaje", 2, row.clamp(2));
+        eq("hud: 3 na wl", 0, row.clamp(3));
+        eq("hud: -1 na wl", 0, row.clamp(-1));
+        row.select(1);
+        eq("hud: plik wyl", "1\n", read(f));
+        eq("hud: klucz", key, stored[1]);
+        eq("hud: wartosc", 1, stored[2]);
+        row.select(2);
+        eq("hud: plik fabryczny", "2\n", read(f));
+        eq("hud: wartosc fabryczny", 2, stored[2]);
+        row.select(0);
+        eq("hud: plik wl", "0\n", read(f));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 1};
+        K3346EtaRow.boot(framework());
+        eq("hud: stare wyl z magazynu", "1\n", read(f));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 2};
+        K3346EtaRow.boot(framework());
+        eq("hud: fabryczny z magazynu", "2\n", read(f));
+        eq("hud: flush", "true", String.valueOf(FlushValuesDict.isFlushRequired(K3346EtaRow.NAMESPACE, key)));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 5};
+        K3346EtaRow.boot(framework());
+        eq("hud: smieci na wl", "0\n", read(f));
+        eq("hud: en", "Factory", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, false));
+        eq("hud: pl", "Fabryczny", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, true));
+        f.delete();
+        row.file = oldFile;
+    }
+
     /* Karta rozmowy: trzy wartosci, Przydymiona domyslnie, Wyl. jako ostatnia. */
     private static void testCall(File dir) throws Exception {
         System.out.println("=== karta rozmowy");
@@ -541,6 +582,9 @@ public final class K3346EtaRowTest {
         eq("hud: etykieta", K3346EtaRow.TEXT_HUD_LABEL, hud.getLabelId());
         eq("wl na pierwszym miejscu", K3346EtaRow.TEXT_ON, hud.getTextIds()[0]);
         eq("wyl na drugim", K3346EtaRow.TEXT_OFF, hud.getTextIds()[1]);
+        eq("hud: trzy pozycje", 3, hud.getTextIds().length);
+        eq("hud: fabryczny na trzecim", K3346EtaRow.TEXT_HUD_FACTORY, hud.getTextIds()[2]);
+        eq("mapa: dalej dwie pozycje", 2, map.getTextIds().length);
         eq("dwie pozycje", 2, arrows.getTextIds().length);
         eq("fokus strzalka inny", "true", String.valueOf(arrows.getInternalID() != card.getInternalID()));
         eq("fokus mapa inny", "true", String.valueOf(map.getInternalID() != arrows.getInternalID()));
@@ -669,7 +713,7 @@ public final class K3346EtaRowTest {
         System.out.println("=== wlacz/wylacz");
         testOnOff(dir, K3346EtaRow.ARROWS, K3346EtaRow.ARROWS_KEY, "strzalka");
         testOnOff(dir, K3346EtaRow.MAP, K3346EtaRow.MAP_KEY, "mapa");
-        testOnOff(dir, K3346EtaRow.HUD, K3346EtaRow.HUD_KEY, "hud");
+        testHud(dir);
         testCall(dir);
         testRow();
 

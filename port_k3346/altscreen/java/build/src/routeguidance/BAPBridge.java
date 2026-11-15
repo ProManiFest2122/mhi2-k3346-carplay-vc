@@ -67,6 +67,9 @@ public class BAPBridge {
     private static boolean VC_RGI_ENABLED = !"off".equals(VC_POLICY);
     private boolean arrowsOff;
     private boolean hudSuppressed;
+    /* The MMI option "CarPlay HUD", K3346HudStyle: on, off, or as the factory
+     * navigation presents a maneuver.  volatile: the blink thread reads it. */
+    private volatile int hudMode = K3346HudStyle.MODE_ON;
     private int lastSkin = -1;
     private boolean skinWarned;
     private IViewSizeManager viewSizeManager;
@@ -123,6 +126,20 @@ public class BAPBridge {
     private final Object distanceToManeuverLock = new Object();
     private boolean hasLastDistM = false;
     private int lastDistM = 0;
+    /*
+     * The end of the bargraph blinks (K3346HudStyle.FACTORY only; after
+     * luka-dev/mib2q-carplay-rgi BAPBridge action blink).  One lock orders every
+     * FctID 18 write, so a blink tick can never put an older distance after a
+     * newer one.  The generation ends a thread that was told to stop but is
+     * still asleep: it finds another number and leaves without sending.
+     */
+    private final Object distanceSendLock = new Object();
+    private Thread blinkThread;
+    private int blinkGeneration = 0;
+    private boolean blinkArmed = false;
+    private int blinkDistM = -1;
+    private int blinkDenominatorM = -1;
+    private boolean blinkFull = true;
     private K2161RouteGuidanceOwnership ownership;
     private boolean navStatusHiddenWanted = false;
 
@@ -200,23 +217,116 @@ public class BAPBridge {
      * Send distance to maneuver through AppConnectorNavi using native formatter rules.
      */
     private void sendDistanceToManeuverRaw(int meters, boolean bargraphOn, int bargraph) throws Exception {
-        synchronized (distanceToManeuverLock) {
-            if (meters > 0) {
-                hasLastDistM = true;
-                lastDistM = meters;
-            } else {
-                hasLastDistM = false;
-                lastDistM = 0;
+        synchronized (distanceSendLock) {
+            synchronized (distanceToManeuverLock) {
+                if (meters > 0) {
+                    hasLastDistM = true;
+                    lastDistM = meters;
+                } else {
+                    hasLastDistM = false;
+                    lastDistM = 0;
+                }
+            }
+
+            /* No bargraph without a distance to hang it on. */
+            if (meters <= 0 || !bargraphOn) {
+                bargraphOn = false;
+                bargraph = 0;
+            }
+            FormattedDistance fd = formatDistanceToTurn(meters);
+            traceBap("updateDistanceToNextManeuver",
+                fd.value + "," + fd.unit + "," + bargraphOn + "," + bargraph);
+            V8MFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
+            appConnectorNavi.updateDistanceToNextManeuver(fd.value, fd.unit, bargraphOn, bargraph);
+            V8MFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
+        }
+    }
+
+    /* The distance with the bargraph of the current HUD mode.  In the blink range
+     * the phase the blink thread last showed is kept, so an update from the phone
+     * does not cut a dark phase short. */
+    private void sendDistanceToManeuver(int meters, int denominatorM) throws Exception {
+        synchronized (distanceSendLock) {
+            int mode = hudMode;
+            boolean on = K3346HudStyle.barOn(mode, meters, denominatorM);
+            boolean blink = K3346HudStyle.blinking(mode, meters, denominatorM);
+            blinkArmed = blink;
+            blinkDistM = meters;
+            blinkDenominatorM = denominatorM;
+            if (!blink) {
+                blinkFull = true;
+            }
+            int percent = blink ? K3346HudStyle.blinkPercent(blinkFull)
+                : K3346HudStyle.barPercent(meters, denominatorM);
+            sendDistanceToManeuverRaw(meters, on, on ? percent : 0);
+            if (blink) {
+                startBlinkThread();
             }
         }
+    }
 
-        /* Keep the BAP distance bargraph disabled for direct RGI output. */
-        FormattedDistance fd = formatDistanceToTurn(meters);
-        traceBap("updateDistanceToNextManeuver",
-            fd.value + "," + fd.unit + ",false,0");
-        V8MFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
-        appConnectorNavi.updateDistanceToNextManeuver(fd.value, fd.unit, false, 0);
-        V8MFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
+    /* Called with distanceSendLock held. */
+    private void startBlinkThread() {
+        if (blinkThread != null) {
+            return;
+        }
+        final int generation = ++blinkGeneration;
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                blinkLoop(generation);
+            }
+        }, "K3346HudBlink");
+        t.setDaemon(true);
+        blinkThread = t;
+        t.start();
+    }
+
+    /* Ends the blink without a BAP write: whoever stops it sends what comes next. */
+    private void stopBlink() {
+        synchronized (distanceSendLock) {
+            ++blinkGeneration;
+            blinkThread = null;
+            blinkArmed = false;
+            blinkDistM = -1;
+            blinkDenominatorM = -1;
+            blinkFull = true;
+        }
+    }
+
+    private void blinkLoop(int generation) {
+        for (;;) {
+            try {
+                Thread.sleep(K3346HudStyle.BLINK_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                /* the generation says whether to go on */
+            }
+            try {
+                synchronized (distanceSendLock) {
+                    if (generation != blinkGeneration) {
+                        return;
+                    }
+                    if (!initialized || !blinkArmed
+                            || !K3346HudStyle.blinking(hudMode, blinkDistM, blinkDenominatorM)) {
+                        /* out of the blink range: the thread is not needed until the next one */
+                        blinkThread = null;
+                        ++blinkGeneration;
+                        blinkFull = true;
+                        return;
+                    }
+                    blinkFull = !blinkFull;
+                    sendDistanceToManeuverRaw(blinkDistM, true, K3346HudStyle.blinkPercent(blinkFull));
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "HUD blink stopped: " + t);
+                synchronized (distanceSendLock) {
+                    if (generation == blinkGeneration) {
+                        blinkThread = null;
+                        ++blinkGeneration;
+                    }
+                }
+                return;
+            }
+        }
     }
 
     private void sendDistanceToDestinationRaw(int meters, boolean isStopOver) {
@@ -491,7 +601,7 @@ public class BAPBridge {
          */
         /* v8j verified behavior: no VC map suppression here. */
 
-        if (K3346CapsuleFile.readOff(K3346CapsuleFile.HUD_MODE_PATH, hudSuppressed)) {
+        if (K3346HudStyle.off(K3346HudStyle.readMode(K3346CapsuleFile.HUD_MODE_PATH, hudMode))) {
             Log.i(TAG,
                 "VC policy active: no VC guidance, HUD off");
         } else if (setHudDisplayContent(true)) {
@@ -919,6 +1029,7 @@ public class BAPBridge {
             /* Lightweight stop — reset internal state only.
              * No BAP teardown. iOS sends transient route_state=0
              * during maneuver transitions; full teardown causes HUD flicker. BAP teardown happens in onShutdown() on real disconnect. */
+            stopBlink();
             inApproachZone = false;
             lastFirstManeuverIdx = -1;
             lastFirstManeuverVer = -1;
@@ -946,6 +1057,7 @@ public class BAPBridge {
              * 2. Complete sync(0) window: descriptor(23), distance(18), exitView(49)
              * 3. Non-sync FctIDs last
              */
+            stopBlink();
             traceBap("updateRGStatusAndActiveRGType", "0,0");
             sendRgStatusAndType(0, 0);
             sendNoSymbol();
@@ -973,6 +1085,8 @@ public class BAPBridge {
                 hudSuppressed = false;
                 setHudDisplayContent(true);
             }
+            /* The next start reads the option again and applies it from scratch. */
+            hudMode = K3346HudStyle.MODE_ON;
 
             /* Restore the real DSI rgActive value captured when CarPlay took ownership. */
             forceClusterRouteInfoState(false);
@@ -1131,7 +1245,7 @@ public class BAPBridge {
         syncModeFile(K3346CapsuleFile.CARD_MODE_PATH, 1001, K3346CapsuleFile.CARD_NONE);
         syncModeFile(K3346CapsuleFile.ARROWS_MODE_PATH, 1002, 1);
         syncModeFile(K3346CapsuleFile.MAP_MODE_PATH, 1003, 1);
-        syncModeFile(K3346CapsuleFile.HUD_MODE_PATH, 1004, 1);
+        syncModeFile(K3346CapsuleFile.HUD_MODE_PATH, 1004, K3346HudStyle.MODE_FACTORY);
         syncModeFile(K3346CapsuleFile.CALLCARD_MODE_PATH, 1005, 2);
     }
 
@@ -1149,17 +1263,30 @@ public class BAPBridge {
 
     /*
      * Not verified: no car with a HUD here.  The maneuver data is shared with the
-     * VC, so this DDP2 request is the only lever.  It is taken back at the end of
-     * guidance, so the factory navigation gets its HUD again.
+     * VC, so this DDP2 request is the only lever for "off".  It is taken back at the
+     * end of guidance, so the factory navigation gets its HUD again.  "Factory
+     * style" (K3346HudStyle) is not verified either, for the same reason.
      */
-    void applyHudMode() {
-        boolean off = K3346CapsuleFile.readOff(K3346CapsuleFile.HUD_MODE_PATH, hudSuppressed);
-        if (off == hudSuppressed) {
-            return;
+    boolean applyHudMode() {
+        int mode = K3346HudStyle.readMode(K3346CapsuleFile.HUD_MODE_PATH, hudMode);
+        if (mode == hudMode) {
+            return false;
         }
-        hudSuppressed = off;
-        Log.i(TAG, "HUD off=" + off);
-        setHudDisplayContent(!off);
+        int old = hudMode;
+        hudMode = mode;
+        Log.i(TAG, "HUD mode=" + mode);
+        boolean off = K3346HudStyle.off(mode);
+        if (off != hudSuppressed) {
+            hudSuppressed = off;
+            Log.i(TAG, "HUD off=" + off);
+            setHudDisplayContent(!off);
+        }
+        if (mode != K3346HudStyle.MODE_FACTORY) {
+            stopBlink();
+        }
+        /* Factory style changes what update() sends for the same route: the caller
+         * sends the maneuver again. */
+        return mode == K3346HudStyle.MODE_FACTORY || old == K3346HudStyle.MODE_FACTORY;
     }
 
     /* The value DisplayManagerEvo itself chooses its assets by (RE luka-dev): 1 Sport,
@@ -1338,6 +1465,13 @@ public class BAPBridge {
                 latchedTurnToText = "";
             }
 
+            /* "CarPlay HUD: Factory style" (issue #15): far from the turn the factory
+             * navigation sends a follow-the-road arrow, and the car's own HUD setting
+             * "manoeuvres" is applied to that.  Our arrow tile in the VC is drawn from
+             * the phone's data by the overlay and keeps the real maneuver. */
+            boolean farStraight = K3346HudStyle.farStraight(hudMode, showManeuver, nowApproach)
+                && hasManeuverList && !explicitClear && !shouldClearManeuver;
+
             /*
              * 1. Maneuver icons (FctID 23)
              */
@@ -1347,7 +1481,9 @@ public class BAPBridge {
                 if (explicitClear) {
                     sendNoSymbol();
                 } else if (hasManeuverList) {
-                    if (showManeuver) {
+                    if (farStraight) {
+                        sendFollowStreet();
+                    } else if (showManeuver) {
                         sendManeuvers(s, firstIdx);
                     } else if (shouldClearManeuver) {
                         sendNoSymbol();
@@ -1387,14 +1523,17 @@ public class BAPBridge {
                         cachedDistM = lastDistM;
                     }
                     if (haveCached) {
-                        sendDistanceToManeuverRaw(cachedDistM, false, 0);
+                        sendDistanceToManeuver(cachedDistM, actionThresholdM);
                     } else {
+                        stopBlink();
                         sendDistanceToManeuverRaw(0, false, 0);
                     }
                 } else if (distM <= 0 || shouldClearManeuver) {
+                    stopBlink();
                     sendDistanceToManeuverRaw(0, false, 0);
                 } else {
-                    sendDistanceToManeuverRaw(distM, false, 0);
+                    /* The bargraph range is the action zone: K3346HudStyle. */
+                    sendDistanceToManeuver(distM, actionThresholdM);
                 }
             }
 

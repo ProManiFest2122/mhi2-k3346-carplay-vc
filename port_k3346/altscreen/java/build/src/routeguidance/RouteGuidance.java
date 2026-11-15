@@ -351,7 +351,14 @@ public class RouteGuidance implements CarplayBus.Listener {
                         }
                     }
                     if (running && rgActive && bap != null) {
-                        bap.applyHudMode();
+                        if (bap.applyHudMode()) {
+                            /* the same route as the other HUD mode presents it; nothing is
+                             * pending here, every frame clears its flags under this lock */
+                            state.dirtyMask = State.DIRTY_MANEUVER_ICON | State.DIRTY_DIST_MAN
+                                | State.DIRTY_MANEUVER_STATE;
+                            bap.update(state);
+                            state.clearDirty();
+                        }
                         bap.refreshBarIfChanged(state);
                     }
                 }

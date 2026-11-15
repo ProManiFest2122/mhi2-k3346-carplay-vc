@@ -108,6 +108,24 @@ public final class K3346CapsuleFileTest {
         eq("rozmowa i wyl", "false", String.valueOf(K3346CapsuleFile.callCardShown(true, 2)));
         eq("bez rozmowy", "false", String.valueOf(K3346CapsuleFile.callCardShown(false, 0)));
 
+        System.out.println("=== tryb HUD (opcja MMI, trzy wartosci)");
+        {
+            File hm = new File(dir, "hudmode");
+            hm.delete();
+            eq("hud: brak pliku to wl", 0, K3346HudStyle.readMode(hm.getPath(), 2));
+            put(hm, "1\n");
+            eq("hud: wyl", 1, K3346HudStyle.readMode(hm.getPath(), 0));
+            put(hm, "2\n");
+            eq("hud: fabryczny", 2, K3346HudStyle.readMode(hm.getPath(), 0));
+            put(hm, "0\n");
+            eq("hud: wl", 0, K3346HudStyle.readMode(hm.getPath(), 2));
+            put(hm, "2");
+            eq("hud: niedopisany: poprzedni", 1, K3346HudStyle.readMode(hm.getPath(), 1));
+            put(hm, "3\n");
+            eq("hud: spoza zakresu: poprzedni", 2, K3346HudStyle.readMode(hm.getPath(), 2));
+            hm.delete();
+        }
+
         System.out.println("=== wlacz/wylacz");
         eq("0", "0", String.valueOf(K3346CapsuleFile.parseOnOff("0\n")));
         eq("1", "1", String.valueOf(K3346CapsuleFile.parseOnOff("1\n")));

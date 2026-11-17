@@ -264,6 +264,11 @@ pliki M.I.B. z folderu `mod` na karcie. Zrób to tak:
    **`mib2high-carplay-rgi-v8s-simple`** i plik **`command.sh`** (od wersji 2.0 także plik **`custom.sh`**).
    Jeśli Finder zapyta o te pliki, wybierz **„Zastąp”** (dotyczy tylko tych plików).
 
+**To jest sposób tylko na pierwszą instalację.** Gdy na karcie jest już folder
+`mib2high-carplay-rgi-v8s-simple` (aktualizacja), nie przeciągaj tego folderu: „Zastąp” na folderze kasuje
+wszystko, co było w starym, razem z kopią oryginalnych plików Twojego auta. Zrób to tak, jak opisano dla
+Maca w rozdziale [6](#6-odinstalowanie-i-przed-każdą-aktualizacją).
+
 ### 3.3 Sprawdź, czy wszystko jest na swoim miejscu
 
 To najważniejszy krok przed wyjściem do auta. Otwórz kartę i sprawdź:
@@ -435,7 +440,14 @@ w M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Rem
 **Aktualizacja do nowej wersji, jednym plikiem:**
 
 1. Pobierz `…-update.zip` nowej wersji z [Releases](../../releases/latest).
-2. Rozpakuj go do katalogu głównego **tej samej** karty, jak w kroku 3.2, i wysuń kartę (krok 3.4).
+2. Rozpakuj go do katalogu głównego **tej samej** karty i wysuń kartę (krok 3.4).
+   - Windows: jak w kroku 3.2.
+   - Mac: **nie** jak w kroku 3.2. Rozpakuj zip w Pobranych. Otwórz rozpakowany folder
+     `mod/mib2high-carplay-rgi-v8s-simple` i, w drugim oknie, ten sam folder **na karcie**.
+     W rozpakowanym zaznacz wszystko (`Cmd+A`) i przeciągnij do folderu na karcie; gdy Finder zapyta,
+     wybierz **„Zastąp”** (dotyczy `payload`, `source` i kilku małych plików; `backup` i pliki `*.ok`
+     zostają). Potem przeciągnij **`command.sh`** i **`custom.sh`** z rozpakowanego `mod` do `mod` na karcie.
+     Nigdy nie przeciągaj samego folderu `mib2high-carplay-rgi-v8s-simple` na kartę, która już go ma.
 3. W aucie przygotuj wszystko jak w kroku 4.1 i włóż kartę do lewego slotu (**SD1**).
 4. **`run individual script`** (krok 4.4) → czekaj na **`ROLLBACK_RESULT=PASS`**. Nie restartuj.
 5. **`run individual script`** jeszcze raz → czekaj na **`INSTALL_ALL_RESULT=PASS`** i **`SAFE TO REMOVE SD`**.
@@ -443,6 +455,12 @@ w M.I.B.: **`m.i.b.`** → **`navigation`** → **`NavActiveIgnore`** → **`Rem
 
 Jeśli uruchomisz zwykły `…-install.zip` na zainstalowanej wersji, nic się nie zmieni, a na ekranie zobaczysz
 `ALREADY_INSTALLED` z podpowiedzią, żeby najpierw odinstalować.
+
+**Jeśli folder `mod/mib2high-carplay-rgi-v8s-simple` na karcie został skasowany albo zastąpiony** (kopii
+oryginalnych plików już nie ma): 2.0.0 staje na `ERROR ETAP4_GATE … usblauncher_otg.lua` i nie umie ani
+zaktualizować, ani odinstalować. Nic nie jest zepsute. Użyj `…-update.zip` wersji **2.0.1-rc5 albo nowszej**:
+przy pierwszym uruchomieniu odbudowuje kopię z plików auta (`REPAIR_RESULT=PASS`, potem
+`ROLLBACK_RESULT=PASS`), przy drugim instaluje.
 
 ---
 

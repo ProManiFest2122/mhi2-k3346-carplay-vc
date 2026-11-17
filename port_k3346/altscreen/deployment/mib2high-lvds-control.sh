@@ -16,7 +16,7 @@ OVERLAY_CONF=/mnt/app/root/mib2high-overlay.conf
 OVERLAY_READY=/tmp/vc-overlay-ready
 # overlay/capsule_text.h: text for the VC bar, its layout report, and "our layer
 # is not on the VC" for the overlay.
-CAPSULE_FILES="/tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-call-card /tmp/k3346-no-rgi /tmp/k3346-nav-apple /tmp/vc-eta-pill /tmp/vc-eta-pill-ok"
+CAPSULE_FILES="/tmp/vc-capsule-text /tmp/vc-capsule-slot /tmp/vc-capsule-off /tmp/vc-call-card /tmp/k3346-no-rgi /tmp/k3346-nav-apple /tmp/vc-eta-pill /tmp/vc-eta-pill-ok /tmp/vc-turn-dist"
 # The MMI options, K3346EtaRow: "1" = off. Kept across sessions.
 MAP_MODE=/tmp/k3346-map-mode
 ARROWS_MODE=/tmp/k3346-arrows-mode

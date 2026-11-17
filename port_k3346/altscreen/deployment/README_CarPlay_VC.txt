@@ -31,12 +31,19 @@ INSTALL
 
 KEEP THIS CARD
 The installer saves the original car files on this card, in
-mod/mib2high-carplay-rgi-v8s-simple/backup/. Uninstalling needs them.
-Also copy the whole mod/ folder to your computer.
+mod/mib2high-carplay-rgi-v8s-simple/backup/. Uninstalling uses them.
+Do not delete or move that folder. When you copy a new zip onto the
+card, MERGE the folders, do not replace them (on a Mac "Replace" deletes
+everything that was in the old folder). Also copy the whole mod/ folder
+to your computer.
+Lost it anyway (formatted card, replaced folder, another card)? From
+version 2.0.1 the -uninstall.zip and the -update.zip rebuild the backup
+from the car's own files and then go on as usual (REPAIR_RESULT=PASS).
 
 UNINSTALL (and before every update)
  1. Unzip the -uninstall.zip into the root of the SAME card.
-    It adds one empty file: mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK
+    It adds the file mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK and
+    the installer itself (no mod files).
  2. Run the script as in step 3. Wait for ROLLBACK_RESULT=PASS and
     SAFE TO REMOVE SD, then restart the MMI, then engine off and on as in
     step 6 of the installation.
@@ -48,6 +55,14 @@ IF SOMETHING GOES WRONG
    Run the script again to retry, or uninstall.
  - ERROR VERSION_GATE: this is not firmware K3346 / MU1438.
    Nothing was changed. This mod is not for your unit.
+ - ERROR this car already has the mod ... no record of it: the mod folder
+   on the card was deleted or replaced, or another card installed it.
+   Nothing was changed. Use the -update.zip of this version: the first
+   run rebuilds the backup and removes the old version, the second one
+   installs.
+ - ERROR REPAIR refused: one of the car's files has changes that are not
+   from this mod, so the backup cannot be rebuilt. Nothing was changed.
+   Use the card (folder) that installed the mod, or report it with logs.
  - The arrow on the Virtual Cockpit without its dark background tile:
    first collect the logs (below), then engine off, wait about 1 minute,
    engine on. An MMI restart alone does not help.
@@ -99,12 +114,18 @@ INSTALACJA
 
 ZACHOWAJ TE KARTE
 Instalator zapisuje na niej oryginalne pliki auta, w
-mod/mib2high-carplay-rgi-v8s-simple/backup/. Odinstalowanie ich potrzebuje.
-Skopiuj tez caly folder mod/ na komputer.
+mod/mib2high-carplay-rgi-v8s-simple/backup/. Odinstalowanie z nich korzysta.
+Nie kasuj i nie przenos tego folderu. Kopiujac nowy zip na karte, SCALAJ
+foldery, nie zastepuj ich (na Macu "Zastap" kasuje wszystko, co bylo w
+starym folderze). Skopiuj tez caly folder mod/ na komputer.
+Folder mimo to przepadl (sformatowana karta, zastapiony folder, inna
+karta)? Od wersji 2.0.1 -uninstall.zip i -update.zip same odbudowuja
+kopie z plikow auta i dzialaja dalej jak zwykle (REPAIR_RESULT=PASS).
 
 ODINSTALOWANIE (i przed kazda aktualizacja)
  1. Rozpakuj -uninstall.zip do katalogu glownego TEJ SAMEJ karty.
-    Dodaje jeden pusty plik: mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK
+    Dodaje plik mod/mib2high-carplay-rgi-v8s-simple/ROLLBACK i sam
+    instalator (bez plikow moda).
  2. Uruchom skrypt jak w kroku 3. Czekaj na ROLLBACK_RESULT=PASS i
     SAFE TO REMOVE SD, potem restart MMI, a potem silnik wylacz/wlacz jak
     w kroku 6 instalacji.
@@ -116,6 +137,13 @@ GDY COS POJDZIE NIE TAK
    z ERROR. Uruchom skrypt jeszcze raz albo odinstaluj.
  - ERROR VERSION_GATE: to nie jest oprogramowanie K3346 / MU1438.
    Nic nie zostalo zmienione. Ten mod nie jest dla Twojego MMI.
+ - ERROR this car already has the mod ... no record of it: folder moda na
+   karcie zostal skasowany albo zastapiony, albo mod instalowala inna
+   karta. Nic nie zostalo zmienione. Uzyj -update.zip tej wersji: pierwsze
+   uruchomienie odbudowuje kopie i usuwa stara wersje, drugie instaluje.
+ - ERROR REPAIR refused: ktorys plik auta ma zmiany, ktore nie sa od tego
+   moda, wiec kopii nie da sie odbudowac. Nic nie zostalo zmienione. Uzyj
+   karty (folderu), ktora instalowala mod, albo zglos to z logami.
  - Strzalka na Virtual Cockpit bez ciemnego tla kafelka: najpierw zbierz
    logi (nizej), potem wylacz silnik, odczekaj okolo 1 minuty, wlacz
    silnik. Sam restart MMI nie pomaga.

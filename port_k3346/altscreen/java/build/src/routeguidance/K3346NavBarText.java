@@ -87,6 +87,15 @@ final class K3346NavBarText {
         return etaMode != ETA_MAP || (callVisible && slot == SLOT_BIG) || !pillReady;
     }
 
+    /* With "Altitude on VC" on, the factory compass and altitude stand at the two
+     * ends of the bar, where the overlay would write (capsule_text 1): the times go
+     * to the field in the middle then, as on the big gauges.  The option itself does
+     * not take the times off the bar (2.0.1-rc3 did, and "Capsule" showed no time
+     * anywhere: car, run-10). */
+    static boolean drawAtEnds(boolean overlayDraws, boolean altitudeOn) {
+        return overlayDraws && !altitudeOn;
+    }
+
     /* What the overlay's arrival-time box shows (overlay/eta_pill.h): the arrival time,
      * and the time left with the distance.  Two empty strings for no box: the option
      * says "Bar", the overlay cannot draw, or there is no usable time yet. */

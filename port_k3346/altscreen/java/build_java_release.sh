@@ -20,7 +20,8 @@ mkdir -p "$CLASSES"
  "$SRC/routeguidance/RouteGuidance.java" "$SRC/routeguidance/BAPBridge.java" \
  "$SRC/routeguidance/ManeuverMapper.java" "$SRC/routeguidance/SideStreets.java" \
  "$SRC/routeguidance/K3346NavBarText.java" "$SRC/routeguidance/K3346CapsuleFile.java" \
- "$SRC/routeguidance/K3346HudStyle.java" \
+ "$SRC/routeguidance/K3346HudStyle.java" "$SRC/routeguidance/K3346HudBar.java" \
+ "$SRC/routeguidance/K3346TurnDist.java" \
  "$SRC/routeguidance/V8KVcTrace.java" "$SRC/routeguidance/V8MFactoryTrace.java" \
  "$SRC/app/CarPlayLifecycle.java" "$SRC/app/Activator.java"
 python3 "$HERE/verify_release_classes.py" "$CLASSES"

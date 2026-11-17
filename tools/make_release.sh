@@ -6,7 +6,7 @@
 #
 # Wynik w work/release/<wersja>/:
 #   mhi2-k3346-carplay-vc-<wersja>-install.zip    karta: wszystkie etapy + INSTALL_ALL
-#   mhi2-k3346-carplay-vc-<wersja>-uninstall.zip  sam znacznik ROLLBACK
+#   mhi2-k3346-carplay-vc-<wersja>-uninstall.zip  znacznik ROLLBACK + instalator (bez payloadu)
 #   mhi2-k3346-carplay-vc-<wersja>-collect-logs.zip  sam znacznik COLLECT_LOGS (logi po nieudanej instalacji)
 #   mhi2-k3346-carplay-vc-<wersja>-vc-policy-{rgi,map,off}.zip  znacznik polityki VC (issue #5)
 #   mhi2-k3346-carplay-vc-<wersja>-touchpad-{stock,dpad}.zip     tryb touchpada w CarPlay (issue #6)
@@ -148,8 +148,16 @@ for tp in stock dpad; do
     : > "$PC/mod/$PKG/$m"
 done
 
-mkdir -p "$UNCARD/mod/$PKG"
+mkdir -p "$UNCARD/mod/$PKG/source"
 : > "$UNCARD/mod/$PKG/ROLLBACK"
+# 2.0.1 (zgloszenie #15): uninstall.zip niesie instalator i dwa skrypty awk, ktorymi
+# instalator sprawdza odbudowana kopie. Dzieki temu usuwa mod takze z karty, ktora
+# stracila folder moda (albo z zupelnie innej): sam odbudowuje kopie z plikow auta.
+# Bez payloadu: ten zip niczego nie instaluje.
+cp "$CARD/mod/command.sh" "$UNCARD/mod/command.sh"
+cp "$CARD/mod/custom.sh"  "$UNCARD/mod/custom.sh"
+cp "$CARD/mod/$PKG/source/bundles.awk" "$CARD/mod/$PKG/source/smartphone.awk" "$UNCARD/mod/$PKG/source/"
+cp "$CARD/mod/$PKG/RELEASE" "$UNCARD/mod/$PKG/RELEASE"
 cp "$A/deployment/README_CarPlay_VC.txt" "$UNCARD/README_CarPlay_VC.txt"
 
 # Jeden plik = jedna wizyta w aucie (prosba uzytkownika, 2026-10-31).

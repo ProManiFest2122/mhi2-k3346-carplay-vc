@@ -107,6 +107,11 @@ gcc "${CFLAGS[@]}" -o "$OUT/eta_pill_test" "$D/eta_pill_test.c" -lm
 ( cd "$OUT" && run_test eta_pill "$OUT/eta_pill_test" )
 
 echo
+echo "== turn_dist (the distance to the maneuver while the VC hides its own)"
+gcc "${CFLAGS[@]}" -o "$OUT/turn_dist_test" "$D/turn_dist_test.c" -lm
+( cd "$OUT" && run_test turn_dist "$OUT/turn_dist_test" )
+
+echo
 # ENABLE_LOGGING=0 turns the LOG_* macros into no-ops so the test does not need
 # the hook's logging backend (which is QNX-flavoured) just to check bytes.
 echo

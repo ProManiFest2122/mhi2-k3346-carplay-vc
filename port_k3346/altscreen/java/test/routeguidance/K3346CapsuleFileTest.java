@@ -126,6 +126,25 @@ public final class K3346CapsuleFileTest {
             hm.delete();
         }
 
+        System.out.println("=== wysokosc na VC (opcja MMI): 1 = wlaczona, brak pliku = wylaczona");
+        eq("plik opcji wysokosci", "/tmp/k3346-altitude-mode", K3346CapsuleFile.ALTITUDE_MODE_PATH);
+        eq("plik liczby metrow dla nakladki", "/tmp/vc-turn-dist", K3346CapsuleFile.TURN_DIST_PATH);
+        {
+            File am = new File(dir, "altmode");
+            am.delete();
+            eq("wysokosc: brak pliku to wyl, mimo poprzedniego", "false", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), true)));
+            put(am, "1\n");
+            eq("wysokosc: 1 to wl", "true", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), false)));
+            put(am, "0\n");
+            eq("wysokosc: 0 to wyl", "false", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), true)));
+            put(am, "1");
+            eq("wysokosc: niedopisany: poprzednie wl", "true", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), true)));
+            eq("wysokosc: niedopisany: poprzednie wyl", "false", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), false)));
+            put(am, "2\n");
+            eq("wysokosc: spoza zakresu: poprzednie", "true", String.valueOf(K3346CapsuleFile.readOn(am.getPath(), true)));
+            am.delete();
+        }
+
         System.out.println("=== wlacz/wylacz");
         eq("0", "0", String.valueOf(K3346CapsuleFile.parseOnOff("0\n")));
         eq("1", "1", String.valueOf(K3346CapsuleFile.parseOnOff("1\n")));

@@ -44,10 +44,16 @@ final class K3346CapsuleFile {
      * the card off a call leaves the times where they are: native/eta_mode.h. */
     static final String CALLCARD_MODE_PATH = "/tmp/k3346-callcard-mode";
     static final int CALLCARD_OFF = 2;
+    /* The MMI option "Altitude on VC" (K3346EtaRow): 0 off, 1 on.  Off is what 2.0
+     * does: altitude, map scale and compass leave the VC bar for our arrival time. */
+    static final String ALTITUDE_MODE_PATH = "/tmp/k3346-altitude-mode";
     /* Our own arrival-time box on the map, overlay/eta_pill.h: the text in the format
      * of writeText(), and the overlay's word that it can draw it. */
     static final String ETA_PILL_PATH = "/tmp/vc-eta-pill";
     static final String ETA_PILL_OK_PATH = "/tmp/vc-eta-pill-ok";
+    /* The distance to the maneuver the overlay prints while the VC hides its own
+     * (K3346TurnDist, overlay/turn_dist.h): the number, the unit, same format. */
+    static final String TURN_DIST_PATH = "/tmp/vc-turn-dist";
 
     /* One overlay line is below this many bytes, or the file is refused. */
     private static final int LINE_MAX = 96;
@@ -186,6 +192,16 @@ final class K3346CapsuleFile {
 
     /* No file means on, as after a boot before the HMI row came up. */
     static boolean readOff(String path, boolean previous) {
+        String text = readShort(path);
+        if (text == null) {
+            return false;
+        }
+        int mode = parseOnOff(text);
+        return mode == SLOT_NOT_READY ? previous : mode == 1;
+    }
+
+    /* No file means off, as after a boot before the HMI row came up. */
+    static boolean readOn(String path, boolean previous) {
         String text = readShort(path);
         if (text == null) {
             return false;

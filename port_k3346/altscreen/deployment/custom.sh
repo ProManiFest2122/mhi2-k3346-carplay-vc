@@ -189,6 +189,7 @@ stage_done(){ [ "$ALL" -eq 1 ] || say "$@"; }
 # koniec ekranu, wiec tam musi stac wynik i jedno polecenie, co dalej.
 all_failed(){ [ "$ALL" -eq 1 ] || return 0; say 'INSTALL_ALL_RESULT=FAIL (see the ERROR line above)'
 if [ "$OTHERMOD" -eq 1 ]; then say 'Another CarPlay mod is on this unit. Remove it with its own uninstaller, then run this script again.'; say 'NOTHING WAS CHANGED.'
+elif [ "$ORPHANMOD" -eq 1 ]; then say 'The mod is already in this car, but this SD card has no record of it. NOTHING WAS CHANGED.'; say 'Use the update file of this version (...-update.zip): it rebuilds the backup, removes the old version and installs this one.'
 elif [ "$RBFAIL" -eq 1 ]; then say 'Do NOT restart the MMI. Uninstall now: put the ROLLBACK file on this card and run the script again.'
 else say 'The car is in a safe state: finished parts stay, the failed part was undone.'; say 'Run the script again to retry, or uninstall.'; fi; }
 onexit(){ rc="$1"; trap - 0; if [ "$TX" -eq 1 ]; then say 'INSTALL_FAILED: restoring originals'; if restore_all; then rm -f "$PENDING" "$INSTALLED"; say 'AUTO_ROLLBACK_RESULT=PASS'; else RBFAIL=1; say 'AUTO_ROLLBACK_RESULT=FAIL - do not reboot'; fi; fi
@@ -258,7 +259,163 @@ if [ -z "$OM" ]; then say 'OTHER_CARPLAY_MODS=none'; return 0; fi
 OM="${OM# }"; OTHERMOD=1; say "OTHER_CARPLAY_MODS=$OM"
 fail "another CarPlay mod is installed ($OM). Remove it with its own uninstaller, then run this install again. NOTHING WAS CHANGED"
 }
-install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight; version_gate; other_mods
+# --- 2.0.1: mod jest w aucie, a karta nic o nim nie wie (zgloszenie #15) --------
+# Kopie oryginalow i znaczniki *.ok leza TYLKO na karcie. Kto skasuje folder moda,
+# zastapi go przy kopiowaniu ("Zastap" zamiast "Scal") albo wezmie inna karte,
+# zostaje z autem, w ktorym mod jest, i karta, ktora o nim nie wie. Dawniej:
+# ROLLBACK mowil NOTHING_TO_UNDO, a instalacja wgrywala czesc bazowa, zapisujac
+# JUZ ZMIENIONE pliki auta jako "oryginaly", i stawala na bramce Etapu 4.
+# Teraz: instalacja odmawia przed pierwsza zmiana (orphan_guard), a ROLLBACK
+# sam odbudowuje kopie z plikow auta (repair_card) i dopiero wtedy cofa.
+# Nowy kod pisze tylko na karte; pliki auta zmienia dalej wylacznie sprawdzone
+# tx_restore / e4_restore / restore_all.
+#
+# Stale K3346 (auto z collectora v1.2 i kopia z jego karty): rozmiar fabrycznego
+# traceConfig.properties oraz tryby trzech plikow, ktorym instalacja ustawia 644
+# (z auta nie da sie juz odczytac, jakie byly).
+K3346_TRACE_SIZE=19489
+K3346_BUNDLES_MODE=0777; K3346_TRACE_MODE=0777; K3346_SMARTPHONE_MODE=0755
+OUR_BASE_FILES='libmib2high-carplay-rgi.so mib2high-carplay-rgi.jar vc_render mib2high-lvds-control.sh mib2high-lvds-profile.conf mib2high-lvds-viewareas.conf v8l-dsitracer-capture'
+OUR_E7_FILES='vc_overlay vc_overlay_probe mib2high-overlay.conf flag_atlas.rgba k3346-overlay-probe.sh'
+has_text(){ [ -f "$2" ] || return 1; awk -v t="$1" 'index($0,t)>0{f=1} END{exit f?0:1}' "$2"; }
+# Dwa pliki identyczne: rozmiar i kazda linia. Na MMI nie ma narzedzia do
+# porownywania plikow ani do sum kontrolnych.
+same_file(){ SA=`fsize "$1"` || return 1; SB=`fsize "$2"` || return 1; [ "$SA" = "$SB" ] || return 1
+awk 'FILENAME==ARGV[1]{a[FNR]=$0;n=FNR;next} {m=FNR; if(a[FNR]!=$0)bad=1} END{exit (bad||n!=m)?1:0}' "$1" "$2"; }
+# Czy dana czesc moda jest w aucie: nasz plik albo slad naszej zmiany w pliku auta.
+unit_base(){ for n in $OUR_BASE_FILES; do [ ! -e "`pathof "$n"`" ] || return 0; done
+has_text 'MIB2HighCarPlayRGI' "`pathof bundles_dsitracer_enabled.properties`" && return 0
+has_text 'hooks/libmib2high-carplay-rgi.so' "`pathof smartphone_integrator.json`" && return 0; return 1; }
+unit_e4(){ [ ! -e "`pathof libmib2high-carplay-rgi-ipod.so`" ] || return 0; [ ! -e "`pathof mm-ipod-rgi.sh`" ] || return 0
+has_text '/mnt/app/root/mm-ipod-rgi.sh -d ' "`pathof usblauncher_otg.lua`" && return 0
+has_text '# K3346 Etap 4 (RGI)' "`pathof iap2.cfg`" && return 0; return 1; }
+unit_e5(){ [ ! -e "`pathof mib2high-k3346-overrides.jar`" ] || return 0; [ ! -e "`pathof k3346-coverart-fetch`" ] || return 0; return 1; }
+unit_e7(){ for n in $OUR_E7_FILES; do [ ! -e "`pathof "$n"`" ] || return 0; done; return 1; }
+# Kopia bazowa zrobiona na aucie, w ktorym mod juz byl: nasz plik lezy w niej jako
+# zwykly plik zamiast znacznika .absent albo plik auta ma juz nasza zmiane.
+base_backup_bad(){ [ -e "$BACKUP" ] || return 1; for n in $OUR_BASE_FILES; do [ ! -f "$BACKUP/$n" ] || return 0; done
+has_text 'MIB2HighCarPlayRGI' "$BACKUP/bundles_dsitracer_enabled.properties" && return 0; return 1; }
+card_base(){ { [ -f "$INSTALLED" ] || [ -e "$PENDING" ]; } && [ -f "$BACKUP/complete" ] && ! base_backup_bad; }
+card_e4(){ { [ -f "$E4_INSTALLED" ] || [ -e "$E4_PENDING" ]; } && [ -f "$E4_BACKUP/complete" ]; }
+card_e5(){ { [ -f "$E5_INSTALLED" ] || [ -e "$E5_PENDING" ]; } && [ -f "$E5_BACKUP/complete" ]; }
+card_e7(){ { [ -f "$E7_INSTALLED" ] || [ -e "$E7_PENDING" ]; } && [ -f "$E7_BACKUP/complete" ]; }
+ORPH=0; ORPH_B=0; ORPH_4=0; ORPH_5=0; ORPH_7=0; ORPHANMOD=0; REPAIRED=0
+orphans(){ ORPH_B=0; ORPH_4=0; ORPH_5=0; ORPH_7=0
+if unit_base && ! card_base; then ORPH_B=1; fi
+if unit_e4 && ! card_e4; then ORPH_4=1; fi
+if unit_e5 && ! card_e5; then ORPH_5=1; fi
+if unit_e7 && ! card_e7; then ORPH_7=1; fi
+ORPH=0; if [ "$ORPH_B$ORPH_4$ORPH_5$ORPH_7" != 0000 ]; then ORPH=1; fi; }
+orphan_guard(){ orphans; [ "$ORPH" -eq 1 ] || return 0; ORPHANMOD=1
+say "MOD_IN_CAR_NOT_ON_CARD=map:$ORPH_B route:$ORPH_4 phone:$ORPH_5 arrow:$ORPH_7"
+fail 'this car already has the mod (or a part of it), but this SD card has no record of it: the mod folder on the card was deleted or replaced, or another card installed it. NOTHING WAS CHANGED. Use the ...-update.zip file of this version: it rebuilds the backup, removes the old version and installs this one'; }
+# Cofniecie naszej zmiany w kazdym z pieciu plikow auta. Wynik na stdout; kod
+# wyjscia rozny od 0, gdy plik nie wyglada tak, jak zostawia go ten mod.
+unpatch_bundles(){ awk 'BEGIN{t=",MIB2HighCarPlayRGI"}
+/^Bundle.Startup.Autostart[[:space:]]*=/ { i=index($0,t); if(i>0){ $0=substr($0,1,i-1) substr($0,i+length(t)); a++ } }
+/^MIB2HighCarPlayRGI=/ { j++; next }
+{print}
+END{ if(a!=1||j!=1) exit 7 }' "$1"; }
+unpatch_smartphone(){ awk 'BEGIN{car=0;env=0;k=0}
+/^[[:space:]]*"carplay"[[:space:]]*:/ {car=1}
+car && /^[[:space:]]*"envs"[[:space:]]*:[[:space:]]*\[/ {env=1; print; next}
+env && index($0,"\"LD_PRELOAD=/mnt/app/root/hooks/libmib2high-carplay-rgi.so\",")>0 {k++; next}
+env && /^[[:space:]]*\]/ {env=0;car=0}
+{print}
+END{ if(k!=1) exit 7 }' "$1"; }
+# traceConfig: zmiana jest stratna (instalacja zastepuje dwie zakomentowane linie
+# klucza jedna aktywna), wiec odtwarzamy wartosci fabryczne K3346; czy trafione,
+# rozstrzyga rozmiar pliku.
+unpatch_trace(){ awk 'BEGIN{n=split("org.dsi.ifc.bap.DSIBAP org.dsi.ifc.carkombi.DSICarKombi org.dsi.ifc.keypanel.DSIKeyPanel org.dsi.ifc.kombisync.DSIKombiSync org.dsi.ifc.komoview.DSIKOMOView org.dsi.ifc.map.DSIMapViewerControl org.dsi.ifc.map.DSIMapViewerZoomEngine",K," ")}
+$0=="use.appender=telnet,bluepirat" { print "use.appender=client"; a++; next }
+{ hit=0; for(i=1;i<=n;i++) if($0==K[i] "=full"){ print "#" K[i] "=small"; print "#" K[i] "=full"; c++; hit=1 }
+  if(hit) next; print }
+END{ if(a!=1||c!=n) exit 7 }' "$1"; }
+unpatch_lua(){ awk '{ if (index($0,"return \"/mnt/app/root/mm-ipod-rgi.sh -d iap2,config=/etc/mm/iap2.cfg,")>0 && $0 !~ /^[ \t]*--/) { n++; i=index($0,"/mnt/app/root/mm-ipod-rgi.sh -d "); $0=substr($0,1,i-1) "mm-ipod -d " substr($0,i+length("/mnt/app/root/mm-ipod-rgi.sh -d ")) }
+  print }
+END{ if(n!=1) exit 1 }' "$1"; }
+# iap2.cfg: nasz blok jest na koncu pliku i zaczyna sie pusta linia oraz komentarzem.
+unpatch_iap2(){ awk 'cut {next}
+index($0,"# K3346 Etap 4 (RGI)")==1 { cut=1; found++; if(have && prev!="") print prev; have=0; next }
+{ if(have) print prev; prev=$0; have=1 }
+END{ if(!cut && have) print prev; if(found!=1) exit 1 }' "$1"; }
+rmtmp(){ [ -d "$1" ] || return 0; rm -f "$1"/* 2>/dev/null; rmdir "$1" 2>/dev/null; return 0; }
+RP_DIRS=''
+repair_abort(){ for d in $RP_DIRS; do rmtmp "$d"; done; rm -f "$MOD/repair.rt.$$" 2>/dev/null
+fail "REPAIR refused: $*. NOTHING WAS CHANGED in the car. Uninstall with the SD card (folder) that installed the mod, or report this with logs"; }
+# Jeden plik auta do odbudowywanej kopii: rp_file KATALOG NAZWA unpatch_fn MARKER
+# TRYB_FABRYCZNY. Bez naszego sladu plik jest brany taki, jaki jest, ze swoim trybem.
+rp_file(){ RD="$1"; RN="$2"; RF=`pathof "$RN"`; [ -f "$RF" ] || repair_abort "$RN is missing in the car"
+if has_text "$4" "$RF"; then
+    "$3" "$RF" > "$RD/$RN" || repair_abort "$RN is not as this mod leaves it"
+    echo "$5" > "$RD/$RN.mode" || repair_abort 'cannot write to the SD card'
+else
+    cp "$RF" "$RD/$RN" || repair_abort 'cannot write to the SD card'
+    RM=`filemode "$RF"` || repair_abort "cannot read the mode of $RN"
+    echo "$RM" > "$RD/$RN.mode" || repair_abort 'cannot write to the SD card'
+fi; }
+# Sprawdzian przez ponowne nalozenie naszej zmiany: musi wyjsc dokladnie plik z auta.
+rp_roundtrip(){ RF=`pathof "$2"`; has_text "$4" "$RF" || return 0
+awk -f "$MOD/source/$3" "$1/$2" > "$MOD/repair.rt.$$" 2>/dev/null || repair_abort "$2 cannot be checked"
+same_file "$MOD/repair.rt.$$" "$RF" || repair_abort "$2 has changes that are not from this mod"
+rm -f "$MOD/repair.rt.$$"; }
+rp_size(){ S=`fsize "$1/$2"` || repair_abort "$2 cannot be read back"; [ "$S" = "$3" ] || repair_abort "$2 would have $S B after undoing the mod, the factory file has $3 B"; }
+rp_absent(){ for n in $2; do : > "$1/$n.absent" || repair_abort 'cannot write to the SD card'; done; }
+rp_done(){ echo "rebuilt by ROLLBACK from the car files, release `cat "$MOD/RELEASE" 2>/dev/null`" > "$1/rebuilt" || repair_abort 'cannot write to the SD card'
+: > "$1/complete" || repair_abort 'cannot write to the SD card'; }
+# Kopia odbudowana wchodzi na miejsce wlasciwej; ta, ktora tam lezala, idzie na
+# bok: .bad = zrobiona na aucie z modem, .old = z wczesniejszej historii karty.
+rp_commit(){ if [ -e "$2" ]; then mv "$2" "$2.$3.$$" || fail 'REPAIR: cannot move the old backup aside (the car was not changed)'; fi
+mv "$1" "$2" || fail 'REPAIR: cannot put the rebuilt backup in place (the car was not changed)'; }
+repair_card(){ say "REPAIR: the mod is in this car, but this SD card has no usable backup for it (map:$ORPH_B route:$ORPH_4 phone:$ORPH_5 arrow:$ORPH_7)"
+say 'REPAIR: rebuilding the backup from the car files; nothing in the car is changed in this step'
+preflight; version_gate; other_mods
+for n in bundles.awk smartphone.awk; do [ -s "$MOD/source/$n" ] || fail "REPAIR: missing source/$n on the card (unzip the whole package)"; done
+mkdir -p "$MOD/backup" || fail 'REPAIR: cannot write to the SD card'
+RP_DIRS=''; DB="$BACKUP.rebuild.$$"; D4="$E4_BACKUP.rebuild.$$"; D5="$E5_BACKUP.rebuild.$$"; D7="$E7_BACKUP.rebuild.$$"
+if [ "$ORPH_B" -eq 1 ]; then RP_DIRS="$RP_DIRS $DB"; mkdir "$DB" || repair_abort 'cannot write to the SD card'
+    rp_absent "$DB" "$OUR_BASE_FILES carplay_altscreen dsitracer_activated"
+    rp_file "$DB" bundles_dsitracer_enabled.properties unpatch_bundles 'MIB2HighCarPlayRGI' "$K3346_BUNDLES_MODE"
+    rp_roundtrip "$DB" bundles_dsitracer_enabled.properties bundles.awk 'MIB2HighCarPlayRGI'
+    rp_file "$DB" smartphone_integrator.json unpatch_smartphone 'hooks/libmib2high-carplay-rgi.so' "$K3346_SMARTPHONE_MODE"
+    rp_roundtrip "$DB" smartphone_integrator.json smartphone.awk 'hooks/libmib2high-carplay-rgi.so'
+    # traceConfig: gdy nie wychodzi plik fabryczny K3346, zostaje taki, jaki jest
+    # (czyta go tylko DSITracer, a ten wylacza usuniecie naszego dsitracer_activated).
+    TF=`pathof traceConfig.properties`; [ -f "$TF" ] || repair_abort 'traceConfig.properties is missing in the car'
+    if has_text 'use.appender=telnet,bluepirat' "$TF" && unpatch_trace "$TF" > "$DB/traceConfig.properties" 2>/dev/null \
+       && [ "`fsize "$DB/traceConfig.properties"`" = "$K3346_TRACE_SIZE" ]; then say 'REPAIR: traceConfig.properties=FACTORY'
+    else cp "$TF" "$DB/traceConfig.properties" || repair_abort 'cannot write to the SD card'; say 'REPAIR: TRACECONFIG=KEPT (not the factory file; it stays as it is)'; fi
+    echo "$K3346_TRACE_MODE" > "$DB/traceConfig.properties.mode" || repair_abort 'cannot write to the SD card'
+    rp_done "$DB"; fi
+if [ "$ORPH_4" -eq 1 ]; then RP_DIRS="$RP_DIRS $D4"; mkdir "$D4" || repair_abort 'cannot write to the SD card'
+    rp_absent "$D4" 'libmib2high-carplay-rgi-ipod.so mm-ipod-rgi.sh'
+    rp_file "$D4" usblauncher_otg.lua unpatch_lua '/mnt/app/root/mm-ipod-rgi.sh -d ' 0755
+    rp_size "$D4" usblauncher_otg.lua "$K3346_OTG_LUA_SIZE"
+    rp_file "$D4" iap2.cfg unpatch_iap2 '# K3346 Etap 4 (RGI)' 0755
+    rp_size "$D4" iap2.cfg "$K3346_IAP2CFG_SIZE"
+    # Etap 4 nie zmienia trybu tych dwoch plikow: wazny jest ten z auta.
+    for n in usblauncher_otg.lua iap2.cfg; do RF=`pathof "$n"`; RM=`filemode "$RF"` || repair_abort "cannot read the mode of $n"; echo "$RM" > "$D4/$n.mode" || repair_abort 'cannot write to the SD card'; done
+    rp_done "$D4"; fi
+if [ "$ORPH_5" -eq 1 ]; then RP_DIRS="$RP_DIRS $D5"; mkdir "$D5" || repair_abort 'cannot write to the SD card'
+    rp_absent "$D5" "$E5_NAMES"; rp_done "$D5"; fi
+# Etap 7: jego dwa pliki wspolne (skrypt sterujacy, biblioteka mm-ipod) naleza do
+# bazy i Etapu 4, ktore pelny ROLLBACK cofa zaraz potem, wiec tu tez .absent.
+if [ "$ORPH_7" -eq 1 ]; then RP_DIRS="$RP_DIRS $D7"; mkdir "$D7" || repair_abort 'cannot write to the SD card'
+    rp_absent "$D7" "$E7_NAMES"; rp_done "$D7"; fi
+# Slad i droga odwrotu: piec plikow auta w stanie sprzed naprawy.
+PR="$MOD/backup/pre-repair.$$"; mkdir "$PR" || repair_abort 'cannot write to the SD card'; RP_DIRS="$RP_DIRS $PR"
+for n in bundles_dsitracer_enabled.properties traceConfig.properties smartphone_integrator.json usblauncher_otg.lua iap2.cfg; do
+    [ ! -f "`pathof "$n"`" ] || cp "`pathof "$n"`" "$PR/$n" || repair_abort 'cannot write to the SD card'; done
+sync || repair_abort 'SD card sync failed'
+# Od tego miejsca karta opisuje stan auta: znaczniki jak po zwyklej instalacji.
+BSUF=old; if base_backup_bad; then BSUF=bad; fi
+if [ "$ORPH_7" -eq 1 ]; then rp_commit "$D7" "$E7_BACKUP" old; rm -f "$E7_PENDING" "$E7_ROLLEDBACK"; : > "$E7_INSTALLED" || fail 'REPAIR: cannot mark the arrow part (the car was not changed)'; fi
+if [ "$ORPH_5" -eq 1 ]; then rp_commit "$D5" "$E5_BACKUP" old; rm -f "$E5_PENDING" "$E5_ROLLEDBACK"; : > "$E5_INSTALLED" || fail 'REPAIR: cannot mark the phone part (the car was not changed)'; fi
+if [ "$ORPH_4" -eq 1 ]; then rp_commit "$D4" "$E4_BACKUP" old; rm -f "$E4_PENDING" "$E4_ROLLEDBACK"; : > "$E4_INSTALLED" || fail 'REPAIR: cannot mark the route part (the car was not changed)'; fi
+if [ "$ORPH_B" -eq 1 ]; then rp_commit "$DB" "$BACKUP" "$BSUF"; rm -f "$PENDING" "$MOD/rolledback.ok"; : > "$INSTALLED" || fail 'REPAIR: cannot mark the map part (the car was not changed)'; fi
+sync || fail 'REPAIR: SD card sync failed (the car was not changed)'
+REPAIRED=1; say 'REPAIR: backup rebuilt on this card, now undoing the mod with it'; }
+install(){ say 'MODE=INSTALL'; checkrw "$SD" || fail 'SD not writable'; preflight; version_gate; other_mods; orphan_guard
 [ ! -e "$PENDING" ] || fail 'unfinished prior install: use ROLLBACK'
 # Po UDANYM pelnym cofnieciu (rolledback.ok) auto jest znow fabryczne, wiec
 # nowa instalacja moze zrobic nowa kopie. Stara nie znika: odsuwamy ja na bok,
@@ -285,13 +442,17 @@ sync || fail 'pre-success sync failed'; : > "$INSTALLED" || fail 'cannot mark su
 rm -f "$PENDING" "$MOD/bundles.$$" "$MOD/trace.$$" "$MOD/smartphone.$$" || fail 'cleanup failed'; sync || fail 'final sync failed'
 TX=0; say 'INSTALL_RESULT=PASS (deployment only; car behavior NOT TESTED)'; say 'NAVIGNORE=UNTOUCHED'; stage_done 'Reboot MMI manually, test route/zoom/gauges, run custom script again to collect'; stage_done 'SAFE TO REMOVE SD'; }
 rollback(){ say 'MODE=ROLLBACK'; checkrw "$SD" || fail 'SD not writable'
+# 2.0.1: czesc moda jest w aucie, a karta nie ma do niej kopii -> odbudowa kopii
+# z plikow auta (repair_card), potem zwykla sciezka ponizej. Bez takich czesci
+# nic sie tu nie zmienia.
+orphans; if [ "$ORPH" -eq 1 ]; then repair_card; fi
 # Karta bez zadnej kopii i bez zadnego znacznika instalacji: ta karta niczego w
 # tym aucie nie instalowala, wiec nie ma czego cofac - i NIC nie zostalo ruszone.
 # Dawniej konczylo sie to 'restore failed: do not reboot', co laika straszy
 # na prozno. Mod zainstalowany z INNEJ karty cofa sie TA karta (ma kopie).
 if [ ! -e "$BACKUP" ] && [ ! -e "$INSTALLED" ] && [ ! -e "$PENDING" ] && [ ! -e "$E4_INSTALLED" ] && [ ! -e "$E4_PENDING" ] && [ ! -e "$E5_INSTALLED" ] && [ ! -e "$E5_PENDING" ] && [ ! -e "$E7_INSTALLED" ] && [ ! -e "$E7_PENDING" ]; then
 rm -f "$ROLLBACK"; say 'ROLLBACK_RESULT=NOTHING_TO_UNDO (no backup on this card, nothing was changed)'
-say 'If the mod is installed in this car, uninstall it with the SD card that installed it.'; say 'SAFE TO REMOVE SD'; return 0; fi
+say 'The mod is not in this car and this card has no backup of one: nothing to do.'; say 'SAFE TO REMOVE SD'; return 0; fi
 checkrw "$APP" || fail 'app not writable'; checkrw "$SYSTEM" || fail 'system not writable'
 # Warstwy od najnowszej: Etap 7, Etap 5, Etap 4, potem v8s - pelny powrot do fabryki.
 # Etap 7 MUSI isc pierwszy: jego kopia zawiera biblioteke z czasow Etapu 4, wiec
@@ -301,7 +462,7 @@ if [ -f "$E5_INSTALLED" ] || [ -f "$E5_PENDING" ]; then tx_restore "$E5_BACKUP" 
 if [ -f "$E4_INSTALLED" ] || [ -f "$E4_PENDING" ]; then e4_restore || fail 'etap4 restore failed: do not reboot'; rm -f "$E4_INSTALLED" "$E4_PENDING" || fail 'cannot clear etap4 flags'; : > "$E4_ROLLEDBACK" || fail 'cannot mark etap4 rollback'; say 'ETAP4_ROLLBACK=PASS'; fi
 rm -f "$VCPOL_FILE" "$VCPOL_FILE".new.* || fail 'cannot remove VC policy file'
 rm -f "$TPAD_FILE" "$TPAD_FILE".new.* || fail 'cannot remove touchpad mode file'
-restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'; say 'SAFE TO REMOVE SD'; }
+restore_all || fail 'restore failed: do not reboot'; rm -f "$INSTALLED" "$PENDING" "$ROLLBACK" || fail 'cannot clear flags'; : > "$MOD/rolledback.ok" || fail 'cannot mark rollback'; sync || fail 'rollback sync failed'; [ "$REPAIRED" -eq 0 ] || say 'REPAIR_RESULT=PASS (the backup was rebuilt on this card from the car files)'; say 'ROLLBACK_RESULT=PASS'; say 'Reboot manually'; say 'After CarPlay is back: engine off, wait until the gauges and MMI go dark (~1 min), engine on.'; say 'SAFE TO REMOVE SD'; }
 # ------------------------------------------------------------------------------
 # K3346 Etap 4: RGI w stock mm-ipod.
 #  - biblioteka TYLKO z RGI (bez AltScreen) -> /mnt/app/root/hooks/
@@ -346,7 +507,7 @@ install_etap4(){ say 'MODE=INSTALL_ETAP4'; checkrw "$SD" || fail 'SD not writabl
 [ ! -e "$PENDING" ] || fail 'ETAP4: niedokonczona instalacja v8s - use ROLLBACK'
 [ ! -e "$E4_PENDING" ] || fail 'ETAP4: niedokonczona instalacja Etapu 4 - use ROLLBACK_ETAP4'
 [ ! -e "$E4_INSTALLED" ] || fail 'ETAP4: juz zainstalowany'
-preflight; version_gate
+preflight; version_gate; orphan_guard
 e4_need_size "`pathof usblauncher_otg.lua`" "$K3346_OTG_LUA_SIZE"
 e4_need_size "`pathof iap2.cfg`" "$K3346_IAP2CFG_SIZE"
 e4_need_size "$APP/armle/usr/sbin/mm-ipod" "$K3346_MMIPOD_SIZE"
@@ -440,7 +601,7 @@ install_etap5(){ say 'MODE=INSTALL_ETAP5'; checkrw "$SD" || fail 'SD not writabl
 [ ! -e "$PENDING" ] || fail 'ETAP5: niedokonczona instalacja v8s - use ROLLBACK'
 [ ! -e "$E5_PENDING" ] || fail 'ETAP5: niedokonczona instalacja Etapu 5 - use ROLLBACK_ETAP5'
 [ ! -e "$E5_INSTALLED" ] || fail 'ETAP5: juz zainstalowany'
-preflight; version_gate
+preflight; version_gate; orphan_guard
 [ -d "$APP/eso/hmi/lsd/jars" ] || fail 'ETAP5: brak katalogu lsd/jars'
 [ ! -e "`pathof mib2high-k3346-overrides.jar`" ] || fail 'ETAP5: JAR juz jest w systemie - stan nieznany, nic nie zmieniono'
 [ ! -e "`pathof k3346-coverart-fetch`" ] || fail 'ETAP5: k3346-coverart-fetch juz jest w systemie - stan nieznany, nic nie zmieniono'
@@ -471,7 +632,7 @@ install_etap7(){ say 'MODE=INSTALL_ETAP7'; checkrw "$SD" || fail 'SD not writabl
 [ ! -e "$E4_PENDING" ] || fail 'ETAP7: niedokonczona instalacja Etapu 4 - use ROLLBACK_ETAP4'
 [ ! -e "$E7_PENDING" ] || fail 'ETAP7: niedokonczona instalacja Etapu 7 - use ROLLBACK_ETAP7'
 [ ! -e "$E7_INSTALLED" ] || fail 'ETAP7: juz zainstalowany'
-preflight; version_gate
+preflight; version_gate; orphan_guard
 # Biblioteka Etapu 7 lezy w payloadzie pod WLASNA nazwa (.etap7.so). Gdyby
 # dzielila nazwe z payloadem Etapu 4, INSTALL_ETAP4 instalowalby ja zamiast
 # swojej, a ROLLBACK_ETAP7 przywracalby ja "sprzed Etapu 7" - czyli nic by nie
@@ -811,6 +972,8 @@ collect(){
 # dzialaja bez zmian; fail() w etapie konczy caly przebieg.
 install_all(){ say 'MODE=INSTALL_ALL'; ALL=1
 [ ! -f "$MOD/RELEASE" ] || say "RELEASE=`cat "$MOD/RELEASE"`"
+# Przed pierwsza zmiana: mod w aucie, o ktorym karta nie wie, konczy przebieg tutaj.
+orphan_guard
 # Wszystko juz jest: niczego nie nadpisujemy. Nowa wersja na karcie NIE
 # podmienia starej po cichu - aktualizacja to odinstaluj, potem zainstaluj,
 # zeby kazdy etap dostal swieza kopie oryginalow.

@@ -231,6 +231,29 @@ static void t_shipped_file(void)
     check(!strcmp(c.capsule_font, OVERLAY_CFG_CAPSULE_FONT), "capsule font from the firmware");
     check_int(c.alpha, 1, "alpha on");
     check_int(c.managed, 1, "managed present (ignored by the renderer)");
+    check_int(c.turn_dist, 1, "turn distance on");
+    check_int(c.turn_dist_h, 28, "turn distance 28 high");
+    check_int(c.turn_dist_px, 26, "turn distance number 26 px");
+    check_int(c.turn_dist_unit_px, 18, "turn distance unit 18 px");
+    check_int(c.turn_dist_dot, 1, "turn distance with our dot");
+    check_int(c.turn_dist_bg, 85, "turn distance band 85 percent");
+    check_int(c.turn_dist_dx, 0, "turn distance on the tile, no correction x");
+    check_int(c.turn_dist_dy, 0, "turn distance on the tile, no correction y");
+    {
+        /* the keys of 2.0.1-rc4 placed the number where the VC covers it: the
+         * shipped file must not carry them any more */
+        FILE *f = fopen(p, "r");
+        char line[512];
+        int old = 0;
+        while (f && fgets(line, sizeof(line), f)) {
+            if (line[0] == '#') continue;
+            if (!strncmp(line, "turn_dist_w", 11) || !strncmp(line, "turn_dist_x_", 12)
+                || !strncmp(line, "turn_dist_y_", 12))
+                old++;
+        }
+        if (f) fclose(f);
+        check_int(old, 0, "no rc4 place keys in the shipped file");
+    }
 }
 
 /*
@@ -806,6 +829,126 @@ static void t_eta_pill(void)
     check_int(c.eta_pill, 0, "emergency canvas turns the pill off");
 }
 
+/* The distance the VC hides (turn_dist.h).  It lies on the tile and is as wide as
+ * the tile, so the conf has no place for it: only its height, its look and a
+ * correction, and none of them may take a value the renderer cannot draw. */
+static void t_turn_dist(void)
+{
+    overlay_cfg_t c;
+    const char *p;
+
+    printf("turn dist\n");
+    overlay_cfg_defaults(&c);
+    check_int(c.turn_dist, 1, "on by default");
+    check_int(c.turn_dist_h, 28, "default h");
+    check_int(c.turn_dist_px, 26, "default number px");
+    check_int(c.turn_dist_unit_px, 18, "default unit px");
+    check_int(c.turn_dist_dot, 1, "the VC hides its dot with the number: ours is drawn");
+    check_int(c.turn_dist_bg, 85, "default band");
+    check_int(c.turn_dist_dx, 0, "default dx: on the tile");
+    check_int(c.turn_dist_dy, 0, "default dy: on the tile");
+    check_int(overlay_cfg_sanitize(&c), 0, "defaults need no clamping");
+    /* the band must leave the arrow its room: the top fifth of the tile at most */
+    check(c.turn_dist_h * 5 <= c.height, "the band takes a fifth of the tile at most");
+    check(c.turn_dist_h * 5 <= c.height_sport, "of the Sport tile too");
+    /* the digits (19 rows at 26 px) stand inside the band, 6 rows above its bottom */
+    check(c.turn_dist_h - 6 - 19 >= 2, "the digits have room above them");
+
+    p = write_tmp("ovl_turn.conf",
+        "turn_dist 0\n"
+        "turn_dist_h 40\n"
+        "turn_dist_px 30\n"
+        "turn_dist_unit_px 20\n"
+        "turn_dist_dot 0\n"
+        "turn_dist_bg 60\n"
+        "turn_dist_dx -12\n"
+        "turn_dist_dy 9\n");
+    check_int(overlay_cfg_load(&c, p), 8, "8 keys applied");
+    check_int(overlay_cfg_sanitize(&c), 0, "a good strip needs no clamping");
+    check_int(c.turn_dist, 0, "off from the card");
+    check_int(c.turn_dist_h, 40, "h");
+    check_int(c.turn_dist_px, 30, "number px");
+    check_int(c.turn_dist_unit_px, 20, "unit px");
+    check_int(c.turn_dist_dot, 0, "dot off from the card");
+    check_int(c.turn_dist_bg, 60, "band");
+    check_int(c.turn_dist_dx, -12, "dx");
+    check_int(c.turn_dist_dy, 9, "dy");
+
+    /* A card that still carries the place keys of 2.0.1-rc4: they are not keys any
+     * more, so they change nothing and the number stays on the tile. */
+    overlay_cfg_defaults(&c);
+    p = write_tmp("ovl_turn_old.conf",
+        "turn_dist_w 150\n"
+        "turn_dist_x_small 1109\n"
+        "turn_dist_y_small 77\n"
+        "turn_dist_x_big 1115\n"
+        "turn_dist_y_big 168\n"
+        "turn_dist_x_sport 1044\n"
+        "turn_dist_y_sport 100\n"
+        "turn_dist_dy 3\n");
+    check_int(overlay_cfg_load(&c, p), 1, "of an rc4 card only the key that still exists applies");
+    check_int(overlay_cfg_sanitize(&c), 0, "and nothing needs clamping");
+    check_int(c.turn_dist_dx, 0, "the rc4 x does not move the band");
+    check_int(c.turn_dist_dy, 3, "dy from the same file does");
+
+#define TURN_BAD(field, value, what, want) do {                          \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 1, what);                    \
+        check_int(c.field, (want), what " back to the default");         \
+    } while (0)
+#define TURN_GOOD(field, value, what) do {                               \
+        overlay_cfg_defaults(&c);                                        \
+        c.field = (value);                                               \
+        check_int(overlay_cfg_sanitize(&c), 0, what);                    \
+        check_int(c.field, (value), what " kept");                       \
+    } while (0)
+    TURN_BAD(turn_dist_h, 19, "too low", 28);
+    TURN_GOOD(turn_dist_h, 20, "lowest allowed");
+    TURN_GOOD(turn_dist_h, 96, "highest allowed");
+    TURN_BAD(turn_dist_h, 97, "too high", 28);
+    TURN_BAD(turn_dist_px, 9, "number font too small", 26);
+    TURN_GOOD(turn_dist_px, 10, "smallest number font");
+    TURN_GOOD(turn_dist_px, 72, "biggest number font");
+    TURN_BAD(turn_dist_px, 73, "number font too big", 26);
+    TURN_BAD(turn_dist_unit_px, 7, "unit font too small", 18);
+    TURN_GOOD(turn_dist_unit_px, 8, "smallest unit font");
+    TURN_GOOD(turn_dist_unit_px, 72, "biggest unit font");
+    TURN_BAD(turn_dist_unit_px, 73, "unit font too big", 18);
+    TURN_BAD(turn_dist_bg, -1, "band below nothing", 85);
+    TURN_GOOD(turn_dist_bg, 0, "no band: the text alone");
+    TURN_GOOD(turn_dist_bg, 100, "an opaque band");
+    TURN_BAD(turn_dist_bg, 101, "band above opaque", 85);
+    TURN_BAD(turn_dist_dx, -401, "dx too far left", 0);
+    TURN_GOOD(turn_dist_dx, -400, "dx at its left end");
+    TURN_GOOD(turn_dist_dx, 400, "dx at its right end");
+    TURN_BAD(turn_dist_dx, 401, "dx too far right", 0);
+    TURN_BAD(turn_dist_dy, -201, "dy too far up", 0);
+    TURN_GOOD(turn_dist_dy, -200, "dy at its upper end");
+    TURN_GOOD(turn_dist_dy, 200, "dy at its lower end");
+    TURN_BAD(turn_dist_dy, 201, "dy too far down", 0);
+
+    overlay_cfg_defaults(&c);
+    c.turn_dist = 5;
+    c.turn_dist_dot = 7;
+    overlay_cfg_sanitize(&c);
+    check_int(c.turn_dist, 1, "any non-zero is on");
+    check_int(c.turn_dist_dot, 1, "any non-zero is a dot");
+    overlay_cfg_defaults(&c);
+    c.turn_dist_dot = 0;
+    overlay_cfg_sanitize(&c);
+    check_int(c.turn_dist_dot, 0, "no dot stays no dot");
+
+    /* The emergency small canvas is the tile and nothing else: the band lies on
+     * the tile, so the number has its place there as well. */
+    overlay_cfg_defaults(&c);
+    c.canvas_width = 210;
+    c.canvas_height = 153;
+    c.x = c.y = c.x_alt = c.y_alt = 0;
+    overlay_cfg_sanitize(&c);
+    check_int(c.turn_dist, 1, "emergency canvas keeps the number");
+}
+
 static void test_sport(void)
 {
     overlay_cfg_t c;
@@ -865,6 +1008,7 @@ int main(void)
     test_sport();
     t_call_card();
     t_eta_pill();
+    t_turn_dist();
     t_capsule();
     t_defaults();
     t_visible_top();

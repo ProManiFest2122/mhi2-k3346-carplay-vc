@@ -138,13 +138,17 @@ public final class K3346EtaRowTest {
         ConnectivityModelBank stock = new ConnectivityModelBank();
         K3346EtaRow.Bank bank = new K3346EtaRow.Bank();
         int[] ids = bank.getAllModelIds();
-        eq("szesc modeli wiecej", stock.getAllModelIds().length + 6, ids.length);
-        eq("nasz id eta", K3346EtaRow.MODEL_ID, ids[ids.length - 6]);
-        eq("nasz id karty", K3346EtaRow.CARD_MODEL_ID, ids[ids.length - 5]);
-        eq("nasz id strzalki", K3346EtaRow.ARROWS_MODEL_ID, ids[ids.length - 4]);
-        eq("nasz id mapy", K3346EtaRow.MAP_MODEL_ID, ids[ids.length - 3]);
-        eq("nasz id hud", K3346EtaRow.HUD_MODEL_ID, ids[ids.length - 2]);
-        eq("nasz id rozmowy", K3346EtaRow.CALL_MODEL_ID, ids[ids.length - 1]);
+        eq("siedem modeli wiecej", stock.getAllModelIds().length + 7, ids.length);
+        eq("nasz id eta", K3346EtaRow.MODEL_ID, ids[ids.length - 7]);
+        eq("nasz id karty", K3346EtaRow.CARD_MODEL_ID, ids[ids.length - 6]);
+        eq("nasz id strzalki", K3346EtaRow.ARROWS_MODEL_ID, ids[ids.length - 5]);
+        eq("nasz id mapy", K3346EtaRow.MAP_MODEL_ID, ids[ids.length - 4]);
+        eq("nasz id hud", K3346EtaRow.HUD_MODEL_ID, ids[ids.length - 3]);
+        eq("nasz id rozmowy", K3346EtaRow.CALL_MODEL_ID, ids[ids.length - 2]);
+        eq("nasz id wysokosci", K3346EtaRow.ALT_MODEL_ID, ids[ids.length - 1]);
+        eq("id wysokosci po rozmowie", K3346EtaRow.CALL_MODEL_ID + 1, K3346EtaRow.ALT_MODEL_ID);
+        eq("model wysokosci to wybor", "true",
+            String.valueOf(bank.getModel(K3346EtaRow.ALT_MODEL_ID) instanceof ChoiceModel));
         eq("id rozmowy po hud", K3346EtaRow.HUD_MODEL_ID + 1, K3346EtaRow.CALL_MODEL_ID);
         eq("model rozmowy to wybor", "true",
             String.valueOf(bank.getModel(K3346EtaRow.CALL_MODEL_ID) instanceof ChoiceModel));
@@ -217,7 +221,10 @@ public final class K3346EtaRowTest {
         eq("jasna en", "Light", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, false));
         eq("teksty rozmowy po wyl", K3346EtaRow.TEXT_OFF + 1, K3346EtaRow.TEXT_CALL_LABEL);
         eq("tekst hud po jasnej", K3346EtaRow.TEXT_CALL_LIGHT + 1, K3346EtaRow.TEXT_HUD_FACTORY);
-        eq("sasiad ostatniego nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY + 1, true));
+        eq("tekst wysokosci po hud", K3346EtaRow.TEXT_HUD_FACTORY + 1, K3346EtaRow.TEXT_ALT_LABEL);
+        eq("wysokosc pl", "Wysoko\u015b\u0107 na VC", K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL, true));
+        eq("wysokosc en", "Altitude on VC", K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL, false));
+        eq("sasiad ostatniego nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL + 1, true));
 
         System.out.println("=== jezyki (2.0)");
         eq("kolejnosc kolumn", "en,pl,de,ru,cs,fr,it,es", join(K3346HmiLanguage.LANGS));
@@ -248,7 +255,8 @@ public final class K3346EtaRowTest {
             K3346EtaRow.TEXT_CARD_LABEL, K3346EtaRow.TEXT_CARD_FULL, K3346EtaRow.TEXT_CARD_NONE,
             K3346EtaRow.TEXT_ARROWS_LABEL, K3346EtaRow.TEXT_MAP_LABEL, K3346EtaRow.TEXT_HUD_LABEL,
             K3346EtaRow.TEXT_ON, K3346EtaRow.TEXT_OFF, K3346EtaRow.TEXT_CALL_LABEL,
-            K3346EtaRow.TEXT_CALL_SMOKED, K3346EtaRow.TEXT_CALL_LIGHT, K3346EtaRow.TEXT_HUD_FACTORY};
+            K3346EtaRow.TEXT_CALL_SMOKED, K3346EtaRow.TEXT_CALL_LIGHT, K3346EtaRow.TEXT_HUD_FACTORY,
+            K3346EtaRow.TEXT_ALT_LABEL};
         String[] langs = K3346HmiLanguage.LANGS;
         int empty = 0, sameAsEn = 0;
         for (int i = 0; i < ids.length; i++) {
@@ -301,7 +309,7 @@ public final class K3346EtaRowTest {
         eq("fr rozmowa", "Carte d'appel sur VC", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LABEL, "fr"));
         eq("it jasna", "Chiara", K3346EtaRow.text(K3346EtaRow.TEXT_CALL_LIGHT, "it"));
         eq("es brak", "Ninguna", K3346EtaRow.text(K3346EtaRow.TEXT_CARD_NONE, "es"));
-        eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY + 1, "de"));
+        eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL + 1, "de"));
         eq("de fabryczny", "Werk", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, "de"));
         eq("pl bez zmian", "Czas dojazdu CarPlay", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "pl"));
     }
@@ -504,6 +512,39 @@ public final class K3346EtaRowTest {
         row.file = oldFile;
     }
 
+    /* Wysokosc na VC (2.0.1): 0 = Wyl. (domyslnie, jak w 2.0), 1 = Wl.  Odwrotnie niz
+     * w wierszach Wl./Wyl.: auto, ktore nigdy nie widzialo tego wiersza, czyta 0. */
+    private static void testAlt(File dir) throws Exception {
+        System.out.println("=== wysokosc na VC");
+        K3346EtaRow.Row row = K3346EtaRow.ALT;
+        int key = K3346EtaRow.ALT_KEY;
+        File f = new File(dir, "alt");
+        String oldFile = row.file;
+        row.file = f.getPath();
+        eq("klucz po rozmowie", K3346EtaRow.CALL_KEY + 1, key);
+        eq("wysokosc: 0 zostaje", 0, row.clamp(0));
+        eq("wysokosc: 1 zostaje", 1, row.clamp(1));
+        eq("wysokosc: 2 na wyl", 0, row.clamp(2));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 0};
+        K3346EtaRow.boot(framework());
+        eq("wysokosc: nigdy nie ustawiona = plik wyl", "0\n", read(f));
+        row.select(1);
+        eq("wysokosc: plik wl", "1\n", read(f));
+        eq("wysokosc: klucz", key, stored[1]);
+        eq("wysokosc: wartosc", 1, stored[2]);
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 1};
+        K3346EtaRow.boot(framework());
+        eq("wysokosc: start z magazynu wl", "1\n", read(f));
+        eq("wysokosc: flush", "true", String.valueOf(FlushValuesDict.isFlushRequired(K3346EtaRow.NAMESPACE, key)));
+        row.select(0);
+        eq("wysokosc: plik wyl", "0\n", read(f));
+        stored = new int[] {K3346EtaRow.NAMESPACE, key, 9};
+        K3346EtaRow.boot(framework());
+        eq("wysokosc: smieci na wyl", "0\n", read(f));
+        f.delete();
+        row.file = oldFile;
+    }
+
     /* Karta rozmowy: trzy wartosci, Przydymiona domyslnie, Wyl. jako ostatnia. */
     private static void testCall(File dir) throws Exception {
         System.out.println("=== karta rozmowy");
@@ -602,6 +643,18 @@ public final class K3346EtaRowTest {
         eq("rozmowa: trzecia wyl", K3346EtaRow.TEXT_OFF, call.getTextIds()[2]);
         eq("rozmowa: ostatnia w szufladzie", K3346EtaRow.CALL_MODEL_ID,
             drawer.getViewIDs()[drawer.getViewIDs().length - 1]);
+        K3346EtaRow.ALT.addTo(drawer);
+        eq("siedem w menu", before + 7, menu.getChildren().size());
+        MenuItemController alt = (MenuItemController)drawer.findViews(K3346EtaRow.ALT_MODEL_ID)[0];
+        eq("wysokosc: etykieta", K3346EtaRow.TEXT_ALT_LABEL, alt.getLabelId());
+        eq("wysokosc: typ", MenuItemController.TYPE_COMBO_BOX, alt.getType());
+        eq("wysokosc: dwie pozycje", 2, alt.getTextIds().length);
+        eq("wysokosc: pierwsza Wyl. (domyslna, jak w 2.0)", K3346EtaRow.TEXT_OFF, alt.getTextIds()[0]);
+        eq("wysokosc: druga Wl.", K3346EtaRow.TEXT_ON, alt.getTextIds()[1]);
+        eq("wysokosc: ostatnia w szufladzie", K3346EtaRow.ALT_MODEL_ID,
+            drawer.getViewIDs()[drawer.getViewIDs().length - 1]);
+        eq("fokus wysokosci inny niz rozmowy", "true", String.valueOf(alt.getInternalID() != call.getInternalID()));
+        eq("fokus wysokosci inny niz hud", "true", String.valueOf(alt.getInternalID() != hud.getInternalID()));
         int[] focus = {eta.getInternalID(), card.getInternalID(), arrows.getInternalID(),
             map.getInternalID(), hud.getInternalID()};
         for (int i = 0; i < focus.length; i++) {
@@ -701,11 +754,13 @@ public final class K3346EtaRowTest {
         eq("plik mapy dla skryptu", "/tmp/k3346-map-mode", K3346EtaRow.MAP.file);
         eq("plik hud dla bundla", "/tmp/k3346-hud-mode", K3346EtaRow.HUD.file);
         eq("plik karty rozmowy dla nakladki", "/tmp/k3346-callcard-mode", K3346EtaRow.CALL.file);
+        eq("plik wysokosci dla bundla", "/tmp/k3346-altitude-mode", K3346EtaRow.ALT.file);
         /* boot() w testach pisze pliki kazdego wiersza: nie do /tmp prawdziwego auta */
         K3346EtaRow.ARROWS.file = new File(dir, "a").getPath();
         K3346EtaRow.MAP.file = new File(dir, "m").getPath();
         K3346EtaRow.HUD.file = new File(dir, "h").getPath();
         K3346EtaRow.CALL.file = new File(dir, "r").getPath();
+        K3346EtaRow.ALT.file = new File(dir, "w").getPath();
         testTexts();
         testBank();
         testMode(mode);
@@ -715,6 +770,7 @@ public final class K3346EtaRowTest {
         testOnOff(dir, K3346EtaRow.MAP, K3346EtaRow.MAP_KEY, "mapa");
         testHud(dir);
         testCall(dir);
+        testAlt(dir);
         testRow();
 
         mode.delete();
@@ -723,6 +779,7 @@ public final class K3346EtaRowTest {
         new File(dir, "m").delete();
         new File(dir, "h").delete();
         new File(dir, "r").delete();
+        new File(dir, "w").delete();
         dir.delete();
         System.out.println("WYNIK_ETA_ROW: " + ok + " OK, " + fail + " FAIL");
         System.exit(fail == 0 ? 0 : 1);

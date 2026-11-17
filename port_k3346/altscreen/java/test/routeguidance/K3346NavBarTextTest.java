@@ -119,6 +119,35 @@ public final class K3346NavBarTextTest {
         noPill("bez ramki, Kapsula, male", 0, false, 0, true);
         noPill("bez ramki, Obie, duze, rozmowa", 2, true, 1, true);
 
+        System.out.println("=== wysokosc na VC wlaczona (2.0.1-rc4): czasy zostaja na pasku, ale nie na jego koncach");
+        {
+            /* rc3 zdejmowalo czasy z paska i "Kapsula" nie pokazywala czasu nigdzie (auto, run-10) */
+            eq("nakladka rysuje, wysokosc wyl.: konce paska", "true",
+                String.valueOf(K3346NavBarText.drawAtEnds(true, false)));
+            eq("nakladka rysuje, wysokosc wl.: konce wolne dla kompasu i wysokosci", "false",
+                String.valueOf(K3346NavBarText.drawAtEnds(true, true)));
+            eq("nakladka nie rysuje, wysokosc wyl.", "false",
+                String.valueOf(K3346NavBarText.drawAtEnds(false, false)));
+            eq("nakladka nie rysuje, wysokosc wl.", "false",
+                String.valueOf(K3346NavBarText.drawAtEnds(false, true)));
+            K3346NavBarText.Capsule c = K3346NavBarText.capsule(K3346NavBarText.SLOT_SMALL,
+                K3346NavBarText.drawAtEnds(true, true), "21:57", "12 min", "9,8 km", "Glowna", "Glowna");
+            eq("male zegary, wysokosc wl.: czasy w polu", "21:57 · 12 min · 9,8 km", c.field);
+            eq("male zegary, wysokosc wl.: nic z lewej", "", c.left);
+            eq("male zegary, wysokosc wl.: nic z prawej", "", c.right);
+            c = K3346NavBarText.capsule(K3346NavBarText.SLOT_SMALL,
+                K3346NavBarText.drawAtEnds(true, false), "21:57", "12 min", "9,8 km", "Glowna", "Glowna");
+            eq("male zegary, wysokosc wyl., capsule_text 1: ulica w polu", "Glowna", c.field);
+            eq("male zegary, wysokosc wyl., capsule_text 1: czasy z lewej", "21:57 · 12 min", c.left);
+            /* bez czasow (opcja "Mapa"): sama ulica, jak dotad */
+            eq("kapsula bez czasow: sama ulica w polu", "E6",
+                K3346NavBarText.capsule(K3346NavBarText.SLOT_SMALL, true, "", "", "12 km", "E6", "E6").field);
+            eq("kapsula bez czasow: nic z lewej", "",
+                K3346NavBarText.capsule(K3346NavBarText.SLOT_SMALL, true, "", "", "12 km", "E6", "E6").left);
+            eq("kapsula bez czasow: nic z prawej", "",
+                K3346NavBarText.capsule(K3346NavBarText.SLOT_SMALL, true, "", "", "12 km", "E6", "E6").right);
+        }
+
         System.out.println("=== wlasna ramka czasu (overlay/eta_pill.h)");
         pill("Mapa", 1, true, true, "06:43", "15 min", "12 km", "06:43", "15 min · 12 km");
         pill("Obie", 2, true, true, "06:43", "15 min", "12 km", "06:43", "15 min · 12 km");

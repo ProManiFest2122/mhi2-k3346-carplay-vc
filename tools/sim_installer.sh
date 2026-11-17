@@ -88,6 +88,10 @@ setup(){
     cp "$REF/armle/usr/sbin/mm-ipod"                                    "$SIM/app/armle/usr/sbin/mm-ipod"
     # rozne tryby, zeby sprawdzic, ze instalator i rollback je zachowuja
     chmod 644 "$SIM/system/etc/usblauncher_otg.lua"; chmod 664 "$SIM/system/etc/mm/iap2.cfg"
+    # Tryby fabryczne trzech plikow bazowych (kopia z karty auta: 0777/0777/0755).
+    # Instalacja ustawia im 644, wiec odbudowa kopii bez karty (T22) wpisuje je ze stalych.
+    chmod 777 "$SIM/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties" "$SIM/app/eso/hmi/lsd/traceConfig.properties"
+    chmod 755 "$SIM/system/etc/eso/production/smartphone_integrator.json"
     # lsd.jxe: tylko rozmiar ma znaczenie dla bramy, wiec atrapa 58131096 B
     truncate -s 58131096 "$SIM/ifs/lsd.jxe"
     # paczka na "karcie SD" ("setup nocard" = pusta karta, dla T18)
@@ -701,10 +705,10 @@ echo "--- T14f: JAR albo narzedzie juz w systemie (stan nieznany) -> ODMOWA, zer
 setup; run >/dev/null; printf 'obcy' > "$OVR"
 B=$(snapshot_files "$SIM/app" "$SIM/system")
 cp "$SIM/sd/ZNACZNIKI/INSTALL_ETAP5" "$E4M/"
-OUT=$(run); case "$OUT" in *"ETAP5: JAR juz jest w systemie"*) ok "odmowa";; *) bad "brak odmowy";; esac
+OUT=$(run); case "$OUT" in *"this car already has the mod"*"NOTHING WAS CHANGED"*) ok "odmowa (2.0.1: bezpiecznik, zanim dojdzie do sprawdzianu Etapu 5)";; *) bad "brak odmowy";; esac
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap5" ] && ok "zero zapisow, bez kopii" || bad "zmiany mimo odmowy"
 rm -f "$OVR"; printf 'obcy' > "$CAF"; B=$(snapshot_files "$SIM/app" "$SIM/system")
-OUT=$(run); case "$OUT" in *"ETAP5: k3346-coverart-fetch juz jest w systemie"*) ok "odmowa: narzedzie juz jest";; *) bad "brak odmowy dla narzedzia";; esac
+OUT=$(run); case "$OUT" in *"this car already has the mod"*"NOTHING WAS CHANGED"*) ok "odmowa: narzedzie juz jest (bezpiecznik)";; *) bad "brak odmowy dla narzedzia";; esac
 [ "$B" = "$(snapshot_files "$SIM/app" "$SIM/system")" ] && [ ! -e "$E4M/backup/pre-etap5" ] && ok "zero zapisow, bez kopii (narzedzie)" || bad "zmiany mimo odmowy (narzedzie)"
 
 # ----------------------------------------------------------------------- T15
@@ -1383,6 +1387,198 @@ case "$OUT" in *"FORCED_COLLECT=1"*"COLLECT_RESULT="*) ok "zebral logi";; *) bad
 case "$OUT" in *"MODE=INSTALL_ALL"*) bad "ponowil instalacje";; *) ok "nie ponowil instalacji";; esac
 ls -d "$SIM$RM"/collected/run-* >/dev/null 2>&1 && ok "katalog run-NN powstal" || bad "brak run-NN"
 fi
+fi
+fi
+
+# ----------------------------------------------------------------------- T22
+# 2.0.1, zgloszenie #15: mod jest w aucie, a karta nic o nim nie wie (folder moda
+# skasowany, zastapiony przy kopiowaniu, inna karta). Instalacja ma odmowic przed
+# pierwsza zmiana, a ROLLBACK sam odbudowac kopie z plikow auta i cofnac mod.
+# Miara: odbudowane kopie BAJT W BAJT jak pliki zebrane z auta, z trybami.
+if [ -n "${RELEASE_DIR:-}" ]; then
+ZIP_UP=$(ls "$RELEASE_DIR"/*-update.zip 2>/dev/null | head -1)
+ZIP_I=$(ls "$RELEASE_DIR"/*-install.zip 2>/dev/null | head -1)
+ZIP_U=$(ls "$RELEASE_DIR"/*-uninstall.zip 2>/dev/null | head -1)
+RM=/sd/mod/$PKGNAME
+if [ -z "$ZIP_UP" ] || [ -z "$ZIP_I" ] || [ -z "$ZIP_U" ]; then echo; echo "--- T22"; bad "brak zipow w $RELEASE_DIR"; else
+ORIG_B="$CAR/mnt/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties"
+ORIG_T="$CAR/mnt/app/eso/hmi/lsd/traceConfig.properties"
+ORIG_S="$CAR/mnt/system/etc/eso/production/smartphone_integrator.json"
+ORIG_L="$(find "$CAR/mnt/system/etc" -maxdepth 1 -iname usblauncher_otg.lua | head -1)"
+ORIG_I="$(find "$CAR/mnt/system/etc/mm" -maxdepth 1 -iname iap2.cfg | head -1)"
+# Zip z wydania, a w nim instalator ze zrodel (T18a pilnuje, zeby byly tym samym).
+zipcard(){ unz "$1" "$SIM/sd"; if [ -f "$INSTALLER" ] && [ -f "$SIM/sd/mod/command.sh" ]; then cp "$INSTALLER" "$SIM/sd/mod/command.sh"; [ ! -f "$SIM/sd/mod/custom.sh" ] || cp "$INSTALLER" "$SIM/sd/mod/custom.sh"; fi; }
+lose_card(){ rm -rf "$SIM/sd"; mkdir -p "$SIM/sd"; }
+unit(){ snapshot_files "$SIM/app" "$SIM/system"; }
+tail3(){ echo "$1" | tail -4 | sed 's/^/      | /' | cut -c1-230; }
+rebuilt_ok(){ # rebuilt_ok ETYKIETA: piec odbudowanych plikow = oryginaly z auta
+    BK="$SIM$RM/backup"
+    cmp -s "$ORIG_B" "$BK/pre-v8s/bundles_dsitracer_enabled.properties" && ok "$1: bundles odbudowany bajt w bajt" || bad "$1: bundles rozny od oryginalu"
+    cmp -s "$ORIG_T" "$BK/pre-v8s/traceConfig.properties" && ok "$1: traceConfig odbudowany bajt w bajt" || bad "$1: traceConfig rozny od oryginalu"
+    cmp -s "$ORIG_S" "$BK/pre-v8s/smartphone_integrator.json" && ok "$1: smartphone_integrator odbudowany bajt w bajt" || bad "$1: smartphone_integrator rozny od oryginalu"
+    cmp -s "$ORIG_L" "$BK/pre-etap4/usblauncher_otg.lua" && ok "$1: usblauncher_otg.lua odbudowany bajt w bajt" || bad "$1: lua rozny od oryginalu"
+    cmp -s "$ORIG_I" "$BK/pre-etap4/iap2.cfg" && ok "$1: iap2.cfg odbudowany bajt w bajt" || bad "$1: iap2.cfg rozny od oryginalu"
+    M="$(cat "$BK/pre-v8s/bundles_dsitracer_enabled.properties.mode" "$BK/pre-v8s/traceConfig.properties.mode" "$BK/pre-v8s/smartphone_integrator.json.mode" "$BK/pre-etap4/usblauncher_otg.lua.mode" "$BK/pre-etap4/iap2.cfg.mode" 2>/dev/null | tr '\n' ' ')"
+    [ "$M" = "0777 0777 0755 0644 0664 " ] && ok "$1: tryby w kopii jak w aucie przed modem" || bad "$1: tryby w kopii: $M"
+    [ -f "$BK/pre-v8s/rebuilt" ] && [ -f "$BK/pre-etap4/rebuilt" ] && [ -f "$BK/pre-etap5/rebuilt" ] && [ -f "$BK/pre-etap7/rebuilt" ] && ok "$1: cztery kopie oznaczone jako odbudowane" || bad "$1: brak znacznika rebuilt"
+    PRN=$(ls "$BK"/pre-repair.*/ 2>/dev/null | wc -l); [ "$PRN" -eq 5 ] && ok "$1: piec plikow sprzed naprawy zachowanych" || bad "$1: pre-repair ma $PRN plikow"
+}
+
+echo
+echo "--- T22a: wzorce - auto fabryczne i czysta instalacja tej wersji"
+setup nocard; FAB=$(unit)
+zipcard "$ZIP_I"; O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "czysta instalacja";; *) bad "czysta instalacja nie przeszla"; tail3 "$O";; esac
+REFI=$(unit)
+[ "$FAB" != "$REFI" ] && ok "wzorce sie roznia" || bad "instalacja nic nie zmienila"
+
+for V in 1.0.0 1.0.1 2.0.0 CUR; do
+echo
+echo "--- T22b ($V): folder moda zniknal z karty -> update.zip: naprawa i cofniecie, potem instalacja"
+if [ "$V" != CUR ] && [ ! -d "/work/release/$V/card" ]; then echo "  INFO brak /work/release/$V/card - pomijam te wersje"; continue; fi
+setup nocard
+if [ "$V" = CUR ]; then zipcard "$ZIP_I"; else cp -a "/work/release/$V/card/." "$SIM/sd/"; fi
+O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "$V: mod w aucie";; *) bad "$V: instalacja wzorcowa nie przeszla"; tail3 "$O";; esac
+lose_card; zipcard "$ZIP_UP"
+O=$(run)
+case "$O" in *"REPAIR_RESULT=PASS"*) ok "$V 1.: naprawa PASS";; *) bad "$V 1.: brak REPAIR_RESULT=PASS"; tail3 "$O";; esac
+case "$O" in *"ROLLBACK_RESULT=PASS"*) ok "$V 1.: cofniecie PASS";; *) bad "$V 1.: brak ROLLBACK_RESULT=PASS";; esac
+case "$O" in *"NOTHING_TO_UNDO"*|*"do not reboot"*) bad "$V 1.: stary komunikat";; *) ok "$V 1.: bez NOTHING_TO_UNDO i bez strachu";; esac
+case "$O" in *"traceConfig.properties=FACTORY"*) ok "$V 1.: traceConfig rozpoznany jako fabryczny";; *) bad "$V 1.: traceConfig nie fabryczny";; esac
+if [ "$FAB" = "$(unit)" ]; then ok "$V 1.: auto = fabryczne, bit w bit z trybami"; else bad "$V 1.: auto rozne od fabrycznego"; diff <(printf '%s\n' "$FAB") <(unit) | head -8 | sed 's/^/        /'; fi
+rebuilt_ok "$V"
+[ ! -e "$SIM$RM/ROLLBACK" ] && [ -e "$SIM$RM/INSTALL_ALL" ] && ok "$V 1.: znacznik ROLLBACK zuzyty, INSTALL_ALL czeka" || bad "$V 1.: znaczniki nie takie"
+O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "$V 2.: instalacja tej wersji";; *) bad "$V 2.: instalacja nie przeszla"; tail3 "$O";; esac
+[ "$REFI" = "$(unit)" ] && ok "$V 2.: auto = czysta instalacja" || bad "$V 2.: auto rozne od czystej instalacji"
+zipcard "$ZIP_U"; O=$(run); case "$O" in *"ROLLBACK_RESULT=PASS"*) ok "$V 3.: zwykle odinstalowanie";; *) bad "$V 3.: odinstalowanie nie przeszlo"; tail3 "$O";; esac
+case "$O" in *"REPAIR"*) bad "$V 3.: naprawa tam, gdzie karta wszystko wie";; *) ok "$V 3.: bez naprawy";; esac
+[ "$FAB" = "$(unit)" ] && ok "$V 3.: znowu fabryczne" || bad "$V 3.: nie fabryczne"
+done
+
+echo
+echo "--- T22c: sam uninstall.zip na pustej karcie (bez payloadu) -> naprawa i cofniecie"
+setup nocard; zipcard "$ZIP_I"; run >/dev/null; lose_card; zipcard "$ZIP_U"
+[ -f "$SIM/sd/mod/command.sh" ] && [ -f "$SIM/sd/mod/custom.sh" ] && ok "uninstall.zip niesie instalator" || bad "uninstall.zip bez instalatora"
+[ ! -d "$SIM$RM/payload" ] && ok "uninstall.zip bez payloadu" || bad "uninstall.zip ma payload"
+O=$(run); case "$O" in *"REPAIR_RESULT=PASS"*"ROLLBACK_RESULT=PASS"*) ok "naprawa i cofniecie";; *) bad "nie przeszlo"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "auto = fabryczne" || bad "auto rozne od fabrycznego"
+rebuilt_ok "uninstall"
+O=$(run); case "$O" in *"ALREADY_ROLLED_BACK"*) ok "kolejne uruchomienie niczego nie instaluje";; *) bad "kolejne uruchomienie: zly wynik"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "dalej fabryczne" || bad "juz nie fabryczne"
+
+echo
+echo "--- T22d: stan ze zgloszenia #15 - dwie nieudane proby, na karcie zla kopia"
+if [ -d /work/release/1.0.1/card ] && [ -d /work/release/2.0.1-rc1/update-card ]; then
+setup nocard; cp -a /work/release/1.0.1/card/. "$SIM/sd/"; run >/dev/null; V101=$(unit)
+lose_card; cp -a /work/release/2.0.1-rc1/update-card/. "$SIM/sd/"      # stary instalator, jak u zglaszajacego
+O=$(run); case "$O" in *"NOTHING_TO_UNDO"*) ok "stary instalator: nic do cofniecia";; *) bad "odtworzenie: krok 1";; esac
+O=$(run); case "$O" in *"ETAP4_GATE"*"19928"*) ok "stary instalator: blad ze zdjecia";; *) bad "odtworzenie: krok 2"; tail3 "$O";; esac
+: > "$SIM$RM/ROLLBACK"; run >/dev/null; [ "$V101" = "$(unit)" ] && ok "stare odinstalowanie zostawia 1.0.1" || bad "odtworzenie: krok 3"
+run >/dev/null
+[ -f "$SIM$RM/backup/pre-v8s/mib2high-carplay-rgi.jar" ] && ok "na karcie zla kopia (nasz jar jako oryginal)" || bad "odtworzenie: brak zlej kopii"
+zipcard "$ZIP_UP"
+O=$(run); case "$O" in *"REPAIR_RESULT=PASS"*"ROLLBACK_RESULT=PASS"*) ok "nowy update 1.: naprawa i cofniecie";; *) bad "nowy update 1. nie przeszedl"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "auto = fabryczne" || bad "auto rozne od fabrycznego"
+ls -d "$SIM$RM"/backup/pre-v8s.bad.* >/dev/null 2>&1 && ok "zla kopia odsunieta jako .bad" || bad "zla kopia nie odsunieta"
+rebuilt_ok "#15"
+O=$(run); case "$O" in *"INSTALL_ALL_RESULT=PASS"*) ok "nowy update 2.: instalacja";; *) bad "nowy update 2. nie przeszedl"; tail3 "$O";; esac
+[ "$REFI" = "$(unit)" ] && ok "auto = czysta instalacja" || bad "auto rozne od czystej instalacji"
+else echo "  INFO brak kart 1.0.1 / 2.0.1-rc1 w /work/release - pomijam"; fi
+
+echo
+echo "--- T22e: BT_MAC (sekcja [bluetooth] w iap2.cfg) i same czesci mapa + trasa"
+setup nocard; zipcard "$ZIP_I"; echo '00:11:22:33:44:55' > "$SIM$RM/BT_MAC"; O=$(run)
+grep -q '^\[bluetooth\]' "$SIM/system/etc/mm/iap2.cfg" && ok "auto z sekcja bluetooth" || bad "brak sekcji bluetooth - test nic nie sprawdza"
+lose_card; zipcard "$ZIP_UP"; O=$(run)
+case "$O" in *"REPAIR_RESULT=PASS"*) ok "BT_MAC: naprawa";; *) bad "BT_MAC: naprawa nie przeszla"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "BT_MAC: auto = fabryczne" || bad "BT_MAC: auto rozne od fabrycznego"
+setup nocard; zipcard "$ZIP_I"; run >/dev/null
+: > "$SIM$RM/ROLLBACK_ETAP7"; run >/dev/null; : > "$SIM$RM/ROLLBACK_ETAP5"; run >/dev/null
+[ ! -e "$SIM/app/root/vc_overlay" ] && [ ! -e "$SIM/app/eso/hmi/lsd/jars/mib2high-k3346-overrides.jar" ] && [ -e "$SIM/app/root/mm-ipod-rgi.sh" ] && ok "w aucie tylko mapa i trasa" || bad "przygotowanie stanu czesciowego"
+lose_card; zipcard "$ZIP_UP"; O=$(run)
+case "$O" in *"(map:1 route:1 phone:0 arrow:0)"*) ok "czesciowy: rozpoznane dwie czesci";; *) bad "czesciowy: zle rozpoznanie"; echo "$O" | grep REPAIR | head -2 | sed 's/^/      | /';; esac
+case "$O" in *"REPAIR_RESULT=PASS"*) ok "czesciowy: naprawa";; *) bad "czesciowy: naprawa nie przeszla"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "czesciowy: auto = fabryczne" || bad "czesciowy: auto rozne od fabrycznego"
+[ ! -e "$SIM$RM/backup/pre-etap5" ] && [ ! -e "$SIM$RM/backup/pre-etap7" ] && ok "czesciowy: kopie tylko dla czesci, ktore byly" || bad "czesciowy: zbedne kopie"
+
+echo
+echo "--- T22f: odmowy - zero zapisow w aucie, zadnej kopii na karcie"
+refuse(){ # refuse ETYKIETA WZORZEC: po przygotowaniu stanu
+    B=$(unit); O=$(run)
+    case "$O" in *"$2"*) ok "$1: odmowa";; *) bad "$1: brak odmowy ($2)"; tail3 "$O";; esac
+    case "$O" in *"REPAIR_RESULT=PASS"*|*"ROLLBACK_RESULT=PASS"*) bad "$1: mimo to cofnal";; *) ok "$1: niczego nie cofnal";; esac
+    [ "$B" = "$(unit)" ] && ok "$1: zero zapisow w aucie" || bad "$1: zapisy w aucie"
+    # find, nie ls z dwoma wzorcami: ls konczy sie bledem, gdy choc jeden wzorzec
+    # nic nie znajdzie, i wtedy resztki wygladaja jak ich brak.
+    LEFT=$(find "$SIM$RM/backup" -mindepth 1 2>/dev/null | wc -l)
+    if [ "$LEFT" -eq 0 ]; then ok "$1: zadnej kopii ani resztek na karcie"
+    else bad "$1: na karcie zostalo: $(ls "$SIM$RM/backup" 2>/dev/null | tr '\n' ' ')"; fi
+    [ ! -e "$SIM$RM/installed.ok" ] && [ ! -e "$SIM$RM/etap4.installed.ok" ] && ok "$1: bez znacznikow instalacji" || bad "$1: znaczniki instalacji"
+    [ -e "$SIM$RM/ROLLBACK" ] && ok "$1: znacznik ROLLBACK zostaje do ponowienia" || bad "$1: znacznik ROLLBACK zuzyty"
+}
+modded(){ setup nocard; zipcard "$ZIP_I"; run >/dev/null; lose_card; zipcard "$ZIP_UP"; }
+modded; echo '-- obcy dopisek' >> "$SIM/system/etc/usblauncher_otg.lua"
+refuse "obca zmiana w usblauncher_otg.lua" "REPAIR refused: usblauncher_otg.lua would have"
+# Dopisek ZA naszym blokiem w iap2.cfg znika razem z blokiem i wychodzi plik
+# fabryczny - tak samo jak przy zwyklym cofnieciu z kopii, ktora tez go nie zna.
+modded; echo '# obcy dopisek' >> "$SIM/system/etc/mm/iap2.cfg"
+O=$(run); case "$O" in *"REPAIR_RESULT=PASS"*"ROLLBACK_RESULT=PASS"*) ok "dopisek za naszym blokiem w iap2.cfg: naprawa przechodzi";; *) bad "dopisek za blokiem: nie przeszlo"; tail3 "$O";; esac
+[ "$FAB" = "$(unit)" ] && ok "dopisek za naszym blokiem: auto = fabryczne (jak po cofnieciu z kopii)" || bad "dopisek za blokiem: auto rozne od fabrycznego"
+modded; awk 'NR==3{print "# obca linia w srodku"} {print}' "$SIM/system/etc/mm/iap2.cfg" > "$SIM/t"; cat "$SIM/t" > "$SIM/system/etc/mm/iap2.cfg"
+refuse "obca linia w srodku iap2.cfg" "REPAIR refused: iap2.cfg would have"
+modded; awk '{print} /libmib2high-carplay-rgi.so/{print "                \"LD_PRELOAD=/obcy/hook.so\","}' "$SIM/system/etc/eso/production/smartphone_integrator.json" > "$SIM/t"; cat "$SIM/t" > "$SIM/system/etc/eso/production/smartphone_integrator.json"
+refuse "obca linia LD_PRELOAD w carplay" "REPAIR refused: smartphone_integrator.json has changes"
+modded; awk '/^MIB2HighCarPlayRGI=/{print; print; next} {print}' "$SIM/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties" > "$SIM/t"; cat "$SIM/t" > "$SIM/app/eso/hmi/lsd/bundles_dsitracer_enabled.properties"
+refuse "podwojny wpis w bundles" "REPAIR refused: bundles_dsitracer_enabled.properties is not as this mod leaves it"
+modded; sed -i 's/G22_C6_190300/G13_P9999/' "$SIM/app/eso/hmi/version.properties"
+refuse "inny firmware" "VERSION_GATE: HMI_Version"
+modded; mkdir -p "$SIM/app/root/hooks"; : > "$SIM/app/root/hooks/carplay_startup.sh"
+refuse "cudzy mod w aucie" "another CarPlay mod is installed"
+
+echo
+echo "--- T22g: traceConfig, ktory nie byl fabryczny -> zostaje, reszta cofnieta"
+modded; echo 'org.dsi.ifc.cos.wlasny=full' >> "$SIM/app/eso/hmi/lsd/traceConfig.properties"; cp "$SIM/app/eso/hmi/lsd/traceConfig.properties" "$SIM/trace.cur"
+O=$(run); case "$O" in *"TRACECONFIG=KEPT"*) ok "komunikat o zostawionym traceConfig";; *) bad "brak TRACECONFIG=KEPT"; tail3 "$O";; esac
+case "$O" in *"REPAIR_RESULT=PASS"*"ROLLBACK_RESULT=PASS"*) ok "naprawa i cofniecie mimo to";; *) bad "nie przeszlo"; tail3 "$O";; esac
+cmp -s "$SIM/trace.cur" "$SIM/app/eso/hmi/lsd/traceConfig.properties" && ok "traceConfig w aucie bez zmian tresci" || bad "traceConfig zmieniony"
+D=$(diff <(printf '%s\n' "$FAB") <(unit) | grep '^[<>]' | grep -v traceConfig.properties | wc -l); [ "$D" -eq 0 ] && ok "wszystko poza traceConfig fabryczne" || bad "poza traceConfig $D roznic"
+
+echo
+echo "--- T22h: awaria tuz po odbudowie kopii (przed cofaniem) -> ponowne uruchomienie konczy"
+modded
+awk '/^REPAIRED=1; say/{print "REPAIRED=1; fail \047TEST_INJECTED_FAILURE\047; }"; next} {print}' "$SIM/sd/mod/command.sh" > "$SIM/sd/mod/command.inject.sh"
+B=$(unit)
+O=$(env MIB_SD="$SIM/sd" MIB_APP="$SIM/app" MIB_SYSTEM="$SIM/system" MIB_LSD_JXE="$SIM/ifs/lsd.jxe" MIB_BT_ROOTS="$SIM/btroots" sh "$SIM/sd/mod/command.inject.sh" 2>&1)
+case "$O" in *"TEST_INJECTED_FAILURE"*) ok "wstrzykniety blad wystapil";; *) bad "blad nie wystapil - test nic nie sprawdzil";; esac
+[ "$B" = "$(unit)" ] && ok "auto nietkniete po awarii" || bad "auto zmienione po awarii"
+[ -f "$SIM$RM/installed.ok" ] && [ -f "$SIM$RM/backup/pre-v8s/complete" ] && ok "karta opisuje juz stan auta" || bad "karta w polowie"
+O=$(run); case "$O" in *"ROLLBACK_RESULT=PASS"*) ok "ponowne uruchomienie: cofniecie";; *) bad "ponowne uruchomienie nie przeszlo"; tail3 "$O";; esac
+case "$O" in *"REPAIR:"*) bad "ponowne uruchomienie odbudowuje drugi raz";; *) ok "ponowne uruchomienie juz bez odbudowy";; esac
+[ "$FAB" = "$(unit)" ] && ok "auto = fabryczne" || bad "auto rozne od fabrycznego"
+
+echo
+echo "--- T22i: bezpiecznik - instalacja na aucie z modem, o ktorym karta nie wie"
+setup nocard; zipcard "$ZIP_I"; run >/dev/null; lose_card; zipcard "$ZIP_I"
+B=$(unit); O=$(run)
+case "$O" in *"this car already has the mod"*"NOTHING WAS CHANGED"*) ok "odmowa z jasnym komunikatem";; *) bad "brak odmowy"; tail3 "$O";; esac
+case "$O" in *"Use the update file of this version"*) ok "ostatnie slowo mowi, co zrobic";; *) bad "ostatnie slowo nie mowi, co zrobic"; tail3 "$O";; esac
+case "$O" in *"INSTALLING="*) bad "cos zainstalowal";; *) ok "niczego nie instalowal";; esac
+[ "$B" = "$(unit)" ] && ok "zero zapisow w aucie" || bad "zapisy w aucie"
+[ ! -e "$SIM$RM/backup" ] && [ ! -e "$SIM$RM/installed.ok" ] && ok "zadnej kopii i zadnego znacznika (dawniej: zmienione pliki jako oryginaly)" || bad "powstala kopia albo znacznik"
+[ -e "$SIM$RM/INSTALL_ALL" ] && ok "INSTALL_ALL zostaje" || bad "INSTALL_ALL zuzyty"
+zipcard "$ZIP_UP"; O=$(run); O2=$(run)
+case "$O" in *"REPAIR_RESULT=PASS"*) ok "po odmowie: update naprawia";; *) bad "po odmowie: update nie naprawil"; tail3 "$O";; esac
+case "$O2" in *"INSTALL_ALL_RESULT=PASS"*) ok "po odmowie: update instaluje";; *) bad "po odmowie: update nie zainstalowal"; tail3 "$O2";; esac
+[ "$REFI" = "$(unit)" ] && ok "auto = czysta instalacja" || bad "auto rozne od czystej instalacji"
+
+echo
+echo "--- T22j: karta wie wszystko -> zadnej naprawy; auto bez moda -> nic do cofniecia"
+setup nocard; zipcard "$ZIP_I"; run >/dev/null; zipcard "$ZIP_U"; O=$(run)
+case "$O" in *"REPAIR"*) bad "naprawa przy zwyklym odinstalowaniu";; *) ok "zwykle odinstalowanie bez naprawy";; esac
+LEFT=$(find "$SIM$RM/backup" -mindepth 1 -maxdepth 1 \( -name 'pre-repair.*' -o -name '*.bad.*' -o -name '*.rebuild.*' \) 2>/dev/null | wc -l)
+[ "$LEFT" -eq 0 ] && ok "bez resztek naprawy" || bad "resztki naprawy na karcie"
+setup nocard; zipcard "$ZIP_U"; B=$(unit); O=$(run)
+case "$O" in *"ROLLBACK_RESULT=NOTHING_TO_UNDO"*) ok "auto bez moda: nic do cofniecia";; *) bad "auto bez moda: zly wynik"; tail3 "$O";; esac
+[ "$B" = "$(unit)" ] && ok "auto bez moda: zero zapisow" || bad "auto bez moda: zapisy"
 fi
 fi
 

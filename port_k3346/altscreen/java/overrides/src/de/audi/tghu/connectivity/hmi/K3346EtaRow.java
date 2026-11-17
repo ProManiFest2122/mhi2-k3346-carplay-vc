@@ -40,6 +40,7 @@ final class K3346EtaRow {
     static final int MAP_MODEL_ID = 2500395;
     static final int HUD_MODEL_ID = 2500396;
     static final int CALL_MODEL_ID = 2500397;
+    static final int ALT_MODEL_ID = 2500398;
     private static final int TEMPLATE_MODEL = 4188;   /* "Recognition period", a combo box */
 
     /* Past the stock table (976 entries). */
@@ -59,6 +60,7 @@ final class K3346EtaRow {
     static final int TEXT_CALL_SMOKED = 2509926;
     static final int TEXT_CALL_LIGHT = 2509927;
     static final int TEXT_HUD_FACTORY = 2509928;
+    static final int TEXT_ALT_LABEL = 2509929;
 
     static final int NAMESPACE = 1008;   /* IStorageAccess.Namespace.TERMINALMODE */
     static final int KEY = 1000;         /* stock keys here: 1..3 */
@@ -67,6 +69,7 @@ final class K3346EtaRow {
     static final int MAP_KEY = 1003;
     static final int HUD_KEY = 1004;
     static final int CALL_KEY = 1005;
+    static final int ALT_KEY = 1006;
     static final int MODE_DEFAULT = 0;
 
     /* The internal ids are focus-restore keys, unique in the menu. */
@@ -90,7 +93,12 @@ final class K3346EtaRow {
      * Off also gives the big gauges their ETA box back during a call. */
     static final Row CALL = new Row(CALL_MODEL_ID, 2509915, CALL_KEY, TEXT_CALL_LABEL,
         new int[] {TEXT_CALL_SMOKED, TEXT_CALL_LIGHT, TEXT_OFF}, "/tmp/k3346-callcard-mode");
-    private static final Row[] ROWS = {ETA, CARD, ARROWS, MAP, HUD, CALL};
+    /* Altitude, map scale and compass on the VC bar, where the arrival time would go
+     * (bundle: BAPBridge.pollAltitude).  Off first: a unit that never saw this row
+     * reads 0 and stays as 2.0 was. */
+    static final Row ALT = new Row(ALT_MODEL_ID, 2509916, ALT_KEY, TEXT_ALT_LABEL,
+        new int[] {TEXT_OFF, TEXT_ON}, "/tmp/k3346-altitude-mode");
+    private static final Row[] ROWS = {ETA, CARD, ARROWS, MAP, HUD, CALL, ALT};
 
     private static volatile IFrameworkAccess framework;
 
@@ -124,7 +132,7 @@ final class K3346EtaRow {
         }
         K3346Diag.log("K3346_ETA_ROW boot mode=" + ETA.readStored() + " card=" + CARD.readStored()
             + " arrows=" + ARROWS.readStored() + " map=" + MAP.readStored() + " hud=" + HUD.readStored()
-            + " call=" + CALL.readStored());
+            + " call=" + CALL.readStored() + " alt=" + ALT.readStored());
     }
 
     /* null for an id that is not ours. */
@@ -181,6 +189,10 @@ final class K3346EtaRow {
                 return new String[] {"Smoked", "Przydymiona", "Getönt", "Тёмная", "Tmavá", "Fumée", "Fumé", "Ahumada"};
             case TEXT_CALL_LIGHT:
                 return new String[] {"Light", "Jasna", "Hell", "Светлая", "Světlá", "Claire", "Chiara", "Clara"};
+            case TEXT_ALT_LABEL:
+                return new String[] {"Altitude on VC", "Wysoko\u015b\u0107 na VC", "H\u00f6he im VC",
+                    "\u0412\u044b\u0441\u043e\u0442\u0430 \u043d\u0430 VC", "V\u00fd\u0161ka na VC",
+                    "Altitude sur VC", "Altitudine su VC", "Altitud en VC"};
             case TEXT_HUD_FACTORY:
                 return new String[] {"Factory", "Fabryczny", "Werk", "Штатный", "Tovární", "Origine",
                     "Di serie", "De fábrica"};

@@ -68,7 +68,7 @@ public class BAPBridge {
     private boolean arrowsOff;
     private boolean hudSuppressed;
     /* The MMI option "CarPlay HUD", K3346HudStyle: on, off, or as the factory
-     * navigation presents a maneuver.  volatile: the blink thread reads it. */
+     * navigation presents a maneuver.  volatile: the bar thread reads it. */
     private volatile int hudMode = K3346HudStyle.MODE_ON;
     private int lastSkin = -1;
     private boolean skinWarned;
@@ -117,29 +117,41 @@ public class BAPBridge {
     private boolean callVisible = false;   /* a call, and our card on (the MMI option) */
     private boolean callRaw = false;
     private int callCardMode = 0;
+    /* The MMI option "Altitude on VC".  volatile: read by the route thread, written
+     * by the watcher. */
+    private volatile boolean altitudeOn = false;
+    private volatile boolean altitudeDirty = false;
+    private boolean altitudeApplied = false;
     /* Our arrival-time box in the overlay: can it be drawn, and what it last got. */
     private boolean pillReady = false;
     private String lastPillLeft = null;
     private String lastPillRight = null;
+    /* What the overlay prints for the VC's hidden distance: K3346TurnDist. */
+    private String lastTurnDistNumber = null;
+    private String lastTurnDistUnit = null;
     private String lastCapsuleLeft = null;
     private String lastCapsuleRight = null;
     private final Object distanceToManeuverLock = new Object();
     private boolean hasLastDistM = false;
     private int lastDistM = 0;
     /*
-     * The end of the bargraph blinks (K3346HudStyle.FACTORY only; after
-     * luka-dev/mib2q-carplay-rgi BAPBridge action blink).  One lock orders every
-     * FctID 18 write, so a blink tick can never put an older distance after a
-     * newer one.  The generation ends a thread that was told to stop but is
-     * still asleep: it finds another number and leaves without sending.
+     * The HUD bargraph of K3346HudStyle.FACTORY.  K3346HudBar says where the car is
+     * between two distances of the phone, and a thread sends the bar about once a
+     * second, as the factory navigation does.  One lock orders every FctID 18 and
+     * every FctID 55 of that mode, so the thread can never put an older value after
+     * a newer one.  The generation ends a thread that was told to stop but is still
+     * asleep: it finds another number and leaves without sending.
      */
     private final Object distanceSendLock = new Object();
-    private Thread blinkThread;
-    private int blinkGeneration = 0;
-    private boolean blinkArmed = false;
-    private int blinkDistM = -1;
-    private int blinkDenominatorM = -1;
-    private boolean blinkFull = true;
+    private final K3346HudBar hudBar = new K3346HudBar();
+    private Thread barThread;
+    private int barGeneration = 0;
+    private boolean barArmed = false;
+    private int barLabelM = -1;
+    private int barRangeM = -1;
+    private boolean barOn = false;
+    private int barPercent = 0;
+    private int barState = -1;
     private K2161RouteGuidanceOwnership ownership;
     private boolean navStatusHiddenWanted = false;
 
@@ -239,89 +251,134 @@ public class BAPBridge {
             V8MFactoryTrace.distance("before", meters, fd.value, fd.unit, csRef);
             appConnectorNavi.updateDistanceToNextManeuver(fd.value, fd.unit, bargraphOn, bargraph);
             V8MFactoryTrace.distance("after_returned", meters, fd.value, fd.unit, csRef);
+            /* With the bargraph on, the VC takes its own number away: ours goes up. */
+            writeTurnDist(K3346TurnDist.label(bargraphOn, VC_RGI_ENABLED, fd.value, fd.unit));
         }
     }
 
-    /* The distance with the bargraph of the current HUD mode.  In the blink range
-     * the phase the blink thread last showed is kept, so an update from the phone
-     * does not cut a dark phase short. */
-    private void sendDistanceToManeuver(int meters, int denominatorM) throws Exception {
-        synchronized (distanceSendLock) {
-            int mode = hudMode;
-            boolean on = K3346HudStyle.barOn(mode, meters, denominatorM);
-            boolean blink = K3346HudStyle.blinking(mode, meters, denominatorM);
-            blinkArmed = blink;
-            blinkDistM = meters;
-            blinkDenominatorM = denominatorM;
-            if (!blink) {
-                blinkFull = true;
+    /* Called with distanceSendLock held.  The session script removes the file
+     * between sessions, so a text that did not change is written again when the
+     * file is gone; the first call of a bridge writes whatever it has to say. */
+    private void writeTurnDist(String[] label) {
+        boolean empty = label[0].length() == 0;
+        if (label[0].equals(lastTurnDistNumber) && label[1].equals(lastTurnDistUnit)
+                && (empty || K3346CapsuleFile.exists(K3346CapsuleFile.TURN_DIST_PATH))) {
+            return;
+        }
+        if (K3346CapsuleFile.writeText(K3346CapsuleFile.TURN_DIST_PATH, label[0], label[1])) {
+            boolean was = lastTurnDistNumber != null && lastTurnDistNumber.length() > 0;
+            lastTurnDistNumber = label[0];
+            lastTurnDistUnit = label[1];
+            if (was != !empty) {
+                Log.d(TAG, "Turn distance on VC " + (empty ? "off" : "on"));
             }
-            int percent = blink ? K3346HudStyle.blinkPercent(blinkFull)
-                : K3346HudStyle.barPercent(meters, denominatorM);
-            sendDistanceToManeuverRaw(meters, on, on ? percent : 0);
-            if (blink) {
-                startBlinkThread();
+        } else {
+            Log.w(TAG, "Turn distance text not written");
+        }
+    }
+
+    /* The distance of the phone, with the bargraph in K3346HudStyle.FACTORY. */
+    private void sendDistanceToManeuver(int meters, int rangeM) throws Exception {
+        synchronized (distanceSendLock) {
+            if (hudMode != K3346HudStyle.MODE_FACTORY) {
+                barArmed = false;
+                barOn = false;
+                barPercent = 0;
+                sendDistanceToManeuverRaw(meters, false, 0);
+                return;
+            }
+            long now = System.currentTimeMillis();
+            hudBar.label(meters, now);
+            int shown = hudBar.percent(now, rangeM);
+            barLabelM = meters;
+            barRangeM = rangeM;
+            barOn = shown >= 0;
+            barPercent = barOn ? shown : 0;
+            sendDistanceToManeuverRaw(meters, barOn, barPercent);
+            /* The thread is needed once the estimate can reach the bar before the
+             * next distance of the phone comes. */
+            double low = hudBar.lowerBound();
+            barArmed = rangeM > 0 && low >= 0.0 && low <= rangeM;
+            if (barArmed) {
+                startBarThread();
             }
         }
     }
 
     /* Called with distanceSendLock held. */
-    private void startBlinkThread() {
-        if (blinkThread != null) {
+    private void startBarThread() {
+        if (barThread != null) {
             return;
         }
-        final int generation = ++blinkGeneration;
+        final int generation = ++barGeneration;
         Thread t = new Thread(new Runnable() {
             public void run() {
-                blinkLoop(generation);
+                barLoop(generation);
             }
-        }, "K3346HudBlink");
+        }, "K3346HudBar");
         t.setDaemon(true);
-        blinkThread = t;
+        barThread = t;
         t.start();
     }
 
-    /* Ends the blink without a BAP write: whoever stops it sends what comes next. */
-    private void stopBlink() {
+    /* Ends the bar without a BAP write: whoever stops it sends what comes next. */
+    private void stopBar() {
         synchronized (distanceSendLock) {
-            ++blinkGeneration;
-            blinkThread = null;
-            blinkArmed = false;
-            blinkDistM = -1;
-            blinkDenominatorM = -1;
-            blinkFull = true;
+            ++barGeneration;
+            barThread = null;
+            barArmed = false;
+            barOn = false;
+            barPercent = 0;
+            barLabelM = -1;
+            barState = -1;
+            hudBar.reset();
         }
     }
 
-    private void blinkLoop(int generation) {
+    /* Called with distanceSendLock held: FctID 55 only when it changes. */
+    private void sendBarState(int state) {
+        if (state == barState) {
+            return;
+        }
+        barState = state;
+        traceBap("updateManeuverState", String.valueOf(state));
+        appConnectorNavi.updateManeuverState(state);
+    }
+
+    private void barLoop(int generation) {
         for (;;) {
             try {
-                Thread.sleep(K3346HudStyle.BLINK_INTERVAL_MS);
+                Thread.sleep(K3346HudStyle.BAR_INTERVAL_MS);
             } catch (InterruptedException e) {
                 /* the generation says whether to go on */
             }
             try {
                 synchronized (distanceSendLock) {
-                    if (generation != blinkGeneration) {
+                    if (generation != barGeneration) {
                         return;
                     }
-                    if (!initialized || !blinkArmed
-                            || !K3346HudStyle.blinking(hudMode, blinkDistM, blinkDenominatorM)) {
-                        /* out of the blink range: the thread is not needed until the next one */
-                        blinkThread = null;
-                        ++blinkGeneration;
-                        blinkFull = true;
+                    if (!initialized || !barArmed || hudMode != K3346HudStyle.MODE_FACTORY) {
+                        /* out of reach of the bar: no thread until the next maneuver */
+                        barThread = null;
+                        ++barGeneration;
                         return;
                     }
-                    blinkFull = !blinkFull;
-                    sendDistanceToManeuverRaw(blinkDistM, true, K3346HudStyle.blinkPercent(blinkFull));
+                    int shown = hudBar.percent(System.currentTimeMillis(), barRangeM);
+                    boolean on = shown >= 0;
+                    int percent = on ? shown : 0;
+                    if (on != barOn || percent != barPercent) {
+                        barOn = on;
+                        barPercent = percent;
+                        sendDistanceToManeuverRaw(barLabelM, on, percent);
+                        sendBarState(K3346HudStyle.state(false, on, percent));
+                    }
                 }
             } catch (Throwable t) {
-                Log.w(TAG, "HUD blink stopped: " + t);
+                Log.w(TAG, "HUD bar stopped: " + t);
                 synchronized (distanceSendLock) {
-                    if (generation == blinkGeneration) {
-                        blinkThread = null;
-                        ++blinkGeneration;
+                    if (generation == barGeneration) {
+                        barThread = null;
+                        ++barGeneration;
                     }
                 }
                 return;
@@ -813,6 +870,33 @@ public class BAPBridge {
         }
     }
 
+    /*
+     * The MMI option "Altitude on VC" (2.0.1): on, the factory altitude, map scale
+     * and compass stay on the VC bar and our times keep off it; off, they are
+     * hidden as in 2.0.  Read with or without a route.
+     */
+    void pollAltitude() {
+        boolean on = K3346CapsuleFile.readOn(K3346CapsuleFile.ALTITUDE_MODE_PATH, altitudeOn);
+        synchronized (this) {
+            if (on == altitudeOn && altitudeApplied) {
+                return;
+            }
+            altitudeOn = on;
+            altitudeApplied = true;
+            altitudeDirty = true;
+        }
+        Log.i(TAG, "VC altitude on=" + on);
+        setNavStatusHidden(!on);
+    }
+
+    /* The start of a session applies the option again, whatever was applied before. */
+    void applyAltitudeAtStart() {
+        synchronized (this) {
+            altitudeApplied = false;
+        }
+        pollAltitude();
+    }
+
     /**
      * Hide altitude, map scale and compass on the VC bar for the CarPlay session.
      * Remembered so a gate installed later (see initClusterAccess callers) applies it too;
@@ -1029,7 +1113,7 @@ public class BAPBridge {
             /* Lightweight stop — reset internal state only.
              * No BAP teardown. iOS sends transient route_state=0
              * during maneuver transitions; full teardown causes HUD flicker. BAP teardown happens in onShutdown() on real disconnect. */
-            stopBlink();
+            stopBar();
             inApproachZone = false;
             lastFirstManeuverIdx = -1;
             lastFirstManeuverVer = -1;
@@ -1057,7 +1141,7 @@ public class BAPBridge {
              * 2. Complete sync(0) window: descriptor(23), distance(18), exitView(49)
              * 3. Non-sync FctIDs last
              */
-            stopBlink();
+            stopBar();
             traceBap("updateRGStatusAndActiveRGType", "0,0");
             sendRgStatusAndType(0, 0);
             sendNoSymbol();
@@ -1117,7 +1201,7 @@ public class BAPBridge {
             K3346NavBarText.distance(s.distDestM, isMetricDistanceUnits()));
         K3346NavBarText.Capsule capsule = K3346NavBarText.capsule(
             capsuleSlot,
-            capsuleDraw,
+            K3346NavBarText.drawAtEnds(capsuleDraw, altitudeOn),
             timeOk ? arrivalTextForBar(s) : "",
             timeOk ? K3346NavBarText.remaining(s.timeRemainingSeconds) : "",
             K3346NavBarText.distance(s.distDestM, isMetricDistanceUnits()),
@@ -1230,10 +1314,12 @@ public class BAPBridge {
         boolean mode = pollEtaMode();
         boolean call = pollCallCard();
         boolean pill = pollPillReady();
+        boolean altitude = altitudeDirty;
+        altitudeDirty = false;
         /* a new session of the map: its script removed the text of the box */
         boolean gone = lastPillLeft != null && lastPillLeft.length() > 0
             && !K3346CapsuleFile.exists(K3346CapsuleFile.ETA_PILL_PATH);
-        if ((layout || mode || call || pill || gone) && lastBarRoad != null) {
+        if ((layout || mode || call || pill || gone || altitude) && lastBarRoad != null) {
             publishBar(s);
         }
     }
@@ -1247,6 +1333,7 @@ public class BAPBridge {
         syncModeFile(K3346CapsuleFile.MAP_MODE_PATH, 1003, 1);
         syncModeFile(K3346CapsuleFile.HUD_MODE_PATH, 1004, K3346HudStyle.MODE_FACTORY);
         syncModeFile(K3346CapsuleFile.CALLCARD_MODE_PATH, 1005, 2);
+        syncModeFile(K3346CapsuleFile.ALTITUDE_MODE_PATH, 1006, 1);
     }
 
     /* Tile and factory route guidance on the VC go together; the change is a stop
@@ -1282,7 +1369,7 @@ public class BAPBridge {
             setHudDisplayContent(!off);
         }
         if (mode != K3346HudStyle.MODE_FACTORY) {
-            stopBlink();
+            stopBar();
         }
         /* Factory style changes what update() sends for the same route: the caller
          * sends the maneuver again. */
@@ -1436,7 +1523,9 @@ public class BAPBridge {
                 inApproachZone = false;
                 lastFirstManeuverIdx = firstIdx;
                 lastFirstManeuverVer = currentFirstVer;
+                stopBar();   /* the distances of the maneuver before say nothing here */
             }
+            int hudBarRangeM = K3346HudStyle.barRange(prepareThreshold);
 
             boolean hasUsableDistance = distM > 0;
             boolean isArrival = (type0 == ManeuverMapper.MT_ARRIVE_END_OF_NAVIGATION
@@ -1523,17 +1612,17 @@ public class BAPBridge {
                         cachedDistM = lastDistM;
                     }
                     if (haveCached) {
-                        sendDistanceToManeuver(cachedDistM, actionThresholdM);
+                        sendDistanceToManeuver(cachedDistM, hudBarRangeM);
                     } else {
-                        stopBlink();
+                        stopBar();
                         sendDistanceToManeuverRaw(0, false, 0);
                     }
                 } else if (distM <= 0 || shouldClearManeuver) {
-                    stopBlink();
+                    stopBar();
                     sendDistanceToManeuverRaw(0, false, 0);
                 } else {
-                    /* The bargraph range is the action zone: K3346HudStyle. */
-                    sendDistanceToManeuver(distM, actionThresholdM);
+                    /* The range of the bargraph: K3346HudStyle.barRange. */
+                    sendDistanceToManeuver(distM, hudBarRangeM);
                 }
             }
 
@@ -1594,6 +1683,14 @@ public class BAPBridge {
                 if (explicitClear) {
                     traceBap("updateManeuverState", "0");
                     appConnectorNavi.updateManeuverState(0);
+                } else if (hasManeuverList && showManeuver && hudMode == K3346HudStyle.MODE_FACTORY) {
+                    /* As the factory navigation: follow, prepare, then "distance" with
+                     * the bargraph and "action" at its end.  Under the lock of the bar
+                     * thread, which sends the same state when the bar moves on. */
+                    synchronized (distanceSendLock) {
+                        barState = -1;
+                        sendBarState(K3346HudStyle.state(farStraight, barOn, barPercent));
+                    }
                 } else if (shouldClearManeuver || (hasManeuverList && showManeuver)) {
                     int bapState;
                     if (showManeuver) {

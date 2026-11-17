@@ -41,6 +41,9 @@
  *   eta_pill 1 / eta_pill_w 400 / eta_pill_h 44   # our arrival-time box, eta_pill.h
  *   eta_pill_x_small 348 / eta_pill_y_small 334 / eta_pill_x_big 520 / eta_pill_y_big 334
  *   eta_pill_x_sport 110 / eta_pill_y_sport 334   # fonts and sizes: those of call_card_*
+ *   turn_dist 1 / turn_dist_h 28   # the distance the VC hides, on the top of the tile, turn_dist.h
+ *   turn_dist_px 26 / turn_dist_unit_px 18 / turn_dist_dot 1   # font: capsule_font
+ *   turn_dist_bg 85 / turn_dist_dx 0 / turn_dist_dy 0   # band in percent; offset from the tile
  *
  * THREE RECTANGLES, and mixing two of them up cost a car visit on 2026-10-27:
  *
@@ -139,6 +142,12 @@ typedef struct {
     int eta_pill, eta_pill_w, eta_pill_h;
     int eta_pill_x_small, eta_pill_y_small, eta_pill_x_big, eta_pill_y_big;
     int eta_pill_x_sport, eta_pill_y_sport;
+    /* The distance to the maneuver while the VC hides its own (turn_dist.h): a
+     * band on the top rows of the tile, as wide as the tile of the layout in use,
+     * so it needs no place of its own - only dx/dy, should the car ask for them.
+     * bg is the band in percent (0 = the text alone). */
+    int turn_dist, turn_dist_h, turn_dist_px, turn_dist_unit_px, turn_dist_dot;
+    int turn_dist_bg, turn_dist_dx, turn_dist_dy;
     char source[160];      /* which file the values came from, for the log */
 } overlay_cfg_t;
 
@@ -229,6 +238,17 @@ static void overlay_cfg_defaults(overlay_cfg_t *c)
     c->eta_pill_y_big   = 334;
     c->eta_pill_x_sport = 110;
     c->eta_pill_y_sport = 334;
+    /* The number starts TURN_DIST_TEXT_X (36) columns into the strip and stands
+     * on a baseline 6 rows above its bottom: big gauges text at x 1151, baseline
+     * 194 (the tile is at 1055,207); small gauges 1145 and 103 (tile 1091,110). */
+    c->turn_dist          = 1;
+    c->turn_dist_h        = 28;
+    c->turn_dist_px       = 26;
+    c->turn_dist_unit_px  = 18;
+    c->turn_dist_dot      = 1;
+    c->turn_dist_bg       = 85;
+    c->turn_dist_dx       = 0;
+    c->turn_dist_dy       = 0;
     snprintf(c->call_card_font_bold, sizeof(c->call_card_font_bold), "%s", OVERLAY_CFG_CALL_FONT_BOLD);
     snprintf(c->source, sizeof(c->source), "(built-in defaults)");
 }
@@ -289,6 +309,14 @@ static int overlay_cfg_apply(overlay_cfg_t *c, const char *key, long v)
     else if (!strcmp(key, "eta_pill_y_big"))      c->eta_pill_y_big      = (int)v;
     else if (!strcmp(key, "eta_pill_x_sport"))    c->eta_pill_x_sport    = (int)v;
     else if (!strcmp(key, "eta_pill_y_sport"))    c->eta_pill_y_sport    = (int)v;
+    else if (!strcmp(key, "turn_dist"))           c->turn_dist           = (int)v;
+    else if (!strcmp(key, "turn_dist_h"))         c->turn_dist_h         = (int)v;
+    else if (!strcmp(key, "turn_dist_px"))        c->turn_dist_px        = (int)v;
+    else if (!strcmp(key, "turn_dist_unit_px"))   c->turn_dist_unit_px   = (int)v;
+    else if (!strcmp(key, "turn_dist_dot"))       c->turn_dist_dot       = (int)v;
+    else if (!strcmp(key, "turn_dist_bg"))        c->turn_dist_bg        = (int)v;
+    else if (!strcmp(key, "turn_dist_dx"))        c->turn_dist_dx        = (int)v;
+    else if (!strcmp(key, "turn_dist_dy"))        c->turn_dist_dy        = (int)v;
     else return 0;
     return 1;
 }
@@ -481,6 +509,17 @@ static int overlay_cfg_sanitize(overlay_cfg_t *c)
         || c->eta_pill_y_sport + c->eta_pill_h > c->canvas_height)
         c->eta_pill = 0;
     c->eta_pill = c->eta_pill ? 1 : 0;
+    /* 20: one line of the number.  The band is the tile's own width, so only its
+     * height and the correction are checked here; whether the corrected place is
+     * on the canvas depends on the layout in use (turn_dist_place, at draw time). */
+    if (c->turn_dist_h < 20 || c->turn_dist_h > 96)   { c->turn_dist_h = 28;  fixed++; }
+    if (c->turn_dist_px < 10 || c->turn_dist_px > 72) { c->turn_dist_px = 26; fixed++; }
+    if (c->turn_dist_unit_px < 8 || c->turn_dist_unit_px > 72) { c->turn_dist_unit_px = 18; fixed++; }
+    if (c->turn_dist_bg < 0 || c->turn_dist_bg > 100) { c->turn_dist_bg = 85; fixed++; }
+    if (c->turn_dist_dx < -400 || c->turn_dist_dx > 400) { c->turn_dist_dx = 0; fixed++; }
+    if (c->turn_dist_dy < -200 || c->turn_dist_dy > 200) { c->turn_dist_dy = 0; fixed++; }
+    c->turn_dist = c->turn_dist ? 1 : 0;
+    c->turn_dist_dot = c->turn_dist_dot ? 1 : 0;
     c->call_card_ringing = c->call_card_ringing ? 1 : 0;
     c->alpha   = c->alpha   ? 1 : 0;
     c->managed = c->managed ? 1 : 0;

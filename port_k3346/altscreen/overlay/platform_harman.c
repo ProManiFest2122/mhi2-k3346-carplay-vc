@@ -52,6 +52,7 @@
 #include "capsule_text.h"
 #include "call_card.h"
 #include "eta_pill.h"
+#include "turn_dist.h"
 
 static EGLDisplay g_dpy     = EGL_NO_DISPLAY;
 static EGLSurface g_surface = EGL_NO_SURFACE;
@@ -266,6 +267,17 @@ static long g_pill_check_ms;
 static int  g_pill_mode;             /* the call card option as read: the look follows it */
 static int  g_pill_align = -1;
 
+/* The distance to the maneuver while the VC hides its own (turn_dist.h). */
+static capsule_font_t g_turn_font, g_turn_unit_font;
+static capsule_lines_t g_turn_lines;
+static int  g_turn_ok;
+static unsigned char *g_turn_rgba, *g_turn_scratch;
+static GLuint g_turn_tex;
+static int  g_turn_upload;
+static long g_turn_check_ms;
+static int  g_turn_max_w;            /* the widest tile: what the buffers hold */
+static int  g_turn_w;                /* the width the strip is drawn for, 0 = redraw */
+
 static void capsule_init(void)
 {
     g_capsule_w = g_cfg.capsule_right_x - g_cfg.capsule_left_x;
@@ -335,6 +347,34 @@ static void eta_pill_init(void)
     fprintf(stderr, "platform_harman: eta pill %dx%d small (%d,%d) big (%d,%d) sport (%d,%d)\n",
             g_cfg.eta_pill_w, g_cfg.eta_pill_h, g_cfg.eta_pill_x_small, g_cfg.eta_pill_y_small,
             g_cfg.eta_pill_x_big, g_cfg.eta_pill_y_big, g_cfg.eta_pill_x_sport, g_cfg.eta_pill_y_sport);
+}
+
+/* Without the strip or the font the VC's number is simply missing on the last
+ * metres, as in 2.0.1-rc3: nothing else depends on this. */
+static void turn_dist_init(void)
+{
+    /* as wide as the tile it lies on: the widest of the layouts */
+    int max_w = g_cfg.width > g_cfg.width_sport ? g_cfg.width : g_cfg.width_sport;
+    size_t n = (size_t)max_w * (size_t)g_cfg.turn_dist_h;
+
+    if (!g_cfg.turn_dist) {
+        fprintf(stderr, "platform_harman: turn dist off in the conf\n");
+        return;
+    }
+    g_turn_rgba = (unsigned char *)malloc(n * 4u);
+    g_turn_scratch = (unsigned char *)malloc(n);
+    if (!g_turn_rgba || !g_turn_scratch
+        || capsule_font_load(&g_turn_font, g_cfg.capsule_font, g_cfg.turn_dist_px) != 0
+        || capsule_font_load(&g_turn_unit_font, g_cfg.capsule_font, g_cfg.turn_dist_unit_px) != 0) {
+        fprintf(stderr, "platform_harman: turn dist font NOT loaded - no number of ours\n");
+        return;
+    }
+    memset(g_turn_rgba, 0, n * 4u);
+    g_turn_max_w = max_w;
+    g_turn_ok = 1;
+    fprintf(stderr, "platform_harman: turn dist on the tile, h=%d px=%d/%d dot=%d bg=%d dx=%d dy=%d (up to %d wide)\n",
+            g_cfg.turn_dist_h, g_cfg.turn_dist_px, g_cfg.turn_dist_unit_px, g_cfg.turn_dist_dot,
+            g_cfg.turn_dist_bg, g_cfg.turn_dist_dx, g_cfg.turn_dist_dy, max_w);
 }
 
 /* ---------------------------------------------------------------------------
@@ -818,9 +858,40 @@ static void composite_eta_pill(void)
                     g_cfg.eta_pill_w, g_cfg.eta_pill_h);
 }
 
+/* On the top rows of the tile, as wide as the tile (turn_dist.h says why not where
+ * the VC's own number stood).  So it is drawn exactly when the tile is: every
+ * reason composite_tile() has to leave the canvas empty is a reason here too - a
+ * dark band with no arrow under it would be a thing of its own on the cluster. */
+static void composite_turn_dist(void)
+{
+    int px, py, x, y;
+    overlay_cfg_t view;
+
+    if (!g_turn_ok || turn_dist_empty(&g_turn_lines) || !strip_can_draw()) return;
+    if (!g_content_present || g_tile_off || !g_panel_alpha_ok || g_tile_degenerate) return;
+    if (g_layout_unknown_hold || g_layout_slot == OVERLAY_LAYOUT_UNKNOWN) return;
+
+    tile_origin(g_layout_slot, &px, &py);
+    overlay_tile_view(&g_cfg, g_layout_slot, g_sport, &view);
+    if (view.width > g_turn_max_w) return;
+    if (!turn_dist_place(px, py, view.width, g_cfg.turn_dist_dx, g_cfg.turn_dist_dy,
+                         g_cfg.turn_dist_h, g_cfg.canvas_width, g_cfg.canvas_height, &x, &y))
+        return;
+    /* A new number, or a tile of another width (the Sport skin): draw it for this one. */
+    if (view.width != g_turn_w) {
+        turn_dist_render(&g_turn_font, &g_turn_unit_font, &g_turn_lines, g_cfg.turn_dist_dot,
+                         g_cfg.turn_dist_bg, g_turn_scratch, g_turn_rgba,
+                         view.width, g_cfg.turn_dist_h);
+        g_turn_w = view.width;
+        g_turn_upload = 1;
+    }
+    composite_strip(&g_turn_tex, &g_turn_upload, g_turn_rgba, x, y, g_turn_w, g_cfg.turn_dist_h);
+}
+
 static void composite_panel(void)
 {
     composite_tile();
+    composite_turn_dist();
     composite_capsule();
     composite_eta_pill();
     composite_call_card();
@@ -1281,6 +1352,7 @@ int platform_init(int width, int height)
     capsule_init();
     call_card_init();
     eta_pill_init();
+    turn_dist_init();
 
     if (!getenv("IPL_CONFIG_DIR"))
         putenv("IPL_CONFIG_DIR=/etc/eso/production");
@@ -1625,6 +1697,24 @@ static void eta_pill_poll(long now_ms, int *repaint)
     *repaint = 1;
 }
 
+/* A file caught half written keeps the number on screen; a missing one is "none". */
+static void turn_dist_poll(long now_ms, int *repaint)
+{
+    capsule_lines_t next;
+
+    if (!g_turn_ok) return;
+    if (g_turn_check_ms != 0 && (now_ms - g_turn_check_ms) < CAPSULE_POLL_MS) return;
+    g_turn_check_ms = now_ms;
+
+    if (!capsule_read_file(TURN_DIST_PATH, &next)) return;
+    if (!strcmp(next.left, g_turn_lines.left) && !strcmp(next.right, g_turn_lines.right)) return;
+    if (turn_dist_empty(&next) != turn_dist_empty(&g_turn_lines))
+        fprintf(stderr, "platform_harman: turn dist %s\n", turn_dist_empty(&next) ? "off" : "on");
+    g_turn_lines = next;
+    g_turn_w = 0;      /* composite_turn_dist() draws it, for the tile then on screen */
+    *repaint = 1;
+}
+
 /* Where the slot in use came from, the same order as overlay_layout_fallback(). */
 static const char *layout_source(void)
 {
@@ -1763,6 +1853,7 @@ void platform_poll(void)
     capsule_poll(now_ms, &repaint);
     call_card_poll(now_ms, &repaint);
     eta_pill_poll(now_ms, &repaint);
+    turn_dist_poll(now_ms, &repaint);
 
     /* Show the change now, not with whatever frame comes next. */
     if (repaint) represent_last_frame();
@@ -1793,6 +1884,11 @@ void platform_shutdown(void)
         capsule_font_free(&g_pill_font);
     }
     g_pill_ok = 0;
+    if (g_turn_ok) {
+        capsule_font_free(&g_turn_font);
+        capsule_font_free(&g_turn_unit_font);
+    }
+    g_turn_ok = 0;
 
     if (g_dpy != EGL_NO_DISPLAY) {
         if (g_ctx != EGL_NO_CONTEXT) glFinish();

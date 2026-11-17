@@ -285,7 +285,7 @@ public class RouteGuidance implements CarplayBus.Listener {
         running = true;
         rgActive = false;
         hasRouteUpdate = false;
-        bap.setNavStatusHidden(true);
+        bap.applyAltitudeAtStart();   /* hidden unless the MMI option says otherwise */
 
         CarplayBus bus = CarplayBus.getInstance();
         bus.on(CarplayBus.EVT_RGD_UPDATE, this);
@@ -343,6 +343,7 @@ public class RouteGuidance implements CarplayBus.Listener {
                 if (skinBridge != null) {
                     skinBridge.pollSkin();   /* with or without a route; storage: not under the lock */
                     skinBridge.pollViewSize();
+                    skinBridge.pollAltitude();
                 }
                 synchronized (frameLock) {
                     if (running && rgActive && bap != null) {

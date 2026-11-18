@@ -14,7 +14,7 @@ whether you have a HUD, and what works. I'll add it here.
 | Audi A4 B9, 2016 | cluster hardware H15, version 0379; Sport layout | 1.0.1 | Sport layout: only part of the map is visible, and the factory map shows for a few seconds first. Confirmed by a second A4 B9. With the classic variant coded back, another user no longer saw the factory map first. | [#8](../../issues/8), [#9](../../issues/9) |
 | Audi Q7 4M | cluster H13, version 0378; HUD | 1.0.0, 1.0.1 | Installed without errors. HUD shows the arrow and the distance, but with lag. Touchpad in factory mode works with an Android-over-CarPlay box. | [#6](../../issues/6) |
 | Audi Q7 e-tron 3.0 TDI, 2016 | HUD | not stated | Map and arrows work. HUD arrows work, but the turn stays on the HUD the whole route even with "display only before maneuver" set. | [#15](../../issues/15), [#1](../../issues/1) |
-| not stated | HUD | 1.0.1 | HUD arrows work. Lane arrows under the maneuver keep an earlier maneuver (fixed in 2.0.0; the fix is not confirmed in a car yet). | [#1](../../issues/1), [#16](../../issues/16) |
+| not stated | HUD | 1.0.1, 2.0.0 | HUD arrows work. 1.0.1: lane arrows under the maneuver kept an earlier maneuver. 2.0.0: fixed, confirmed by the reporter. | [#1](../../issues/1), [#16](../../issues/16) |
 
 ## Not supported yet
 

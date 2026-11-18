@@ -42,8 +42,8 @@ Downloads: [Releases](../../releases). Where it has been reported to work: [COMP
   it takes almost no processor time now (measured in my car: 13% of one core before, 0.3% now).
 - Installation guide: after the MMI restart, switch the engine off for a minute. An MMI restart
   does not restart the cluster.
-- Lane arrows under the maneuver go away once the turn is taken ([#16](../../issues/16)). Not
-  confirmed in my car at the time of the release.
+- Lane arrows under the maneuver go away once the turn is taken ([#16](../../issues/16)).
+  Confirmed by the reporter.
 
 ### Known limitations
 

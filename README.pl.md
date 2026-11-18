@@ -55,7 +55,7 @@ Wszystkie zmiany według wersji: [CHANGELOG.md](CHANGELOG.md) (po angielsku).
 | 🔧 | Znacznik auta i nazwa ulicy na mapie stoją nad ramką czasu, na obu układach zegarów, z kartą manewru telefonu i bez niej; ramka i karta rozmowy mają taki sam odstęp od zegarów |
 | 🔧 | Przy wyłączonej karcie manewru telefonu znacznik auta stoi przy środku mapy w układzie z małymi zegarami (wcześniej uciekał w lewo) |
 | 🔧 | Ramka z czasem dojazdu pojawia się bez naciskania VIEW, strzałka wraca po ponownym podłączeniu kabla |
-| 🔧 | Strzałki pasów ruchu pod manewrem znikają po wykonaniu skrętu, zamiast zostawać pod następną strzałką. Tej jednej poprawki nie potwierdziliśmy jeszcze w aucie: dajcie znać, jak działa |
+| 🔧 | Strzałki pasów ruchu pod manewrem znikają po wykonaniu skrętu, zamiast zostawać pod następną strzałką (potwierdzone przez użytkownika) |
 | 🔧 | Strzałka manewru wypełnia się kolorem raz, w miarę zbliżania do skrętu, zamiast napełniać się w kółko. Jej rysowanie prawie nie zajmuje już procesora (pomiar w aucie: wcześniej 13% jednego rdzenia, teraz 0,3%) |
 | 🔧 | Instrukcja instalacji: po restarcie MMI wyłącz silnik na minutę. Restart MMI nie restartuje zegarów |
 | 🔧 | Instalator jest na karcie także jako `mod/custom.sh`, czyli plik uruchamiany przez nowsze wersje M.I.B. (**Run Custom Script**; niesprawdzone w naszym aucie), i zatrzymuje się bez żadnych zmian, gdy w jednostce jest inny mod CarPlay |
@@ -208,9 +208,6 @@ oczekiwałeś, co się stało, ile minut przed zebraniem logów, ewentualnie zdj
 
 ## Znane ograniczenia
 
-- **Pasy ruchu** (który pas wybrać) pokazują się pod strzałką manewru; widziane w aucie z Google Maps.
-  W 1.0.x pasy zostawały po wykonaniu skrętu. Wersja 2.0 je chowa, ale tej poprawki **nie potwierdziliśmy
-  jeszcze w aucie**. Daj znać, jak to wygląda.
 - **Ostatnie połączenia:** iOS 26.6–26.7.x wysyła po kablu pustą listę (błąd iOS, dotyka też fabrycznych
   zegarów BMW/Porsche); wtedy pokazywana jest lista, którą MMI pobrało przez Bluetooth. iOS 27.2 działa.
   Pełna książka adresowa przez CarPlay nie jest możliwa.

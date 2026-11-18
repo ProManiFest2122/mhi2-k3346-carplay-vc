@@ -56,7 +56,7 @@ All changes by version: [CHANGELOG.md](CHANGELOG.md).
 | 🔧 | The car marker and the street name of the map stay above the arrival-time box, on both gauge layouts, with or without the phone's maneuver card; the box and the call card keep the same gap from the gauges |
 | 🔧 | With the phone's maneuver card switched off, the car marker stays near the middle of the map in the layout with small gauges (it used to stand to the left) |
 | 🔧 | The arrival-time box appears without pressing VIEW, the arrow shows up after replugging the cable |
-| 🔧 | The lane arrows under the maneuver go away once the turn is taken, instead of staying under the next arrow. This one fix has not been confirmed in the car yet: reports are welcome |
+| 🔧 | The lane arrows under the maneuver go away once the turn is taken, instead of staying under the next arrow (confirmed by a user) |
 | 🔧 | The maneuver arrow fills with color once, as you get closer to the turn, instead of filling up over and over. Drawing it now takes almost no processor time (measured in the car: 13% of one core before, 0.3% now) |
 | 🔧 | Install guide: after the MMI restart, switch the engine off for a minute. An MMI restart does not restart the cockpit |
 | 🔧 | The installer is also on the card as `mod/custom.sh`, the file newer M.I.B. versions run (**Run Custom Script**; not tested in our car), and it stops without changing anything when another CarPlay mod is on the unit |
@@ -212,9 +212,6 @@ expected, what happened, how many minutes before collecting, and a photo of the 
 
 ## Known limitations
 
-- **Lane guidance** (which lane to take) shows under the maneuver arrow; seen in the car with Google Maps.
-  In 1.0.x the lanes stayed on after the turn. 2.0 hides them, but that fix has **not been confirmed in
-  the car yet**. Please report how it looks.
 - **Recent calls:** with iOS 26.6–26.7.x the iPhone sends an empty list over the cable (an iOS bug that
   also hits factory BMW/Porsche clusters); the MMI's own Bluetooth list is shown instead. iOS 27.2 works.
   The full address book is not possible over CarPlay.

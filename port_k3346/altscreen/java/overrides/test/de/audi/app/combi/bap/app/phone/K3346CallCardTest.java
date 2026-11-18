@@ -180,7 +180,15 @@ public final class K3346CallCardTest {
         K3346CallCard.update(active);
         eq("pl: rozmowa w pliku", "A\nAnna\nTrwa rozmowa\nEND\n", read(card));
         K3346HmiLanguage.setFramework(framework("uk_UA"));
-        eq("MMI uk_UA = en", "en", K3346HmiLanguage.lang());
+        /* #17: uk_UA comes only from the Ukrainian localization package */
+        eq("MMI uk_UA = uk", "uk", K3346HmiLanguage.lang());
+        K3346CallCard.clear();
+        K3346CallCard.update(active);
+        eq("uk: rozmowa w pliku", "A\nAnna\nРозмова\nEND\n", read(card));
+        K3346CallCard.update(call(K3346GatedPhoneService.IAP_ACTIVE, K3346GatedPhoneService.IAP_INCOMING, "", ""));
+        eq("uk: nieznany w pliku", "A\nНевідомий\nРозмова\nEND\n", read(card));
+        K3346HmiLanguage.setFramework(framework("xx_XX"));
+        eq("nieznany jezyk = en", "en", K3346HmiLanguage.lang());
         K3346HmiLanguage.setFramework(framework(null));
         eq("framework bez jezyka = en", "en", K3346HmiLanguage.lang());
         K3346CallCard.clear();
@@ -201,6 +209,12 @@ public final class K3346CallCardTest {
         eq("de nieznany", "Unbekannt", K3346CallCard.shownName("", "", "de"));
         eq("ru nieznany", "Неизвестный", K3346CallCard.shownName(null, " ", "ru"));
         eq("es nieznany", "Desconocido", K3346CallCard.shownName("", "", "es"));
+        eq("uk dzwoni", "R\nAnna\nВхідний\nEND\n", K3346CallCard.text(RING, "Anna", "+48", "uk"));
+        eq("uk laczenie", "D\nAnna\nВиклик\nEND\n", K3346CallCard.text(DIAL, "Anna", "+48", "uk"));
+        eq("uk rozmowa", "A\nAnna\nРозмова\nEND\n", K3346CallCard.text(ACTIVE, "Anna", "+48", "uk"));
+        eq("uk wstrzymana", "H\nAnna\nУтримання\nEND\n", K3346CallCard.text(HELD, "Anna", "+48", "uk"));
+        eq("uk nieznany", "Невідомий", K3346CallCard.shownName("", "", "uk"));
+        eq("ru po dodaniu uk bez zmian", "A\nAnna\nРазговор\nEND\n", K3346CallCard.text(ACTIVE, "Anna", "+48", "ru"));
         eq("nazwa przed tekstem", "Anna", K3346CallCard.shownName("Anna", "", "de"));
         {
             String[][] rows = {K3346CallCard.RINGING, K3346CallCard.DIALING, K3346CallCard.ACTIVE,

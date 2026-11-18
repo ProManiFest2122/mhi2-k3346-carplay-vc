@@ -227,7 +227,7 @@ public final class K3346EtaRowTest {
         eq("sasiad ostatniego nie nasz", null, K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL + 1, true));
 
         System.out.println("=== jezyki (2.0)");
-        eq("kolejnosc kolumn", "en,pl,de,ru,cs,fr,it,es", join(K3346HmiLanguage.LANGS));
+        eq("kolejnosc kolumn", "en,pl,de,ru,cs,fr,it,es,uk", join(K3346HmiLanguage.LANGS));
         eq("de_DE", "de", K3346HmiLanguage.lang("de_DE"));
         eq("ru_RU", "ru", K3346HmiLanguage.lang("ru_RU"));
         eq("cs_CZ", "cs", K3346HmiLanguage.lang("cs_CZ"));
@@ -239,13 +239,17 @@ public final class K3346EtaRowTest {
         eq("de-AT", "de", K3346HmiLanguage.lang("de-AT"));
         eq(" De_ch ", "de", K3346HmiLanguage.lang(" De_ch "));
         eq("en_GB", "en", K3346HmiLanguage.lang("en_GB"));
-        eq("uk_UA: w MMI go nie ma", "en", K3346HmiLanguage.lang("uk_UA"));
+        eq("uk_UA = uk (tylko z pakietem ukrainskim, #17)", "uk", K3346HmiLanguage.lang("uk_UA"));
+        eq("uk-UA", "uk", K3346HmiLanguage.lang("uk-UA"));
+        eq("ukr: nie uk", "en", K3346HmiLanguage.lang("ukr"));
         eq("nl_NL: brak tekstow", "en", K3346HmiLanguage.lang("nl_NL"));
         eq("pusty", "en", K3346HmiLanguage.lang(""));
         eq("null jezyk", "en", K3346HmiLanguage.lang(null));
         eq("deu: nie de", "en", K3346HmiLanguage.lang("deu"));
         eq("bez frameworku: en", "en", K3346HmiLanguage.lang());
         eq("indeks ru", 3, K3346HmiLanguage.index("ru"));
+        eq("indeks es dalej 7", 7, K3346HmiLanguage.index("es"));
+        eq("indeks uk ostatni", 8, K3346HmiLanguage.index("uk"));
         eq("indeks obcy", 0, K3346HmiLanguage.index("xx"));
         eq("pick: brak kolumny = en", "A", K3346HmiLanguage.pick(new String[] {"A", "B"}, "es"));
         eq("pick: pusta kolumna = en", "A", K3346HmiLanguage.pick(new String[] {"A", null, "C"}, "pl"));
@@ -312,6 +316,38 @@ public final class K3346EtaRowTest {
         eq("de nie nasz id", null, K3346EtaRow.text(K3346EtaRow.TEXT_ALT_LABEL + 1, "de"));
         eq("de fabryczny", "Werk", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, "de"));
         eq("pl bez zmian", "Czas dojazdu CarPlay", K3346EtaRow.text(K3346EtaRow.TEXT_LABEL, "pl"));
+        /* #17: every row has its own Ukrainian text, so a row left at eight columns
+         * (pick() would hand back English) is caught by the loop above; these pin the words */
+        {
+            String[] uk = {"Час прибуття CarPlay", "Панель", "Мапа", "Обидва", "Картка маневру CarPlay",
+                "Повна", "Немає", "Стрілка на VC", "Мапа на VC", "HUD CarPlay", "Увімк.", "Вимк.",
+                "Картка дзвінка на VC", "Тонована", "Світла", "Заводський", "Висота на VC"};
+            eq("uk: tyle tekstow co wierszy", ids.length, uk.length);
+            for (int i = 0; i < ids.length; i++) {
+                eq("uk " + ids[i], uk[i], K3346EtaRow.text(ids[i], "uk"));
+            }
+            /* the MMI cuts a long label: no longer than the Russian one, which fits */
+            int[] labels = {K3346EtaRow.TEXT_LABEL, K3346EtaRow.TEXT_CARD_LABEL, K3346EtaRow.TEXT_ARROWS_LABEL,
+                K3346EtaRow.TEXT_MAP_LABEL, K3346EtaRow.TEXT_HUD_LABEL, K3346EtaRow.TEXT_CALL_LABEL,
+                K3346EtaRow.TEXT_ALT_LABEL};
+            for (int i = 0; i < labels.length; i++) {
+                eq("uk etykieta nie dluzsza niz ru " + labels[i], "true", String.valueOf(
+                    K3346EtaRow.text(labels[i], "uk").length() <= K3346EtaRow.text(labels[i], "ru").length()));
+            }
+            /* a value shares its place with the other values of the option: the longest
+             * we already show is "Przydymiona" (11) */
+            for (int i = 0; i < ids.length; i++) {
+                boolean label = false;
+                for (int k = 0; k < labels.length; k++) {
+                    label |= labels[k] == ids[i];
+                }
+                if (!label) {
+                    eq("uk wartosc do 11 liter " + ids[i], "true", String.valueOf(uk[i].length() <= 11));
+                }
+            }
+        }
+        eq("ru po dodaniu uk bez zmian", "Карта на VC", K3346EtaRow.text(K3346EtaRow.TEXT_MAP_LABEL, "ru"));
+        eq("es po dodaniu uk bez zmian", "De fábrica", K3346EtaRow.text(K3346EtaRow.TEXT_HUD_FACTORY, "es"));
     }
 
     private static String join(String[] a) {

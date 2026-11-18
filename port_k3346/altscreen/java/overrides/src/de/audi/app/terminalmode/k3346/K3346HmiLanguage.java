@@ -8,11 +8,14 @@ import de.audi.atip.base.IFrameworkAccess;
  * has the framework; until then, and on any failure, English.
  *
  * The HMI code is like "de_DE" or "fr_CA"; its language part picks the column. The
- * MMI of K3346 has no Ukrainian (no uk_UA in its HMI), so it is not here.
+ * stock MMI of K3346 has no Ukrainian (no uk_UA in its HMI), so "uk" is only ever
+ * picked on a unit with the community Ukrainian localization package, which adds
+ * uk_UA (issue #17).
  */
 public final class K3346HmiLanguage {
-    /* The order of the columns in every table of ours: English first, the fallback. */
-    public static final String[] LANGS = {"en", "pl", "de", "ru", "cs", "fr", "it", "es"};
+    /* The order of the columns in every table of ours: English first, the fallback.
+     * A new language goes last, so no column moves. */
+    public static final String[] LANGS = {"en", "pl", "de", "ru", "cs", "fr", "it", "es", "uk"};
 
     private static volatile IFrameworkAccess framework;
 

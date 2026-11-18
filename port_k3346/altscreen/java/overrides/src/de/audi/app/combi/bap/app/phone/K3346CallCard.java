@@ -43,21 +43,22 @@ final class K3346CallCard {
         last = null;
     }
 
-    /* The columns of K3346HmiLanguage.LANGS: en, pl, de, ru, cs, fr, it, es.  The
+    /* The columns of K3346HmiLanguage.LANGS: en, pl, de, ru, cs, fr, it, es, uk.  The
      * overlay draws them with the MMI's AudiTypeDisplay, which has all their letters
-     * (Cyrillic too, checked 2026-11-11).  Short: the state of a ringing or a dialling
-     * call shares the 320 px of the card with the name, which is cut to fit; the
-     * unknown caller is the name itself, beside the clock (preview 2026-11-11). */
+     * (Cyrillic too, checked 2026-11-11; the Ukrainian ones 2026-11-18).  Short: the
+     * state of a ringing or a dialling call shares the 320 px of the card with the
+     * name, which is cut to fit; the unknown caller is the name itself, beside the
+     * clock (preview 2026-11-11). */
     static final String[] RINGING = {"Incoming call", "Dzwoni", "Anruf", "Входящий",
-        "Příchozí hovor", "Appel entrant", "In arrivo", "Entrante"};
+        "Příchozí hovor", "Appel entrant", "In arrivo", "Entrante", "Вхідний"};
     static final String[] DIALING = {"Calling", "Łączenie", "Verbinden", "Вызов",
-        "Vytáčení", "Appel sortant", "Chiamata", "Llamando"};
+        "Vytáčení", "Appel sortant", "Chiamata", "Llamando", "Виклик"};
     static final String[] ACTIVE = {"In call", "Trwa rozmowa", "Im Gespräch", "Разговор",
-        "Hovor", "En communication", "In chiamata", "En llamada"};
+        "Hovor", "En communication", "In chiamata", "En llamada", "Розмова"};
     static final String[] HELD = {"On hold", "Wstrzymana", "Gehalten", "Удержание",
-        "Přidržený", "En attente", "In attesa", "En espera"};
+        "Přidržený", "En attente", "In attesa", "En espera", "Утримання"};
     static final String[] UNKNOWN = {"Unknown", "Nieznany", "Unbekannt", "Неизвестный",
-        "Neznámé číslo", "Inconnu", "Sconosciuto", "Desconocido"};
+        "Neznámé číslo", "Inconnu", "Sconosciuto", "Desconocido", "Невідомий"};
 
     static String text(int bapState, String name, String number, boolean polish) {
         return text(bapState, name, number, polish ? "pl" : "en");

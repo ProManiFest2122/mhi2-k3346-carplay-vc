@@ -147,55 +147,64 @@ final class K3346EtaRow {
     }
 
     /* Short: the MMI cuts a long label.  The columns of K3346HmiLanguage.LANGS:
-     * en, pl, de, ru, cs, fr, it, es. */
+     * en, pl, de, ru, cs, fr, it, es, uk (uk: issue #17, only with the Ukrainian
+     * localization package; "Мапа" and not "Карта", which reads like "Картка"). */
     private static String[] row(int id) {
         switch (id) {
             case TEXT_LABEL:
                 return new String[] {"CarPlay arrival time", "Czas dojazdu CarPlay", "CarPlay Ankunftszeit",
                     "Время прибытия CarPlay", "Čas příjezdu CarPlay", "Heure d'arrivée CarPlay",
-                    "Orario di arrivo CarPlay", "Hora de llegada CarPlay"};
+                    "Orario di arrivo CarPlay", "Hora de llegada CarPlay", "Час прибуття CarPlay"};
             case TEXT_CAPSULE:
-                return new String[] {"Bar", "Kapsuła", "Leiste", "Панель", "Lišta", "Barre", "Barra", "Barra"};
+                return new String[] {"Bar", "Kapsuła", "Leiste", "Панель", "Lišta", "Barre", "Barra", "Barra",
+                    "Панель"};
             case TEXT_MAP:
-                return new String[] {"Map", "Mapa", "Karte", "Карта", "Mapa", "Carte", "Mappa", "Mapa"};
+                return new String[] {"Map", "Mapa", "Karte", "Карта", "Mapa", "Carte", "Mappa", "Mapa", "Мапа"};
             case TEXT_BOTH:
-                return new String[] {"Both", "Obie", "Beide", "Оба", "Obojí", "Les deux", "Entrambi", "Ambos"};
+                return new String[] {"Both", "Obie", "Beide", "Оба", "Obojí", "Les deux", "Entrambi", "Ambos",
+                    "Обидва"};
             case TEXT_CARD_LABEL:
                 return new String[] {"CarPlay maneuver card", "Karta manewru CarPlay", "CarPlay Manöverkarte",
                     "Карточка манёвра CarPlay", "Karta manévru CarPlay", "Carte de manœuvre CarPlay",
-                    "Scheda manovra CarPlay", "Tarjeta de maniobra CarPlay"};
+                    "Scheda manovra CarPlay", "Tarjeta de maniobra CarPlay", "Картка маневру CarPlay"};
             case TEXT_CARD_FULL:
-                return new String[] {"Full", "Pełna", "Voll", "Полная", "Plná", "Complète", "Completa", "Completa"};
+                return new String[] {"Full", "Pełna", "Voll", "Полная", "Plná", "Complète", "Completa", "Completa",
+                    "Повна"};
             case TEXT_CARD_NONE:
-                return new String[] {"Off", "Brak", "Keine", "Нет", "Žádná", "Aucune", "Nessuna", "Ninguna"};
+                return new String[] {"Off", "Brak", "Keine", "Нет", "Žádná", "Aucune", "Nessuna", "Ninguna",
+                    "Немає"};
             case TEXT_ARROWS_LABEL:
                 return new String[] {"Arrow on VC", "Strzałka na VC", "Pfeil im VC", "Стрелка на VC",
-                    "Šipka na VC", "Flèche sur VC", "Freccia su VC", "Flecha en VC"};
+                    "Šipka na VC", "Flèche sur VC", "Freccia su VC", "Flecha en VC", "Стрілка на VC"};
             case TEXT_MAP_LABEL:
                 return new String[] {"Map on VC", "Mapa na VC", "Karte im VC", "Карта на VC", "Mapa na VC",
-                    "Carte sur VC", "Mappa su VC", "Mapa en VC"};
+                    "Carte sur VC", "Mappa su VC", "Mapa en VC", "Мапа на VC"};
             case TEXT_HUD_LABEL:
                 return new String[] {"CarPlay HUD", "HUD CarPlay", "CarPlay HUD", "HUD CarPlay", "HUD CarPlay",
-                    "HUD CarPlay", "HUD CarPlay", "HUD CarPlay"};
+                    "HUD CarPlay", "HUD CarPlay", "HUD CarPlay", "HUD CarPlay"};
             case TEXT_ON:
-                return new String[] {"On", "Wł.", "Ein", "Вкл.", "Zap.", "Act.", "Att.", "Act."};
+                return new String[] {"On", "Wł.", "Ein", "Вкл.", "Zap.", "Act.", "Att.", "Act.", "Увімк."};
             case TEXT_OFF:
-                return new String[] {"Off", "Wył.", "Aus", "Выкл.", "Vyp.", "Désact.", "Disatt.", "Desact."};
+                return new String[] {"Off", "Wył.", "Aus", "Выкл.", "Vyp.", "Désact.", "Disatt.", "Desact.",
+                    "Вимк."};
             case TEXT_CALL_LABEL:
                 return new String[] {"Call card on VC", "Karta rozmowy na VC", "Anrufkarte im VC",
                     "Карточка звонка на VC", "Karta hovoru na VC", "Carte d'appel sur VC",
-                    "Scheda chiamata su VC", "Tarjeta de llamada en VC"};
+                    "Scheda chiamata su VC", "Tarjeta de llamada en VC", "Картка дзвінка на VC"};
             case TEXT_CALL_SMOKED:
-                return new String[] {"Smoked", "Przydymiona", "Getönt", "Тёмная", "Tmavá", "Fumée", "Fumé", "Ahumada"};
+                return new String[] {"Smoked", "Przydymiona", "Getönt", "Тёмная", "Tmavá", "Fumée", "Fumé", "Ahumada",
+                    "Тонована"};
             case TEXT_CALL_LIGHT:
-                return new String[] {"Light", "Jasna", "Hell", "Светлая", "Světlá", "Claire", "Chiara", "Clara"};
+                return new String[] {"Light", "Jasna", "Hell", "Светлая", "Světlá", "Claire", "Chiara", "Clara",
+                    "Світла"};
             case TEXT_ALT_LABEL:
                 return new String[] {"Altitude on VC", "Wysoko\u015b\u0107 na VC", "H\u00f6he im VC",
                     "\u0412\u044b\u0441\u043e\u0442\u0430 \u043d\u0430 VC", "V\u00fd\u0161ka na VC",
-                    "Altitude sur VC", "Altitudine su VC", "Altitud en VC"};
+                    "Altitude sur VC", "Altitudine su VC", "Altitud en VC",
+                    "Висота на VC"};
             case TEXT_HUD_FACTORY:
                 return new String[] {"Factory", "Fabryczny", "Werk", "Штатный", "Tovární", "Origine",
-                    "Di serie", "De fábrica"};
+                    "Di serie", "De fábrica", "Заводський"};
             default:
                 return null;
         }

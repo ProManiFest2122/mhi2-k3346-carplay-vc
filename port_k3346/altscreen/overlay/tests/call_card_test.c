@@ -357,12 +357,57 @@ static void t_render(void)
     capsule_font_free(&status);
 }
 
+/* The Ukrainian column of K3346CallCard (issue #17).  capsule_walk() drops a code
+ * point the font does not have without a word, so a letter missing from the MMI
+ * font would only show in a car with the Ukrainian package, which we do not have. */
+static void t_ukrainian(void)
+{
+    static const char *const text[] = {
+        /* the five texts of K3346CallCard, as Java writes them */
+        "Вхідний", "Виклик", "Розмова", "Утримання", "Невідомий",
+        /* the letters Russian does not have, and the apostrophes of a contact name */
+        "ҐґЄєІіЇї", "'", "\xE2\x80\x99",
+    };
+    static const char *const font[] = { FONT_BOLD, FONT_NORMAL };
+    capsule_font_t f;
+    int i, k;
+
+    printf("Ukrainian letters in the MMI fonts\n");
+    for (k = 0; k < 2; k++) {
+        if (capsule_font_load(&f, font[k], 22) != 0) {
+            printf("  SKIP: no fonts here\n");
+            return;
+        }
+        for (i = 0; i < (int)(sizeof(text) / sizeof(text[0])); i++) {
+            const char *s = text[i];
+            int letters = 0, missing = 0;
+
+            while (*s) {
+                long cp = capsule_utf8_next(&s);
+
+                letters++;
+                if (cp < 0 || stbtt_FindGlyphIndex(&f.info, (int)cp) == 0) {
+                    missing++;
+                    printf("  (no glyph: U+%04lX in %s)\n", cp < 0 ? 0UL : (unsigned long)cp, font[k]);
+                }
+            }
+            check(letters > 0, "a text to check");
+            check_int(missing, 0, text[i]);
+            check(capsule_text_width(&f, text[i]) > 0, "the text takes room");
+        }
+        /* known and left alone: the modifier apostrophe is in neither font */
+        check_int(stbtt_FindGlyphIndex(&f.info, 0x02BC), 0, "U+02BC still missing: tell #17 if this changes");
+        capsule_font_free(&f);
+    }
+}
+
 int main(void)
 {
     t_parse();
     t_files();
     t_time();
     t_render();
+    t_ukrainian();
     printf("WYNIK_CALL_CARD: %d OK, %d FAIL\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

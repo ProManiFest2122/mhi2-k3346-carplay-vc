@@ -1,0 +1,23 @@
+{
+    global:
+        AirPlayAudioFormatToASBD;
+        AirPlayCopyServerInfo;
+        AirPlayReceiverServerPlatformCopyProperty;
+        AirPlayReceiverSessionControl;
+        AirPlayReceiverSessionSetup;
+        AirPlayReceiverSessionTearDown;
+        AirTunesServer_EnsureCreated;
+        AudioSessionGetSupportedOutputFormats;
+        AudioStreamPrepare;
+        AudioStreamStop;
+        _ZN3dio11CQNXSoundIFINS_16ObjectLockPolicyILNS_6CMutex10en_mutex_tE2ELNS_14en_lock_type_tE0EEEE14createMetadataEjjjNS_15en_encryption_tENS_10en_codec_tE;
+        _ZN3dio11CQNXSoundIFINS_18SingleThreadPolicyEE14createMetadataEjjjNS_15en_encryption_tENS_10en_codec_tE;
+        nvaudio_pcm_open;
+        nvaudio_set_pcm_info;
+        nvaudio_create_metadata;
+        nvaudio_pcm_write;
+        nvaudio_pcm_info;
+        nvaudio_pcm_close;
+    local:
+        *;
+};

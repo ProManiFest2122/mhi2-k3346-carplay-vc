@@ -15,6 +15,7 @@ whether you have a HUD, and what works. I'll add it here.
 | Audi Q7 4M | cluster H13, version 0378; HUD | 1.0.0, 1.0.1 | Installed without errors. HUD shows the arrow and the distance, but with lag. Touchpad in factory mode works with an Android-over-CarPlay box. | [#6](../../issues/6) |
 | Audi Q7 e-tron 3.0 TDI, 2016 | HUD | not stated | Map and arrows work. HUD arrows work, but the turn stays on the HUD the whole route even with "display only before maneuver" set. | [#15](../../issues/15), [#1](../../issues/1) |
 | not stated | HUD | 1.0.1, 2.0.0 | HUD arrows work. 1.0.1: lane arrows under the maneuver kept an earlier maneuver. 2.0.0: fixed, confirmed by the reporter. | [#1](../../issues/1), [#16](../../issues/16) |
+| Audi A4 B9, 2016 | analogue cluster, no Virtual Cockpit; HUD | not stated | Installed without errors. The HUD shows directions from Apple Maps and Google Maps. I can't test this setup, so it is not supported. | [#22](../../issues/22) |
 
 ## Not supported yet
 

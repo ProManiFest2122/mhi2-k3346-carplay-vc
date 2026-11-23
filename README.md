@@ -103,6 +103,9 @@ You need **all** of these:
   navigation*). Without it the cluster map goes black during route guidance. See [GUIDE.md, step 4.3](GUIDE.md#43-enable-dual-navigation-navignore--required). Tested with **M.I.B. 3.6.0**.
   No M.I.B. yet? How to prepare the SD card (FAT32) and install M.I.B.: [GUIDE.md, chapter 1](GUIDE.md#1-sd-card-and-mib-only-if-you-do-not-have-mib-yet).
 
+No Virtual Cockpit? One user reports the HUD directions working with an analogue cluster
+([#22](../../issues/22)). I can't test that setup, so it is not supported.
+
 ## Before you start
 
 - a **battery charger / power supply** on the car — the engine is off for ~20 minutes,

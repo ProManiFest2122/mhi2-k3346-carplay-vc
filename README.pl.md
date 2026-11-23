@@ -102,6 +102,9 @@ Potrzebne jest **wszystko** z listy:
   navigation*). Bez niej mapa na zegarach robi się czarna przy prowadzeniu. Zob. [INSTRUKCJA.md, krok 4.3](INSTRUKCJA.md#43-włącz-podwójną-nawigację-navignore--wymagane). Sprawdzone z **M.I.B. 3.6.0**.
   Nie masz M.I.B.? Jak przygotować kartę SD (FAT32) i zainstalować M.I.B.: [INSTRUKCJA.md, rozdział 1](INSTRUKCJA.md#1-karta-sd-i-mib-tylko-jeśli-jeszcze-nie-masz-mib).
 
+Bez Virtual Cockpit? Jeden użytkownik zgłosił, że wskazówki na HUD działają przy zegarach analogowych
+([#22](../../issues/22)). Nie mamy jak tego sprawdzić, więc tej konfiguracji nie wspieramy.
+
 ## Zanim zaczniesz
 
 - **prostownik / zasilacz** podłączony do auta — silnik będzie wyłączony ok. 20 minut,
